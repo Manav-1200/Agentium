@@ -12,6 +12,14 @@ Hierarchy:
 - Audit: Transparency and compliance logging
 - Monitoring: Hierarchical oversight and agent health tracking
 """
+from backend.models.entities.tasks import (
+    Task,
+    SubTask,
+    TaskAuditLog,
+    TaskStatus,
+    TaskPriority,
+    TaskType
+)
 
 from backend.models.entities.user_config import (
     UserModelConfig,
