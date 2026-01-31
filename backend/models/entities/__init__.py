@@ -10,7 +10,15 @@ Hierarchy:
 - Tasks: Work units with lifecycle management
 - Voting: Democratic deliberation system
 - Audit: Transparency and compliance logging
+- Monitoring: Hierarchical oversight and agent health tracking
 """
+
+from backend.models.entities.user_config import (
+    UserModelConfig,
+    ProviderType,
+    ConnectionStatus,
+    ModelUsageLog
+)
 
 from backend.models.entities.base import Base, BaseEntity
 from backend.models.entities.constitution import (
@@ -53,12 +61,27 @@ from backend.models.entities.audit import (
     AuditLevel,
     AuditCategory
 )
+from backend.models.entities.monitoring import (
+    AgentHealthReport,
+    ViolationReport,
+    ViolationSeverity,
+    TaskVerification,
+    PerformanceMetric,
+    MonitoringAlert,
+    MonitoringStatus
+)
 
 # All models for Alembic/database creation
 __all__ = [
     # Base
     'Base',
     'BaseEntity',
+    
+    # User Configuration (Frontend-managed models)
+    'UserModelConfig',
+    'ProviderType', 
+    'ConnectionStatus',
+    'ModelUsageLog',
     
     # Constitution
     'Constitution',
@@ -98,5 +121,14 @@ __all__ = [
     'SessionLog',
     'HealthCheck',
     'AuditLevel',
-    'AuditCategory'
+    'AuditCategory',
+    
+    # Monitoring (Checks and Balances)
+    'AgentHealthReport',
+    'ViolationReport',
+    'ViolationSeverity',
+    'TaskVerification',
+    'PerformanceMetric',
+    'MonitoringAlert',
+    'MonitoringStatus'
 ]

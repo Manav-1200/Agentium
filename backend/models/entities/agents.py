@@ -1,6 +1,7 @@
 """
 Agent hierarchy management for Agentium.
 Implements the four-tier system with automatic ID generation.
+Model configuration is now handled via frontend UserModelConfig.
 """
 
 from datetime import datetime
@@ -10,7 +11,6 @@ from sqlalchemy.orm import relationship, validates, Session
 from backend.models.entities.base import BaseEntity
 from backend.models.entities.constitution import Ethos
 import enum
-import random
 
 class AgentType(str, enum.Enum):
     """The four tiers of Agentium governance."""
@@ -32,6 +32,7 @@ class Agent(BaseEntity):
     """
     Base agent class representing all AI entities in the hierarchy.
     Uses joined-table inheritance for specific agent types.
+    Model configuration is now external (UserModelConfig) set via frontend.
     """
     
     __tablename__ = 'agents'
@@ -49,10 +50,12 @@ class Agent(BaseEntity):
     terminated_at = Column(DateTime, nullable=True)
     termination_reason = Column(Text, nullable=True)
     
-    # AI Model configuration
-    model_provider = Column(String(50), nullable=False, default='openai')  # openai, anthropic, local, etc.
-    model_name = Column(String(50), nullable=False, default='gpt-4')
-    system_prompt = Column(Text, nullable=True)  # Dynamic system prompt
+    # Model Configuration (Removed hardcoded fields, now references UserModelConfig)
+    # This allows frontend to manage API keys, model selection, and provider settings
+    preferred_config_id = Column(String(36), ForeignKey('user_model_configs.id'), nullable=True)
+    
+    # Optional: System prompt override (uses Ethos mission if not set)
+    system_prompt_override = Column(Text, nullable=True)
     
     # Constitution & Ethos
     ethos_id = Column(String(36), ForeignKey('ethos.id'), nullable=True)
@@ -67,6 +70,7 @@ class Agent(BaseEntity):
     # Relationships
     parent = relationship("Agent", remote_side="Agent.id", backref="subordinates")
     ethos = relationship("Ethos", foreign_keys=[ethos_id])
+    preferred_config = relationship("UserModelConfig", foreign_keys=[preferred_config_id])
     
     # Type-specific mapping for polymorphic identity
     __mapper_args__ = {
@@ -88,6 +92,42 @@ class Agent(BaseEntity):
             raise ValueError("Agentium ID must be exactly 5 digits")
         
         return agentium_id
+    
+    def get_system_prompt(self) -> str:
+        """
+        Get effective system prompt for this agent.
+        Priority: override > ethos mission > default
+        """
+        if self.system_prompt_override:
+            return self.system_prompt_override
+        
+        if self.ethos:
+            prompt = self.ethos.mission_statement
+            rules = self.ethos.get_behavioral_rules()
+            if rules:
+                prompt += "\n\nBehavioral Rules:\n" + "\n".join(f"- {r}" for r in rules)
+            return prompt
+        
+        return "You are an AI assistant operating within the Agentium governance system."
+    
+    def get_model_config(self, session: Session) -> Optional['UserModelConfig']:
+        """
+        Get the model configuration to use for this agent.
+        Returns preferred config if set, otherwise user's default config.
+        """
+        if self.preferred_config:
+            if self.preferred_config.status.value == 'active':
+                return self.preferred_config
+        
+        # Fallback to user's default config
+        from backend.models.entities.user_config import UserModelConfig
+        default_config = session.query(UserModelConfig).filter_by(
+            user_id="sovereign",  # TODO: Get from auth context
+            is_default=True,
+            status='active'
+        ).first()
+        
+        return default_config
     
     def terminate(self, reason: str, violation: bool = False):
         """
@@ -174,6 +214,10 @@ class Agent(BaseEntity):
             created_by_agentium_id=self.agentium_id,
             **kwargs
         )
+        
+        # Inherit config from parent if not specified
+        if not new_agent.preferred_config_id and self.preferred_config_id:
+            new_agent.preferred_config_id = self.preferred_config_id
         
         # Create default ethos for the new agent
         default_ethos = self._create_default_ethos(new_agent, session)
@@ -263,11 +307,23 @@ class Agent(BaseEntity):
     
     def to_dict(self) -> Dict[str, Any]:
         base = super().to_dict()
+        
+        # Get config info if available
+        config_info = None
+        if self.preferred_config:
+            config_info = {
+                'config_id': self.preferred_config.id,
+                'config_name': self.preferred_config.config_name,
+                'provider': self.preferred_config.provider.value,
+                'model': self.preferred_config.default_model
+            }
+        
         base.update({
             'agent_type': self.agent_type.value,
             'name': self.name,
             'status': self.status.value,
-            'model': f"{self.model_provider}/{self.model_name}",
+            'model_config': config_info,  # Now shows reference to managed config
+            'system_prompt_preview': self.get_system_prompt()[:200] + "..." if len(self.get_system_prompt()) > 200 else self.get_system_prompt(),
             'parent': self.parent.agentium_id if self.parent else None,
             'subordinates': [sub.agentium_id for sub in self.subordinates],
             'stats': {
