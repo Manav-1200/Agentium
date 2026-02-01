@@ -162,7 +162,7 @@ If Rejected: Archive + notify with reason
 
 ---
 
-## Phase 1: The Agent Orchestration Bus 🚌 (Priority: CRITICAL) (Here)
+## Phase 1: The Agent Orchestration Bus 🚌 (Priority: CRITICAL) (Done)
 **Goal:** Create the central router that Other systems calls the "Gateway".  
 **Gap Identified:** No central message bus to route between hierarchical agents.
 
@@ -184,10 +184,10 @@ class MessageBus:
 ```
 
 **Acceptance Criteria:**
-- [ ] Task agent can send message to parent Lead agent
-- [ ] Lead agent can broadcast to child Task agents
-- [ ] Messages cannot skip levels (Task -> Council is blocked)
-- [ ] Persistent queue (Redis) survives container restarts
+- [x] Task agent can send message to parent Lead agent
+- [x] Lead agent can broadcast to child Task agents
+- [x] Messages cannot skip levels (Task -> Council is blocked)
+- [x] Persistent queue (Redis) survives container restarts
 
 ### 1.2 Create Agent Orchestrator
 **File:** `backend/services/agent_orchestrator.py`
@@ -207,13 +207,13 @@ class AgentOrchestrator:
 ```
 
 **Acceptance Criteria:**
-- [ ] Validates agent IDs exist before routing
-- [ ] Logs all routing decisions to audit table
-- [ ] Handles "agent not found" with liquidation check
-- [ ] Rate limiting: Prevents spam between levels (5 msg/sec max)
-- [ ] **NEW:** Injects relevant constitutional context from Vector DB into messages
+- [x] Validates agent IDs exist before routing
+- [x] Logs all routing decisions to audit table
+- [x] Handles "agent not found" with liquidation check
+- [x] Rate limiting: Prevents spam between levels (5 msg/sec max)
+- [x] **NEW:** Injects relevant constitutional context from Vector DB into messages
 
----
+--- Test Phase 1 NOW. (Remaning)
 
 ## Phase 2: Constitutional Enforcement Layer ⚖️ (Priority: HIGH)
 **Goal:** Implement the "guard" that Other systems lacks (they're single-user; you need multi-agent law)

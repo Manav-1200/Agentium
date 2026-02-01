@@ -31,6 +31,31 @@ class Settings(BaseSettings):
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 10
     
+    # Redis (Message Bus)
+    REDIS_URL: str = Field(
+        default="redis://localhost:6379/0",
+        env="REDIS_URL"
+    )
+    REDIS_POOL_SIZE: int = 50
+    REDIS_TIMEOUT: int = 5  # seconds
+    
+    # Vector Database (ChromaDB)
+    CHROMA_PERSIST_DIR: str = "./chroma_data"
+    CHROMA_HOST: Optional[str] = None  # For server mode, default None = embedded
+    CHROMA_PORT: int = 8000
+    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    
+    # Message Bus (Phase 1)
+    MESSAGE_BUS_ENABLED: bool = True
+    MESSAGE_STREAM_MAXLEN: int = 1000  # Max messages per agent inbox
+    MESSAGE_TTL_SECONDS: int = 86400  # 24 hours
+    
+    # Rate Limiting (per tier: msg/sec)
+    RATE_LIMIT_HEAD: int = 100     # 0xxxx
+    RATE_LIMIT_COUNCIL: int = 20   # 1xxxx
+    RATE_LIMIT_LEAD: int = 10      # 2xxxx
+    RATE_LIMIT_TASK: int = 5       # 3xxxx
+    
     # Security
     SECRET_KEY: str = Field(default="change-me-in-production", env="SECRET_KEY")
     ALGORITHM: str = "HS256"
