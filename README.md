@@ -183,7 +183,7 @@ Every agent has a personalized Ethos document:
 
 Follow these steps to run **Agentium** on Linux, macOS, or Windows.
 
---
+---
 
 ### 📦 Prerequisites
 
@@ -195,7 +195,7 @@ Make sure the following are installed on your system:
     *(16GB recommended if running local LLMs)*
 -   **At least 10GB free disk space**
 
-> 💡 Docker Desktop includes Docker Engine + Docker Compose and works on
+> Docker Desktop includes Docker Engine + Docker Compose and works on
 > Windows, macOS, and Linux.
 
 ---
@@ -224,7 +224,7 @@ speed and system.
 
 Once everything is running, open your browser and visit:
 
--   **Dashboard:** http://localhost:3000\
+-   **Dashboard:** http://localhost:3000
 -   **Backend API:** http://localhost:8000
 
 #### 🔐 Default Login Credentials
@@ -232,12 +232,12 @@ Once everything is running, open your browser and visit:
     Username: admin
     Password: admin
 
-> ⚠️ Change these credentials in production environments.
+> ⚠️ Change these credentials after login.
 
 ---
 
 ### 🧩 Services Started
-
+```
   Service           URL / Port              Description
   ----------------- ----------------------- --------------------
   React Dashboard   http://localhost:3000   Web UI
@@ -245,7 +245,7 @@ Once everything is running, open your browser and visit:
   Redis             localhost:6379          Message Bus
   PostgreSQL        localhost:5432          Persistent Storage
   ChromaDB          http://localhost:8001   Vector Database
-
+```
 ---
 
 ### 🛑 Stopping the Services
@@ -318,8 +318,8 @@ Results aggregated back to Head → You
 | **API Gateway** | FastAPI, WebSocket, Pydantic | REST + real-time communication |
 | **Message Bus** | Redis, Celery | Inter-agent routing, background tasks |
 | **Structured Data** | PostgreSQL 15, SQLAlchemy, Alembic | Entity state, voting records, audit |
-| **Vector Knowledge** | ChromaDB, Sentence-Transformers | RAG, constitution, ethos, learnings |
-| **AI Models** | Local (Kimi, GPT4All) + API (OpenAI, Anthropic) | Agent intelligence |
+| **Vector Knowledge** | ChromaDB, Sentence-Transformers | RAG, constitution, learnings |
+| **AI Models** | Local (Kimi, GPT4, All) + API (OpenAI, Anthropic) | Agent intelligence |
 | **Container** | Docker, Compose, Healthchecks | Cross-platform deployment |
 | **Security** | JWT, OAuth2, AES-256 | Per-agent authentication |
 
