@@ -734,6 +734,8 @@ Head 0xxxx can now spawn Lead agents (2xxxx) who can spawn Tasks (3xxxx)
 - 🆕 **Constitutional RAG** (Agents ask "Is this constitutional?" before acting)
 - 🆕 **Genesis Protocol** (Democratic country founding at initialization)
 
+
+Final: Reduce tokan usage.
 ---
 
 *Last Updated: 2026-02-01*  

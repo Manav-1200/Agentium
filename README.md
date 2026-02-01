@@ -18,12 +18,12 @@ Built for those who believe AI should be **transparent, accountable, and soverei
 Tasks aren't just executed; they're deliberated. The Council votes on constitutional amendments, resource allocation, and major system changes. Every decision is logged, auditable, and reversible.
 
 ### ⚖️ Constitutional Framework
-A living document that all agents read at initialization. Agents literally ask *"Is this constitutional?"* before acting. Amendments require democratic approval.
+A living document stored that all agents can access. Agents literally ask *"Is this constitutional?"* before acting. Amendments require democratic approval.
 
-### 🧠 Collective Intelligence (Vector Knowledge Library)
+### 🧠 Collective Intelligence (Knowledge Library)
 - **Dual-Storage Architecture**: PostgreSQL for structured data, ChromaDB for semantic knowledge
 - **Shared Memory**: Task agents share learnings; Council curates institutional knowledge
-- **RAG-Powered**: World Knowledge and best practices retrieved via semantic search, not just regex
+- **RAG-Powered**: World Knowledge retrieved via semantic search, not just regex
 
 ### 🏗️ Hierarchical Agent IDs
 Rigorous identification system:
@@ -76,10 +76,10 @@ Agents auto-spawn when load increases, auto-terminate when tasks complete, and c
 │ ├─ Propose Amendments   │        │                                      │
 │ ├─ Vote on Tasks        │        │  ChromaDB (Vector Meaning) ⭐        │
 │ ├─ Knowledge Moderation │        │  ├─ Constitution (embeddings)        │
-│ └─ Agent Liquidation    │        │  ├─ Country Values/Ethos             │
+│ └─ Agent Liquidation    │        │  ├─ Country Values                  │
 │                         │        │  ├─ Task Learnings (RAG)             │
 │ 🎯 Lead (2xxxx)         │        │  ├─ Best Practices                   │
-│ ├─ Spawn Task Agents    │        │  └─ Staged Knowledge (pending)       │
+│ ├─ Spawn Task Agents    │        │  └─ Staged Knowledge                │
 │ ├─ Validate Work        │        └──────────────────────────────────────┘
 │ └─ Resource Allocation  │                         ▲
 │                         │                         │
@@ -105,11 +105,11 @@ When Agentium boots for the first time:
 ```bash
 1. Docker Compose initializes PostgreSQL + ChromaDB + Redis
 2. Head of Council (0xxxx) is instantiated
-3. 2 Council Members (1xxxx) are spawned
+3. 5 Council Members (1xxxx) are spawned
 4. Head prompts Council: "What shall we name our Nation?"
 5. Council votes (first democratic process)
 6. Constitution template loaded with Country Name in preamble
-7. Vector DB indexes the copy of initial Constitution (semantic + full-text)
+7. Vector DB indexes the Constitution (semantic + full-text)
 8. Knowledge Library grants Council admin rights
 9. Status: OPERATIONAL — Ready to serve The Sovereign (You)
 ```
@@ -122,7 +122,7 @@ When Agentium boots for the first time:
 
 **Storage**: Dual-mode  
 - **PostgreSQL**: Version control, amendment history, audit trail  
-- **ChromaDB**: Semantic embeddings for RAG queries world knowledge.
+- **ChromaDB**: Semantic embeddings for RAG queries
 
 **Access Control**:
 - **Read**: All agents (via `query_constitution()`)
@@ -165,7 +165,7 @@ Every agent has a personalized Ethos document:
 ### 4. Agent Lifecycle & Termination
 
 **Termination Conditions**:
-- ✅ Task completed and confirmed by higher authority
+- ✅ Task completed and confirmed by higher authority (Lead Agent)
 - ❌ Constitutional violation (Council vote required)
 - ⏰ Inactive >7 days (auto-liquidation)
 - ⏰ Lifetime exceeded 30 days (max lifespan)
@@ -252,6 +252,8 @@ Results aggregated back to Head → You
 - Council votes (automated if <5 seconds)
 - New 3xxxx agents spawned, provisioned with knowledge from Vector DB
 - When queue empties, oldest Task Agents liquidated
+- Lead Agents can have other Lead Agents below them if task agent count increases.
+- Lead agents can have many layers of Leads below them as per required.
 
 ### 3. Knowledge Management
 
@@ -268,7 +270,7 @@ await knowledge_service.share_lesson_learned(
 
 **For Council (1xxxx)**:
 - Review pending knowledge submissions in dashboard
-- Vote: Approve (adds to Vector DB) / Reject (archived) / Request Changes
+- Vote: Approve (add) / Reject (archived) / Request Changes
 - Curate "canonical" best practices (pinned, never auto-archived)
 
 **Querying Collective Intelligence**:
@@ -455,10 +457,7 @@ Read our [Contributing Guide](CONTRIBUTING.md) and [Constitution Template](docs_
 
 ## 💬 Support & Community
 
-- 📚 [Documentation Wiki](https://github.com/yourusername/agentium/wiki)
-- 💻 [Discord Server](https://discord.gg/agentium) — Discuss governance models
-- 🐦 [Twitter/X](https://twitter.com/agentium)
-- 📧 Email: **ashmindhungana@gmail.com**
+- 📧 Email: **dhungana.ashmin@gmail.com**
 
 ---
 
