@@ -1,199 +1,191 @@
 # 🏛️ Agentium
 
-> A local-first AI governance platform where AI agents operate like a democratic government
+> A sovereign AI governance platform with constitutional law, democratic deliberation, and hierarchical agent orchestration
 
-Agentium transforms AI task management into a structured democracy. Your AI system mirrors a government hierarchy: a **Head of Council** (Prime Minister), **Council Members** (Parliament), and **Agents** (civil servants) work together to handle your tasks efficiently and transparently.
+[![Status](https://img.shields.io/badge/status-active--development-brightgreen)](https://github.com/yourusername/agentium)
+[![Docker](https://img.shields.io/badge/docker-ready-blue)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-It is a fully Dockerized, cross-platform AI system that runs on any computer, offering a complete web-based interface for control, monitoring, and governance, while also supporting command execution through channels like WhatsApp, Telegram, and more using a democratic, council-governed hierarchy of AI agents for safe, auditable automation.
+**Agentium** transforms AI task execution into a structured digital democracy. Unlike monolithic AI assistants, Agentium operates as a self-governing ecosystem where AI agents function like a parliamentary system—complete with a **Head of Council** (Executive), **Council Members** (Legislature), **Lead Agents** (Directors), and **Task Agents** (Executors)—all bound by a **Constitution** and managed through democratic voting.
 
-
-![Development Status](https://img.shields.io/badge/status-active--development-brightgreen)
-
-
----
-
-## ✨ What Makes Agentium Special?
-
-**Democratic AI Governance** — Tasks aren't just executed; they're deliberated, voted on, and approved through a multi-tier AI system that ensures accountability.
-
-**Local-First Philosophy** — Run everything on your own hardware with full control over your data and models.
-
-**Intelligent Scaling** — The system automatically spawns new agents and council members as workload increases.
-
-**Universal Access** — Control everything from a sleek web dashboard accessible on any device.
+Built for those who believe AI should be **transparent, accountable, and sovereign**, Agentium runs entirely on your infrastructure with local-first architecture.
 
 ---
 
-## 🎯 Core Capabilities
+## ✨ What Makes Agentium Unique?
 
-### Hybrid AI Models
-Run powerful local models (Kimi 2.5, GPT-4) or leverage API services (Anthropic, OpenAI, Gemini) based on your needs and resources.
+### 🏛️ Democratic AI Governance
+Tasks aren't just executed; they're deliberated. The Council votes on constitutional amendments, resource allocation, and major system changes. Every decision is logged, auditable, and reversible.
 
-### Hierarchical AI System
+### ⚖️ Constitutional Framework
+A living document stored in **semantic Vector DB** that all agents can query via RAG. Agents literally ask *"Is this constitutional?"* before acting. Amendments require democratic approval.
 
-```
-👑 You (The Sovereign)
-    ↓
-🏛️ Head of Council — Full authority, approves/rejects major decisions
-    ↓
-⚖️ Council Members — Deliberate and vote on proposals
-    ↓
-🎯 Lead Agents — Coordinate and delegate work
-    ↓
-🤖 Task Agents — Execute specific assignments
-```
+### 🧠 Collective Intelligence (**New**: Vector Knowledge Library)
+- **Dual-Storage Architecture**: PostgreSQL for structured data, ChromaDB for semantic knowledge
+- **Shared Memory**: Task agents share learnings; Council curates institutional knowledge
+- **RAG-Powered**: Constitution and best practices retrieved via semantic search, not just regex
 
-**Head of Council**  
-- Ultimate decision-maker with full system access
-- Approves/rejects task proposals
-- Manages system configuration
+### 🏗️ Hierarchical Agent IDs
+Rigorous identification system:
+- **Head**: `0xxxx` (00001-00999) — The Sovereign's direct representative
+- **Council**: `1xxxx` (10001-19999) — Democratic deliberation layer  
+- **Lead**: `2xxxx` (20001-29999) — Department coordination
+- **Task**: `3xxxx` (30001-99999) — Execution workers
 
-**Council Members**  
-- Vote on important tasks and decisions
-- Partial system access with oversight powers
-- Auto-scale: 1 new member per 10 tasks
-
-**Lead Agents**  
-- Coordinate task distribution
-- Manage agent teams
-- Monitor execution progress
-
-**Task Agents**  
-- Execute assigned work
-- Restricted permissions for security
-- Auto-spawn based on workload
-
-### Comprehensive Features
-
-**🌐 Multi-Channel Integration**  
-Connect via WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, iMessage, Microsoft Teams, and more.
-
-**🎙️ Voice Interaction**  
-Always-on speech recognition for macOS, iOS, and Android.
-
-**🎨 Visual Workspace**  
-Live canvas with agent-driven visual collaboration and A2UI support.
-
-**🔧 Powerful Automation**  
-- Browser control and automation
-- Cron-scheduled tasks
-- Webhook integrations
-- Gmail Pub/Sub integration
-
-**🔒 Enterprise Security**  
-- Granular per-agent permissions
-- Container sandboxing
-- Complete audit logging
-- Session management and pruning
-
-**📊 Full Observability**  
-- Real-time task monitoring
-- Health checks and logging
-- Performance metrics
-- Audit trail for all actions
+### 🔄 Self-Governing Lifecycle
+Agents auto-spawn when load increases, auto-terminate when tasks complete, and can be liquidated by Council vote if they violate the Constitution or remain idle >7 days.
 
 ---
 
 ## 🏗️ Architecture
 
-Agentium uses a containerized microservices architecture where each component runs in isolation:
+### Dual-Storage Knowledge System
 
 ```
-┌─────────────────────────────────────────────┐
-│  Web Dashboard (React + TypeScript)         │
-│  Accessible from any browser/device         │
-└──────────────────┬──────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────┐
-│  API Gateway (FastAPI)                      │
-│  WebSocket + REST endpoints                 │
-└──────────────────┬──────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────┐
-│  Head of Council (AI Model)                 │
-│  Full access • Decision authority           │
-└──────────────────┬──────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────┐
-│  Council Members (AI Models)                │
-│  Voting • Partial access                    │
-└──────────────────┬──────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────┐
-│  Lead Agents (AI Models)                    │
-│  Task coordination • Team management        │
-└──────────────────┬──────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────┐
-│  Task Agents (AI Models)                    │
-│  Execution • Restricted access              │
-└──────────────────┬──────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────┐
-│  Database (SQLite/PostgreSQL/VectorDB)      │
-│  Audit logs • Session data • Configurations │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        AGENTIUM GOVERNANCE STACK                        │
+└─────────────────────────────────────────────────────────────────────────┘
+
+💬 Interface Layer
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Web Dashboard (React + Vite)  │  WhatsApp  │  Telegram  │  Discord    │
+│  ├─ Agent Tree Visualization   │  iMessage  │  Slack     │  API        │
+│  ├─ Voting Interface           │            │            │             │
+│  └─ Constitution Editor        │            │            │             │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+⚡ Control Layer
+┌─────────────────────────────────────────────────────────────────────────┐
+│  FastAPI Gateway  │  WebSocket Hub  │  Message Bus (Redis)              │
+│  ├─ Agent Orchestrator              │  Hierarchical Routing             │
+│  ├─ Constitutional Guard (AI + RAG) │  3xxxx→2xxxx→1xxxx→0xxxx          │
+│  └─ Voting Service                  │  Persistent Queues                │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    ▼                               ▼
+🏛️ Governance Layer                    💾 Storage Layer
+┌─────────────────────────┐        ┌──────────────────────────────────────┐
+│ 👑 Head (0xxxx)         │        │  PostgreSQL (Structured Truth)       │
+│ ├─ Veto Power           │        │  ├─ Agent Entities (hierarchy FKs)   │
+│ ├─ Emergency Override   │        │  ├─ Voting Records (tally, timestamp)│
+│ └─ Genesis Protocol     │        │  ├─ Audit Logs (immutable trail)     │
+│                         │        │  ├─ Constitution Versions (text)     │
+│ ⚖️ Council (1xxxx)      │        │  └─ User Config                      │
+│ ├─ Propose Amendments   │        │                                      │
+│ ├─ Vote on Tasks        │        │  ChromaDB (Vector Meaning) ⭐        │
+│ ├─ Knowledge Moderation │        │  ├─ Constitution (embeddings)        │
+│ └─ Agent Liquidation    │        │  ├─ Country Values/Ethos             │
+│                         │        │  ├─ Task Learnings (RAG)             │
+│ 🎯 Lead (2xxxx)         │        │  ├─ Best Practices                   │
+│ ├─ Spawn Task Agents    │        │  └─ Staged Knowledge (pending)       │
+│ ├─ Validate Work        │        └──────────────────────────────────────┘
+│ └─ Resource Allocation  │                         ▲
+│                         │                         │
+│ 🤖 Task (3xxxx)         │                         │
+│ ├─ Execute Commands     │                         │
+│ ├─ Submit Learnings     │                         │
+│ └─ Query Knowledge      │                         │
+└─────────────────────────┘                         │
+                                                    │
+🧠 Processing Layer                                 │
+┌───────────────────────────────────────────────────┴──────────────────┐
+│  Celery Workers  │  Constitutional Patrol  │  Knowledge Maintenance  │
+│  ├─ Task Queue    │  (Heartbeat)            │  (Deduplication)        │
+│  ├─ Vote Tally    │  Compliance Checks      │  Embedding Updates       │
+│  └─ Lifecycle     │  Auto-termination       │  Orphaned Data Cleanup   │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### The Genesis Protocol (Initialization)
+
+When Agentium boots for the first time:
+
+```bash
+1. Docker Compose initializes PostgreSQL + ChromaDB + Redis
+2. Head of Council (0xxxx) is instantiated
+3. 5 Council Members (1xxxx) are spawned
+4. Head prompts Council: "What shall we name our Nation?"
+5. Council votes (first democratic process)
+6. Constitution template loaded with Country Name in preamble
+7. Vector DB indexes the Constitution (semantic + full-text)
+8. Knowledge Library grants Council admin rights
+9. Status: OPERATIONAL — Ready to serve The Sovereign (You)
 ```
 
 ---
-## Internal Documentation
 
-### Constitution
-- Begins with a standardized base template.
-- Defines the **sovereign preferences** of the system.
-- Specifies clear rules on permitted and prohibited actions.
-- Updated through voting by Council Members and approved by the Head of Council.
-- Constitution should be reviewed and updated daily.
-- Read-only for all entities except the Head of Council.
+## 🗳️ Governance Mechanics
 
----
+### 1. Constitutional Law (The Supreme Authority)
 
-### Individual Agent Ethos
-- Every Agent possesses its own Ethos.
-- The Ethos is created by the Agent’s immediate higher authority using a default template.
-- Defines rules governing what the Agent **should** and **should not** do.
-- May be updated by the Individual Agent, but must be reviewed and approved by the Lead Agent.
-- For Lead Agents, the Ethos is reviewed and updated by the Head of Council.
-- Agents may ask questions to their direct leader when clarification is needed.
-- Ethos should be reviewed and updated daily.
+**Storage**: Dual-mode  
+- **PostgreSQL**: Version control, amendment history, audit trail  
+- **ChromaDB**: Semantic embeddings for RAG queries
 
----
+**Access Control**:
+- **Read**: All agents (via `query_constitution()`)
+- **Amend**: Council proposal + 60% vote + Head ratification
+- **Enforce**: Constitutional Guard checks every action against both SQL rules AND semantic interpretation
 
-### On Creation
-- Each Head of Council, Council Member, Lead Agent, and Task Agent is created with a default Ethos.
-- The Ethos is generated by the Agent’s higher authority using a default template.
-- Upon creation, each entity must:
-  - Read and acknowledge the Constitution.
-  - Read and acknowledge its own Ethos.
+**Key Features**:
+- Agents can ask: *"Does this violate Article 3 regarding data privacy?"*
+- Semantic search catches "grey area" violations, not just explicit bans
+- Daily review required by all governance tier agents (Head + Council)
 
----
+### 2. Individual Agent Ethos
 
-### Termination
-- The Head of Council is never terminated.
-- A Council Member is terminated if it violates the Constitution.
-- A Lead Agent is terminated if it violates the Constitution.
-- A Task Agent is terminated if it violates the Constitution.
-- Agents are terminated after completing their assigned tasks.
-- Agents are terminated if inactive for more than one week.
+Every agent has a personalized Ethos document (stored in Vector DB):
+- Created by parent agent upon spawning using template
+- Defines should/should-not rules for that agent's role
+- Task agents: reviewed by Lead Agents
+- Lead agents: reviewed by Head of Council
+- Agents may query parent for clarification
 
----
+### 3. Democratic Voting System
 
-### Identification
-- All Agents are assigned a unique identification number.
-- Identifier format:
-  - **Head of Council:** `0xxxx`
-  - **Council Member:** `1xxxx`
-  - **Lead Agent:** `2xxxx`
-  - **Task Agent:** `3xxxx`
+**Voting Powers**:
+- Head (0xxxx): 5 votes + veto power
+- Council (1xxxx): 3 votes each
+- Lead (2xxxx): 1 vote (on operational matters only)
+
+**When Voting Triggers**:
+- Constitutional amendments
+- Agent liquidation (termination)
+- Knowledge Library submissions ( Task/Lead → Council approval)
+- Resource allocation disputes
+- Access permission changes across system scope boundaries
+
+**Quorum Rules**:
+- Constitutional: 60% of Council
+- Operational: 50% of relevant tier
+- Emergency: Head override (logged as constitutional violation if abused)
+
+### 4. Agent Lifecycle & Termination
+
+**Termination Conditions**:
+- ✅ Task completed and confirmed by higher authority
+- ❌ Constitutional violation (Council vote required)
+- ⏰ Inactive >7 days (auto-liquidation)
+- ⏰ Lifetime exceeded 30 days (max lifespan)
+- 🛑 Head emergency override (rare, audited)
+
+**Cleanup Process**:
+1. Archive all messages/tasks to cold storage (PostgreSQL)
+2. Transfer orphaned knowledge to Council curation queue
+3. Revoke all capabilities
+4. Mark as `liquidated` in registry (never reuse IDs)
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Docker and Docker Compose
-- 4GB+ RAM recommended
-- Windows, macOS, or Linux
+- Docker Engine 20.10+
+- Docker Compose 2.0+
+- 8GB RAM minimum (16GB recommended for local LLMs)
+- 10GB free disk space
 
 ### Installation
 
@@ -202,202 +194,278 @@ Agentium uses a containerized microservices architecture where each component ru
 git clone https://github.com/yourusername/agentium.git
 cd agentium
 
-# Start the system
+# Configure environment (optional)
+cp .env.example .env
+# Edit .env to add your API keys (OpenAI, Anthropic, etc.)
+
+# Launch the governance system
 docker-compose up --build
 
 # Access the dashboard
-# Open http://localhost:3000 in your browser
-# Default login: admin / admin
+open http://localhost:3000
+
+# Default credentials
+Username: admin
+Password: admin
 ```
 
-That's it! Your AI governance system is now running.
+**Services Started**:
+- `http://localhost:3000` — React Dashboard
+- `http://localhost:8000` — FastAPI + WebSocket
+- `localhost:6379` — Redis (Message Bus)
+- `localhost:5432` — PostgreSQL (Entities)
+- `localhost:8001` — ChromaDB (Vector Knowledge)
 
 ---
 
 ## 📖 Usage Guide
 
-### Getting Started
+### 1. The Genesis (First Run)
 
-1. **Login to Dashboard**  
-   Navigate to `http://localhost:3000` and use the default credentials
+Upon first login, you'll witness the **Initialization Protocol**:
+1. The Head of Council greets you (The Sovereign)
+2. Council is asked to propose names for your "Nation" (the system instance)
+3. Vote executes (watch real-time tally in dashboard)
+4. Constitution is ratified with your chosen name
+5. System becomes operational
 
-2. **Configure API Keys**  
-   Add your API keys for external AI services (optional)
+### 2. Daily Operations
 
-3. **Send Your First Task**  
-   Message the Head of Council through the chat interface
+**Submitting a Task**:
+```
+You (Sovereign) → Head (0xxxx): "Analyze Q3 financial reports"
+    ↓
+Head delegates to Council for resource check
+    ↓
+Council votes on resource allocation
+    ↓
+Lead Agent (2xxxx) spawns Task Agents (3xxxx)
+    ↓
+Execution with constitutional checks at each step
+    ↓
+Results aggregated back to Head → You
+```
 
-4. **Watch Democracy in Action**  
-   - Head of Council receives your request
-   - Council Members deliberate and vote
-   - Lead Agents assign work
-   - Task Agents execute
-   - Results flow back to you
+**Auto-Scaling in Action**:
+- Load increases → Lead detects queue depth
+- Lead requests Council approval for new Task Agents
+- Council votes (automated if <5 seconds)
+- New 3xxxx agents spawned, provisioned with knowledge from Vector DB
+- When queue empties, oldest Task Agents liquidated
 
-### Scaling:
-  - System auto-scales based on load
-  - Starts with Head of Council and two Council Members
-  - Scales Lead Agents and Task Agents based on load
-  - Lead Agents can also spawn LeadAgents if the number of TaskAgents exceeds a threshold eg, 50
-  - If task is completed and  conform by the higher body the agent should be terminated
-  - Maximum lifetime of an agent is 30 days.
-  - If an agent is inactive for more than 7 days it should be terminated.
-  - If an agent is terminated it should be removed from the system.
+### 3. Knowledge Management
 
-### Operations:
-- Head of Council communicates with The Sovereign. and recives and distributes tasks to Council Members.
-- Council Members assigns the task to lead Agents.  
-- Lead Agents assign work to Task Agents.
-- Task Agents execute tasks.
-- Results flow back to Head of Council.
-- Head of Council communicates with The Sovereign. and recives and distributes tasks to Council Members.  
-- Voting is done when the task access is requested to Concil Members.
-- Voting is done when adding, updating the constitution and planning for any new implementation to the system improvements.
-- If their are no task given by the Sovereign then the Head of Council should ask the Council Members to vote on the task.
-- The tasks should be focus on improving the Nation i.e The system, managing resources making the system efficent. 
-- The Agents should never be ideal, The Head of Council and Concil Members should always be working and other agents should be terminated if ideal and no work. 
+**For Task Agents (3xxxx)**:
+```python
+# After completing task, submit learning
+await knowledge_service.share_lesson_learned(
+    task_id="task_30452",
+    content="Q3 analysis shows vendor X delays correlate with Y metric",
+    agent_id="30042"
+)
+# Goes to Council moderation queue
+```
 
+**For Council (1xxxx)**:
+- Review pending knowledge submissions in dashboard
+- Vote: Approve (adds to Vector DB) / Reject (archived) / Request Changes
+- Curate "canonical" best practices (pinned, never auto-archived)
 
-### Managing Your System
-
-**Update Models**  
-Switch between local and API models per role in `config/roles.json`
-
-**Adjust Permissions**  
-Control what each tier can access via the dashboard
-
-**Monitor Activity**  
-View real-time task status, votes, and execution logs
-
-**Scale Resources**  
-System auto-scales, but you can manually adjust limits
-
-### Advanced Features
-
-**Voice Commands**  
-Enable always-on voice interaction for hands-free operation
-
-**Browser Automation**  
-Let agents interact with websites on your behalf
-
-**Scheduled Tasks**  
-Set up recurring jobs with cron syntax
-
-**Multi-Channel**  
-Connect messaging platforms for ubiquitous access
+**Querying Collective Intelligence**:
+```python
+# Any agent can query
+context = await knowledge_service.query_constitution(
+    "What are our data privacy obligations when handling financial records?"
+)
+# Returns relevant articles from Constitution via semantic similarity
+```
 
 ---
 
 ## ⚙️ Configuration
 
-### Model Configuration
+### Model Configuration (`config/models.yaml`)
 
-Edit `config/roles.json` to specify models for each role:
+```yaml
+head_of_council:
+  model: gpt-4-turbo
+  provider: openai
+  temperature: 0.2  # Low for consistency
 
-```json
-{
-  "head_of_council": {
-    "model": "gpt-4",
-    "type": "api"
-  },
-  "council_members": {
-    "model": "kimi-2.5",
-    "type": "local"
-  }
-}
+council_members:
+  model: kimi-2.5
+  provider: local
+  count: 5  # Auto-scale up to 15
+
+lead_agents:
+  model: claude-3-sonnet
+  provider: anthropic
+  max_agents: 20
+
+task_agents:
+  model: gpt-3.5-turbo
+  provider: openai
+  max_agents: 100
+  spawn_threshold: 10  # New agent per 10 queued tasks
 ```
 
-### Permissions
+### Storage Configuration (`config/storage.yaml`)
 
-Fine-grained access control per role:
-- **Full Access**: Head of Council (all permissions) (Full System Scope)
-- **Partial Access**: Council Members, (Partial permissions) (Partial System Scope)
-- **Partial Access**: Lead Agents (partial permissions) (Partial System Scope) (can only access inside the scope of their assigned task)
-- **Restricted Access**: Task Agents (restricted permissions) (Restricted System Scope) (can only access inside the scope of their assigned task)
+```yaml
+postgresql:
+  url: postgresql://agentium:secret@db:5432/agentium
+  pool_size: 20
 
-- **Access Giving Authority**: Access can be given within the scope of the individual agent's access.
-- **Access Revoking Authority**: Access can be revoked within the scope of the individual agent's access.
-- **Access Modifying Authority**: Access can be modified within the scope of the individual agent's access.
-- **Process**: - Head of council can give access of anything to anyone witin the system.
-                - Concil Members can give access within their partial system scope.
-                - Lead Agents can give access within their partial system scope.
-                - Task Agents can give access within their restricted system scope. 
-                - Head of council can revoke access of anything to anyone witin the system.
-                - Concil Members can revoke access within their partial system scope.
-                - Lead Agents can revoke access within their partial system scope.
-                - Task Agents can revoke access within their restricted system scope. 
-                - Head of council can modify access of anything to anyone witin the system.
-                - Concil Members can modify access within their partial system scope.
-                - Lead Agents can modify access within their partial system scope.
-                - Task Agents can modify access within their restricted system scope. 
+chromadb:
+  host: chromadb
+  port: 8001
+  collection_name: "agentium_knowledge"
+  embedding_model: "all-MiniLM-L6-v2"
 
-Update permissions dynamically through the dashboard.
+redis:
+  host: redis
+  port: 6379
+  channels:
+    - "agent_bus"
+    - "council_chamber"
+    - "emergency_alerts"
+```
 
-### Messaging Channels
+### Constitutional Templates (`docs_ministry/templates/`)
 
-Configure integrations in `config/channels.json`:
-- WhatsApp, Telegram, Slack
-- Discord, Google Chat, Signal
-- iMessage, Microsoft Teams
-- Custom WebChat
+- `constitution_sample.md` — Base legal framework
+- `agent_ethos_sample.md` — Role-specific ethics templates
+- `genesis_log.md` — Auto-generated initialization record
 
 ---
 
 ## 🛠️ Technology Stack
 
-| Layer | Technology |
-|-------|------------|
-| **Frontend** | React, TypeScript |
-| **Backend** | Python, FastAPI |
-| **AI Models** | Local (Kimi 2.5, GPT-4) + API (Anthropic, OpenAI, Gemini) |
-| **Database** | SQLite / PostgreSQL |
-| **Containers** | Docker, docker-compose |
-| **Communication** | WebSocket, REST API |
-| **Deployment** | Local-first, Tailscale/SSH remote access |
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| **Frontend** | React 18, TypeScript, Tailwind, Zustand | Dashboard, voting UI, agent tree |
+| **API Gateway** | FastAPI, WebSocket, Pydantic | REST + real-time communication |
+| **Message Bus** | Redis, Celery | Inter-agent routing, background tasks |
+| **Structured Data** | PostgreSQL 15, SQLAlchemy, Alembic | Entity state, voting records, audit |
+| **Vector Knowledge** | ChromaDB, Sentence-Transformers | RAG, constitution, ethos, learnings |
+| **AI Models** | Local (Kimi, GPT4All) + API (OpenAI, Anthropic) | Agent intelligence |
+| **Container** | Docker, Compose, Healthchecks | Cross-platform deployment |
+| **Security** | JWT, OAuth2, AES-256 | Per-agent authentication |
+
+---
+
+## 📋 API Endpoints
+
+### Governance
+```
+POST   /api/v1/council/propose-amendment
+POST   /api/v1/council/vote/{vote_id}
+GET    /api/v1/council/pending-votes
+POST   /api/v1/council/knowledge/{id}/approve
+```
+
+### Agents
+```
+POST   /api/v1/agents/spawn              # With parent validation
+POST   /api/v1/agents/{id}/escalate      # To parent tier
+DELETE /api/v1/agents/{id}/liquidate     # Vote verification required
+GET    /api/v1/agents/tree               # Hierarchy visualization
+```
+
+### Knowledge Library ⭐
+```
+POST   /api/v1/knowledge/submit          # Task/Lead submit
+GET    /api/v1/knowledge/query           # RAG search
+GET    /api/v1/knowledge/constitution    # Semantic search
+GET    /api/v1/knowledge/pending         # Council moderation queue
+DELETE /api/v1/knowledge/{id}            # Council only
+```
+
+### Constitution
+```
+GET    /api/v1/constitution/active       # Current markdown
+GET    /api/v1/constitution/history      # Version history
+POST   /api/v1/constitution/query        # Natural language query
+```
+
+---
+
+## 🧪 Development Roadmap
+
+### Phase 0: Foundation ✅ 
+- [x] PostgreSQL entity models
+- [x] Hierarchical ID system (0/1/2/3xxxx)
+- [x] Docker compose setup
+
+### Phase 1: Knowledge Infrastructure 🚧 **Current Focus**
+- [ ] ChromaDB integration
+- [ ] Knowledge Library service
+- [ ] Initialization Protocol (Country naming)
+- [ ] RAG pipeline for Constitution
+
+### Phase 2: Governance Core
+- [ ] Message Bus (Redis)
+- [ ] Agent Orchestrator
+- [ ] Constitutional Guard (AI + RAG)
+- [ ] Voting Service with quorum logic
+
+### Phase 3: Lifecycle Management
+- [ ] Agent Factory (spawn/liquidate)
+- [ ] Auto-scaling algorithms
+- [ ] Capability Registry
+- [ ] Automated termination (idle detection)
+
+### Phase 4: Intelligence
+- [ ] Multi-model provider support
+- [] Browser automation integration
+- [ ] Advanced RAG with source citations
+- [ ] Voice interface (Whisper integration)
+
+### Phase 5: Ecosystem
+- [ ] Plugin marketplace
+- [ ] Multi-user RBAC (multiple Sovereigns)
+- [ ] Federation (inter-Agentium communication)
+- [ ] Mobile apps
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Here's how you can help:
+Agentium is built for the community. We welcome:
 
-- 🐛 Report bugs via GitHub Issues
-- 💡 Suggest features and improvements
-- 🔧 Submit pull requests
-- 📖 Improve documentation
-- 🌍 Add translations
+- 🏛️ **Governance Models**: New voting algorithms, constitutional frameworks
+- 🧠 **Knowledge Systems**: RAG improvements, embedding models
+- 🔌 **Integrations**: New messaging channels, AI providers
+- 📖 **Documentation**: Tutorials, constitutional examples
+- 🐛 **Bug Reports**: Help us maintain integrity
 
-Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting PRs.
+Read our [Contributing Guide](CONTRIBUTING.md) and [Constitution Template](docs_ministry/templates/constitution_sample.md).
 
 ---
 
-## 📋 Roadmap
+## 🛡️ Security & Ethics
 
-- [-] Project Development Ongoing
-- [ ] Plugin marketplace for custom agents
-- [ ] Mobile companion apps (iOS/Android)
-- [ ] Advanced analytics dashboard
-- [ ] Multi-user support with RBAC
-- [ ] Integration with more AI providers
-- [ ] Natural language config management
+- **Local-First**: Your data never leaves your infrastructure by default
+- **Immutable Audit**: All votes, actions, and terminations logged to PostgreSQL
+- **Principle of Least Privilege**: Task agents cannot spawn other agents
+- **Constitutional Bounded**: Agents cannot override the Constitution without democratic process
+- **Emergency Brakes**: Head can halt entire system; Council can veto Head with 75% vote
+
+---
+
+## 💬 Support & Community
+
+- 📚 [Documentation Wiki](https://github.com/yourusername/agentium/wiki)
+- 💻 [Discord Server](https://discord.gg/agentium) — Discuss governance models
+- 🐦 [Twitter/X](https://twitter.com/agentium)
+- 📧 Email: **ashmindhungana@gmail.com**
 
 ---
 
 ## 📄 License
 
-This project is licensed - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0 — See [LICENSE](LICENSE) file
 
----
+**Built with ❤️ and purpose by Ashmin Dhungana**
 
-
-
-## 💬 Support
-
-- 📚 [Documentation] (Coming Soon)
-- 📧 Email: [EMAIL_ADDRESS]
-
----
-
-<p align="center">
-  <strong>Built with ❤️ and purpose by Ashmin Dhungana</strong>
-</p>
+> *"The price of freedom is eternal vigilance. The price of AI sovereignty is democratic architecture."*
