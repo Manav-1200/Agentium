@@ -4,7 +4,6 @@
 
 [![Status](https://img.shields.io/badge/status-active--development-brightgreen)](https://github.com/yourusername/agentium)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **Agentium** transforms AI task execution into a structured digital democracy. Unlike monolithic AI assistants, Agentium operates as a self-governing ecosystem where AI agents function like a parliamentary system—complete with a **Head of Council** (Executive), **Council Members** (Legislature), **Lead Agents** (Directors), and **Task Agents** (Executors)—all bound by a **Constitution** and managed through democratic voting.
 
