@@ -55,9 +55,8 @@ class ChatService:
 Current System State:
 {context}
 
-{if consultation_result}
+{(1 if consultation_result else 0)}
 Recent consultation with parent: {consultation_result['guidance']}
-{/if}
 
 Address the Sovereign respectfully. If they issue a command that requires execution, indicate that you will create a task."""
         

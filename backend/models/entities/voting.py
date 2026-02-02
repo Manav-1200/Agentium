@@ -338,10 +338,9 @@ class VotingRecord(BaseEntity):
         }
         
         record = cls(
-            agentium_id=agentium_id,
+            agentium_id=agentium_id or f"R{agentium_id}{start.strftime('%Y%m%d')}",
             period_start=start,
             period_end=end,
-            agentium_id=f"R{agentium_id}{start.strftime('%Y%m%d')}",
             **stats
         )
         

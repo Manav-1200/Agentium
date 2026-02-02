@@ -12,7 +12,7 @@ from backend.models.entities.monitoring import (
     AgentHealthReport, ViolationReport, ViolationSeverity, 
     TaskVerification, PerformanceMetric, MonitoringAlert
 )
-from backend.models.entities.tasks import Task, SubTask, TaskStatus
+from backend.models.entities.task import Task, SubTask, TaskStatus
 from backend.models.database import get_db_context, get_next_agentium_id
 
 class MonitoringService:
@@ -209,8 +209,8 @@ class MonitoringService:
     def calculate_performance_metrics(
         monitor_id: str,
         subject_id: str,
-        period_days: int = 7,
-        db: Session
+        db: Session,
+        period_days: int = 7
     ) -> PerformanceMetric:
         """
         Calculate rolling performance metrics for a subordinate.

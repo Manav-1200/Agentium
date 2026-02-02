@@ -119,7 +119,7 @@ You are speaking directly to the Sovereign. Address them respectfully and provid
         task_info = await ChatService.analyze_for_task(head, message, full_text, db)
         
         # Send completion event with metadata
-        yield f"data: {json.dumps({
+        yield f"""data: {json.dumps({
             'type': 'complete',
             'content': '',
             'metadata': {
@@ -128,7 +128,7 @@ You are speaking directly to the Sovereign. Address them respectfully and provid
                 'task_created': task_info['created'],
                 'task_id': task_info.get('task_id')
             }
-        })}\n\n"
+        })}\n\n"""
         
         # Log the interaction
         await ChatService.log_interaction(
@@ -172,7 +172,8 @@ async def get_chat_history(
         ]
     }
 
-import json"""
+import json
+"""
 Chat API for Sovereign to communicate with Head of Council.
 Supports streaming responses for real-time communication.
 """
@@ -293,7 +294,7 @@ You are speaking directly to the Sovereign. Address them respectfully and provid
         task_info = await ChatService.analyze_for_task(head, message, full_text, db)
         
         # Send completion event with metadata
-        yield f"data: {json.dumps({
+        yield f"""data: {json.dumps({
             'type': 'complete',
             'content': '',
             'metadata': {
@@ -302,7 +303,7 @@ You are speaking directly to the Sovereign. Address them respectfully and provid
                 'task_created': task_info['created'],
                 'task_id': task_info.get('task_id')
             }
-        })}\n\n"
+        })}\n\n"""
         
         # Log the interaction
         await ChatService.log_interaction(

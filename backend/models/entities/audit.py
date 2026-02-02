@@ -5,7 +5,7 @@ Records all actions for transparency, accountability, and debugging.
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, Enum, JSON, Index
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, Enum, JSON, Index, Boolean, Float
 from sqlalchemy.orm import relationship
 from backend.models.entities.base import BaseEntity
 import enum
@@ -67,7 +67,7 @@ class AuditLog(BaseEntity):
     # Detailed data
     before_state = Column(JSON, nullable=True)  # State before action
     after_state = Column(JSON, nullable=True)   # State after action
-    metadata = Column(JSON, nullable=True)      # Arbitrary contextual data
+    meta_data = Column(JSON, nullable=True)      # ✅ FIXED: Changed from 'metadata' to 'meta_data'
     request_payload = Column(Text, nullable=True)  # Raw request data
     
     # Result
@@ -108,7 +108,7 @@ class AuditLog(BaseEntity):
             success: bool = True,
             before_state: Dict = None,
             after_state: Dict = None,
-            metadata: Dict = None,
+            meta_data: Dict = None,  # ✅ FIXED: Changed parameter name
             **kwargs) -> 'AuditLog':
         """
         Factory method to create audit log entry.
@@ -126,7 +126,7 @@ class AuditLog(BaseEntity):
             success='Y' if success else 'N',
             before_state=before_state,
             after_state=after_state,
-            metadata=metadata,
+            meta_data=meta_data,  # ✅ FIXED: Changed parameter name
             **kwargs
         )
         return entry
@@ -183,7 +183,7 @@ class AuditLog(BaseEntity):
             },
             'timestamp': self.created_at.isoformat(),
             'duration_ms': self.duration_ms,
-            'metadata': self.metadata
+            'metadata': self.meta_data  # ✅ FIXED: Using meta_data attribute
         })
         return base
 
@@ -360,6 +360,7 @@ class HealthCheck(BaseEntity):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         if not kwargs.get('agentium_id'):
+            component = kwargs.get('component', 'unknown')
             self.agentium_id = f"H{component[0].upper()}{datetime.utcnow().strftime('%H%M%S')}"
     
     def is_healthy(self) -> bool:

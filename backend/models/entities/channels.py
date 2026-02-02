@@ -4,7 +4,7 @@ Channel management for external integrations (WhatsApp, Slack, Email, etc.)
 
 from datetime import datetime
 from typing import Optional, Dict, Any
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Enum, Boolean, JSON
+from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Enum, Boolean, JSON
 from sqlalchemy.orm import relationship
 from backend.models.entities.base import BaseEntity
 import enum

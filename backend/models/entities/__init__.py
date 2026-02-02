@@ -28,7 +28,7 @@ from backend.models.entities.scheduled_task import (
 
 
 
-from backend.models.entities.tasks import (
+from backend.models.entities.task import (
     Task,
     SubTask,
     TaskAuditLog,
@@ -62,14 +62,7 @@ from backend.models.entities.agents import (
     AgentStatus,
     AGENT_TYPE_MAP
 )
-from backend.models.entities.tasks import (
-    Task,
-    SubTask,
-    TaskAuditLog,
-    TaskStatus,
-    TaskPriority,
-    TaskType
-)
+
 from backend.models.entities.voting import (
     TaskDeliberation,
     IndividualVote,

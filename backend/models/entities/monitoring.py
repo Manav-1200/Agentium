@@ -309,7 +309,7 @@ class MonitoringAlert(BaseEntity):
     
     # Details
     message = Column(Text, nullable=False)
-    metadata = Column(JSON, nullable=True)
+    alert_metadata = Column(JSON, nullable=True)
     
     # Routing
     notified_agents = Column(JSON, default=list)  # List of agentium_ids notified

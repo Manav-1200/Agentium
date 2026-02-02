@@ -5,8 +5,9 @@ Supports ANY API provider (OpenAI, Anthropic, Groq, Mistral, Gemini, local, etc.
 
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, Enum, JSON, Text
+from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, Enum, JSON, Text, ForeignKey
 from sqlalchemy.orm import validates
+from sqlalchemy.orm import relationship
 import enum
 
 from backend.models.entities.base import BaseEntity

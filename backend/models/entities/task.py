@@ -492,8 +492,7 @@ class TaskAuditLog(BaseEntity):
             task_id=task_id,
             agentium_id=agentium_id,
             action=action,
-            action_details=details or {},
-            agentium_id=f"L{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            action_details=details or {}
         )
     
     def to_dict(self) -> Dict[str, Any]:
