@@ -4,12 +4,17 @@ import { constitutionService } from '../services/constitution';
 import { Shield, Book, AlertTriangle, Scale, History } from 'lucide-react';
 
 export const ConstitutionPage: React.FC = () => {
+    // ADD THESE MISSING HOOKS:
+    const [constitution, setConstitution] = useState<Constitution | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState<{
         preamble: string;
-        articles: string; // Easier to edit JSON as string for MVP
-        prohibited_actions: string; // Edit as line-separated list
-        sovereign_preferences: string; // Edit as JSON string
+        articles: string;
+        prohibited_actions: string;
+        sovereign_preferences: string;
     }>({
         preamble: '',
         articles: '',
@@ -24,6 +29,7 @@ export const ConstitutionPage: React.FC = () => {
     const loadConstitution = async () => {
         try {
             setIsLoading(true);
+            setError(null);
             const data = await constitutionService.getCurrentConstitution();
             setConstitution(data);
 
@@ -57,7 +63,6 @@ export const ConstitutionPage: React.FC = () => {
 
             await loadConstitution();
             setIsEditing(false);
-            // toast.success('Constitution updated successfully'); // Assuming toast is globally available or imported
         } catch (err: any) {
             console.error(err);
             alert(`Failed to save: ${err.message}`);
@@ -109,8 +114,8 @@ export const ConstitutionPage: React.FC = () => {
                 <button
                     onClick={() => isEditing ? handleSave() : setIsEditing(true)}
                     className={`px-4 py-2 rounded-lg font-medium transition-colors ${isEditing
-                            ? 'bg-green-600 hover:bg-green-500 text-white'
-                            : 'bg-gray-800 hover:bg-gray-700 text-gray-200'
+                        ? 'bg-green-600 hover:bg-green-500 text-white'
+                        : 'bg-gray-800 hover:bg-gray-700 text-gray-200'
                         }`}
                 >
                     {isEditing ? 'Save Changes' : 'Edit Constitution'}
@@ -176,7 +181,7 @@ export const ConstitutionPage: React.FC = () => {
                 </div>
             ) : (
                 <>
-                    {/* View Mode (Original Layout) */}
+                    {/* View Mode */}
                     <section className="mb-10 text-center">
                         <h2 className="text-xl font-serif italic text-gray-300 mb-4 leading-relaxed max-w-2xl mx-auto">
                             "{constitution.preamble}"
@@ -215,7 +220,7 @@ export const ConstitutionPage: React.FC = () => {
                                     {articleId}
                                 </h4>
                                 <p className="text-gray-300 leading-relaxed whitespace-pre-wrap">
-                                    {content}
+                                    {content as string}
                                 </p>
                             </div>
                         ))}

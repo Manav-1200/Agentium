@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { ChatAPI } from '@/services/api';
 import toast from 'react-hot-toast';
 
 export interface Message {
@@ -26,9 +25,32 @@ interface ChatState {
     clearHistory: () => void;
 }
 
+// Stub for Phase 1 - replace with real API in Phase 5
+const sendMessageToCouncil = async (
+    message: string,
+    onChunk: (chunk: string) => void,
+    onComplete: (meta: any) => void,
+    onError: (error: string) => void
+) => {
+    // Simulate streaming response
+    const response = "This is a Phase 1 test response from Head of Council.";
+    const chunks = response.split(' ');
+    
+    for (const chunk of chunks) {
+        onChunk(chunk + ' ');
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    onComplete({
+        agent_id: '00001',
+        model: 'gpt-4',
+        task_created: false
+    });
+};
+
 export const useChatStore = create<ChatState>()(
     persist(
-        (set, get) => ({
+        (set) => ({
             messages: [],
             isLoading: false,
             currentStreamingMessage: '',
@@ -52,19 +74,19 @@ export const useChatStore = create<ChatState>()(
                     let assistantContent = '';
                     let metadata: any = {};
 
-                    await ChatAPI.sendMessage(
+                    await sendMessageToCouncil(
                         content,
                         // On chunk
-                        (chunk) => {
+                        (chunk: string) => {
                             assistantContent += chunk;
                             set({ currentStreamingMessage: assistantContent });
                         },
                         // On complete
-                        (meta) => {
+                        (meta: any) => {
                             metadata = meta;
                         },
                         // On error
-                        (error) => {
+                        (error: string) => {
                             throw new Error(error);
                         }
                     );
@@ -90,9 +112,8 @@ export const useChatStore = create<ChatState>()(
                         currentStreamingMessage: ''
                     }));
 
-                    // Notify if task was created
                     if (metadata.task_created) {
-                        toast.success(`Task ${metadata.task_id} created and sent to Council for deliberation`);
+                        toast.success(`Task ${metadata.task_id} created`);
                     }
 
                 } catch (error) {

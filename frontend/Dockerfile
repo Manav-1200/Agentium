@@ -4,10 +4,13 @@ FROM node:20-alpine as builder
 WORKDIR /app
 
 # Copy package files
-COPY package.json ./
+COPY package.json package-lock.json* ./
 
-# Install dependencies (USE npm install for now, not npm ci)
+# Install dependencies
 RUN npm install
+
+# Ensure types are available (fix for TS2688)
+RUN npm install --save-dev @types/node
 
 # Copy source code
 COPY . .

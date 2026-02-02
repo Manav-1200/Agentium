@@ -453,7 +453,7 @@ export function ChannelsPage() {
                                             name: formData.get('name') as string,
                                             type: selectedType as any,
                                             config: Object.fromEntries(
-                                                channelTypes.find(t => t.id === selectedType)?.fields.map(f => [f.name, formData.get(f.name) || '']) || []
+                                                channelTypes.find(t => t.id === selectedType)?.fields.map(f => [f.name, (formData.get(f.name) || '').toString()]) || []
                                             ),
                                             auto_create_tasks: true,
                                             require_approval: false

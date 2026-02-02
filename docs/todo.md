@@ -741,7 +741,8 @@ Final:
 - Verify Head of Council has full system access
 - Verify Browser Control
 - Test and check if eveything is working well.
-
+- Memory Management (Database and Vector DB Memory management i.e Delete very old data record and versions of data stored, dont delete the orginal constitution.)
+- Signup feature with admin approval
 ---
 
 *Last Updated: 2026-02-01*  

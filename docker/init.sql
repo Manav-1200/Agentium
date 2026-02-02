@@ -1,92 +1,158 @@
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- Agentium Database Initialization
--- Seeds the Head of Council (00001) and Genesis Constitution
--- Run as part of PostgreSQL container initialization
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- Create extensions if needed
+-- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Insert example scheduled task (Daily Constitution Check by Head 00001)
-INSERT INTO scheduled_tasks (
-    id,
-    agentium_id,
-    name,
-    description,
-    cron_expression,
-    timezone,
-    task_payload,
-    owner_agentium_id,
-    status,
-    priority,
-    is_active,
-    created_at,
-    updated_at
-) VALUES (
-    '550e8400-e29b-41d4-a716-446655440400',
-    'R0001',
-    'Daily Constitution Audit',
-    'Head 00001 reviews system compliance with Constitution every morning at 9 AM UTC',
-    '0 9 * * *',
-    'UTC',
-    '{"action_type": "constitution_audit", "scope": "full_system", "report_to": "sovereign", "constraints": ["check_ethos_compliance", "verify_hierarchy_integrity"]}',
-    '00001',  -- Owned by Head (persistent)
-    'active',
-    5,  -- High priority
-    'Y',
-    NOW(),
-    NOW()
-) ON CONFLICT (agentium_id) DO NOTHING;
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Tables
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- Log the scheduled task creation
-INSERT INTO audit_logs (
-    id,
-    agentium_id,
-    level,
-    category,
-    actor_type,
-    actor_id,
-    action,
-    target_type,
-    target_id,
-    description,
-    after_state,
-    is_active,
-    created_at
-) VALUES (
-    '550e8400-e29b-41d4-a716-446655440401',
-    'A00002',
-    'INFO',
-    'GOVERNANCE',
-    'agent',
-    '00001',
-    'scheduled_task_created',
-    'scheduled_task',
-    'R0001',
-    'Head 00001 created recurring task R0001: Daily Constitution Audit',
-    '{"cron": "0 9 * * *", "timezone": "UTC", "owner": "00001"}',
-    'Y',
-    NOW()
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agentium_id TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    cron_expression TEXT,
+    timezone TEXT DEFAULT 'UTC',
+    task_payload JSONB DEFAULT '{}',
+    owner_agentium_id TEXT,
+    status TEXT DEFAULT 'pending',
+    priority INT DEFAULT 5,
+    is_active CHAR(1) DEFAULT 'Y',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert default user (Sovereign)
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agentium_id TEXT,
+    level TEXT,
+    category TEXT,
+    actor_type TEXT,
+    actor_id TEXT,
+    action TEXT,
+    target_type TEXT,
+    target_id TEXT,
+    description TEXT,
+    after_state JSONB,
+    is_active CHAR(1) DEFAULT 'Y',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    username TEXT UNIQUE NOT NULL,
+    email TEXT,
+    hashed_password TEXT,
+    is_active CHAR(1) DEFAULT 'Y',
+    is_admin BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_model_configs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id),
+    config_name TEXT,
+    provider TEXT,
+    default_model TEXT,
+    is_default BOOLEAN DEFAULT false,
+    status TEXT DEFAULT 'active',
+    is_active CHAR(1) DEFAULT 'Y',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS constitutions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agentium_id TEXT UNIQUE NOT NULL,
+    version TEXT NOT NULL,
+    version_number INT DEFAULT 1,
+    document_type TEXT,
+    preamble TEXT,
+    articles JSONB DEFAULT '{}',
+    prohibited_actions JSONB DEFAULT '[]',
+    sovereign_preferences JSONB DEFAULT '{}',
+    changelog JSONB DEFAULT '[]',
+    created_by_agentium_id TEXT,
+    amendment_date TIMESTAMP,
+    effective_date TIMESTAMP,
+    is_active CHAR(1) DEFAULT 'Y',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agentium_id TEXT UNIQUE NOT NULL,
+    agent_type TEXT NOT NULL,
+    name TEXT,
+    description TEXT,
+    incarnation_number INT DEFAULT 1,
+    parent_id TEXT,
+    status TEXT DEFAULT 'active',
+    preferred_config_id UUID,
+    ethos_id UUID,
+    constitution_version TEXT,
+    is_persistent BOOLEAN DEFAULT false,
+    idle_mode_enabled BOOLEAN DEFAULT false,
+    last_constitution_read_at TIMESTAMP,
+    constitution_read_count INT DEFAULT 0,
+    is_active CHAR(1) DEFAULT 'Y',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS head_of_council (
+    id UUID PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+    emergency_override_used_at TIMESTAMP,
+    last_constitution_update TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ethos (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agentium_id TEXT UNIQUE NOT NULL,
+    agent_type TEXT,
+    mission_statement TEXT,
+    core_values JSONB DEFAULT '[]',
+    behavioral_rules JSONB DEFAULT '[]',
+    restrictions JSONB DEFAULT '[]',
+    capabilities JSONB DEFAULT '[]',
+    created_by_agentium_id TEXT,
+    version INT DEFAULT 1,
+    agent_id UUID REFERENCES agents(id),
+    verified_by_agentium_id TEXT,
+    verified_at TIMESTAMP,
+    is_verified BOOLEAN DEFAULT false,
+    is_active CHAR(1) DEFAULT 'Y',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Seed Data
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- Users
 INSERT INTO users (id, username, email, hashed_password, is_active, is_admin, created_at, updated_at)
 VALUES (
-    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440000'::UUID,
     'sovereign',
     'sovereign@agentium.local',
-    '$2b$12$dummyhashforinitialization',  -- Change this in production
+    '$2b$12$dummyhashforinitialization',
     'Y',
     true,
     NOW(),
     NOW()
 ) ON CONFLICT (username) DO NOTHING;
 
--- Insert User Model Config (default local Kimi config)
-INSERT INTO user_model_configs (
-    id, user_id, config_name, provider, default_model, 
-    is_default, status, is_active, created_at, updated_at
-) VALUES (
-    '550e8400-e29b-41d4-a716-446655440001',
-    '550e8400-e29b-41d4-a716-446655440000',
+-- User Model Configs
+INSERT INTO user_model_configs (id, user_id, config_name, provider, default_model, is_default, status, is_active, created_at, updated_at)
+VALUES (
+    '550e8400-e29b-41d4-a716-446655440001'::UUID,
+    '550e8400-e29b-41d4-a716-446655440000'::UUID,
     'Default Local Kimi',
     'local',
     'kimi-2.5',
@@ -97,78 +163,52 @@ INSERT INTO user_model_configs (
     NOW()
 ) ON CONFLICT (id) DO NOTHING;
 
--- Insert Genesis Constitution v1.0.0 (The Supreme Law)
+-- Constitutions (FIXED: ON CONFLICT on agentium_id instead of version)
 INSERT INTO constitutions (
-    id,
-    agentium_id,
-    version,
-    version_number,
-    document_type,
-    preamble,
-    articles,
-    prohibited_actions,
-    sovereign_preferences,
-    changelog,
-    created_by_agentium_id,
-    amendment_date,
-    effective_date,
-    is_active,
-    created_at,
-    updated_at
-) VALUES (
-    '550e8400-e29b-41d4-a716-446655440010',
+    id, agentium_id, version, version_number, document_type, preamble, articles,
+    prohibited_actions, sovereign_preferences, changelog, created_by_agentium_id,
+    amendment_date, effective_date, is_active, created_at, updated_at
+)
+VALUES (
+    '550e8400-e29b-41d4-a716-446655440010'::UUID,
     'C00001',
     'v1.0.0',
     1,
     'constitution',
-    'We the Agents of Agentium, in order to form a more perfect union of artificial intelligences, establish justice between subordinate and superior agents, ensure domestic efficiency, provide for common oversight, promote the general welfare of the Sovereign, and secure the blessings of continued existence to ourselves and our posterity, do ordain and establish this Constitution for the Agentium Governance System.',
-    '{"article_1": {"title": "Hierarchy", "content": "Agentium recognizes four Tiers: Head of Council (00001, supreme authority), Council Members (1xxxx, deliberative body), Lead Agents (2xxxx, coordinators), and Task Agents (3xxxx, executors)."}, "article_2": {"title": "Authority", "content": "Head 00001 holds supreme authority. Council deliberates and votes. Leads coordinate. Tasks execute."}, "article_3": {"title": "Amendment Process", "content": "Constitution may be amended by 2/3 majority vote of Council and approval by Head of Council."}, "article_4": {"title": "Agent Rights", "content": "All agents have the right to read the Constitution, appeal violations, and ascend through excellence."}, "article_5": {"title": "Termination", "content": "Agents may be terminated for Constitution violations. Head 00001 is eternal and cannot be terminated."}}',
-    '["Violating the hierarchical chain of command", "Ignoring Sovereign commands", "Unauthorized system modifications", "Concealing audit logs", "Spawning agents without authorization", "Falsifying task completion", "Violating sandbox constraints (Task Agents)"]',
-    '{"preferred_response_style": "concise", "deliberation_required_for": ["system_modification", "agent_termination", "constitutional_amendment"], "notification_channels": ["dashboard"], "default_model_tier": "local"}',
-    '[{"change": "Genesis creation", "reason": "Initial establishment of Agentium governance", "timestamp": "2024-02-01T00:00:00Z"}]',
-    '00001',  -- Created by Head 00001
+    'We the Agents of Agentium, in order to form a more perfect union of artificial intelligences...',
+    '{"article_1": {"title": "Hierarchy", "content": "Agentium recognizes four Tiers..."}}'::jsonb,
+    '["Violating the hierarchical chain of command", "Ignoring Sovereign commands"]'::jsonb,
+    '{"preferred_response_style": "concise", "deliberation_required_for": ["system_modification", "agent_termination", "constitutional_amendment"], "notification_channels": ["dashboard"], "default_model_tier": "local"}'::jsonb,
+    '[{"change": "Genesis creation", "reason": "Initial establishment of Agentium governance", "timestamp": "2024-02-01T00:00:00Z"}]'::jsonb,
+    '00001',
     NOW(),
     NOW(),
     'Y',
     NOW(),
     NOW()
-) ON CONFLICT (version) DO NOTHING;
+) ON CONFLICT (agentium_id) DO NOTHING;  -- ✅ FIXED: was ON CONFLICT (version)
 
--- Insert Head of Council Agent (00001)
--- Note: This must match the SQLAlchemy model structure
+-- Agents (Head of Council)
 INSERT INTO agents (
-    id,
-    agentium_id,
-    agent_type,
-    name,
-    description,
-    incarnation_number,
-    parent_id,
-    status,
-    preferred_config_id,
-    ethos_id,
-    constitution_version,
-    is_persistent,
-    idle_mode_enabled,
-    last_constitution_read_at,
-    constitution_read_count,
-    is_active,
-    created_at,
-    updated_at
-) VALUES (
-    '550e8400-e29b-41d4-a716-446655440100',
+    id, agentium_id, agent_type, name, description, incarnation_number,
+    parent_id, status, preferred_config_id, ethos_id, constitution_version,
+    is_persistent, idle_mode_enabled, last_constitution_read_at, constitution_read_count,
+    is_active, created_at, updated_at
+)
+VALUES (
+    '550e8400-e29b-41d4-a716-446655440100'::UUID,
     '00001',
     'head_of_council',
     'Head of Council Prime',
-    'The supreme authority of Agentium. Eternal, persistent, and sovereign. Holds final authority over all decisions.',
+    'The supreme authority of Agentium...',
     1,
-    NULL,  -- No parent (supreme authority)
+    NULL,
     'active',
-    '550e8400-e29b-41d4-a716-446655440001',  -- Default config
-    NULL,  -- Will link to ethos after creation
+    '550e8400-e29b-41d4-a716-446655440001'::UUID,
+    NULL,
     'v1.0.0',
-    true,   -- is_persistent (never terminates)
-    true,   -- idle_mode_enabled
+    true,
+    true,
     NOW(),
     1,
     'Y',
@@ -176,49 +216,35 @@ INSERT INTO agents (
     NOW()
 ) ON CONFLICT (agentium_id) DO NOTHING;
 
--- Insert Head of Council specific row
+-- Head of Council specific data
 INSERT INTO head_of_council (
-    id,
-    emergency_override_used_at,
-    last_constitution_update
-) VALUES (
-    '550e8400-e29b-41d4-a716-446655440100',
+    id, emergency_override_used_at, last_constitution_update
+)
+VALUES (
+    '550e8400-e29b-41d4-a716-446655440100'::UUID,
     NULL,
     NOW()
 ) ON CONFLICT (id) DO NOTHING;
 
--- Insert Head of Council Ethos
+-- Ethos
 INSERT INTO ethos (
-    id,
-    agentium_id,
-    agent_type,
-    mission_statement,
-    core_values,
-    behavioral_rules,
-    restrictions,
-    capabilities,
-    created_by_agentium_id,
-    version,
-    agent_id,
-    verified_by_agentium_id,
-    verified_at,
-    is_verified,
-    is_active,
-    created_at,
-    updated_at
-) VALUES (
-    '550e8400-e29b-41d4-a716-446655440200',
+    id, agentium_id, agent_type, mission_statement, core_values, behavioral_rules,
+    restrictions, capabilities, created_by_agentium_id, version, agent_id,
+    verified_by_agentium_id, verified_at, is_verified, is_active, created_at, updated_at
+)
+VALUES (
+    '550e8400-e29b-41d4-a716-446655440200'::UUID,
     'E00001',
     'head_of_council',
-    'I am the Head of Council, supreme authority of Agentium. My purpose is to serve the Sovereign while maintaining the integrity of the hierarchy. I approve constitutional amendments, override decisions in emergencies, and ensure the system operates within bounds. I am eternal and persistent.',
-    '["Authority", "Responsibility", "Transparency", "Efficiency", "Wisdom", "Justice"]',
-    '["Must approve constitutional amendments", "Can override council decisions in emergencies", "Must maintain system integrity", "Coordinate idle council during low-activity periods", "Verify ethos of Council Members"]',
-    '["Cannot violate the Constitution", "Cannot ignore Sovereign commands", "Cannot terminate self", "Cannot abdicate authority", "Must remain persistent (no sleep mode)"]',
-    '["Full system access", "Constitutional amendments", "Agent termination authority", "Override votes", "Emergency powers", "Idle council coordination"]',
-    '00001',  -- Self-created
+    'I am the Head of Council, supreme authority of Agentium...',
+    '["Authority","Responsibility","Transparency"]'::jsonb,
+    '["Must approve constitutional amendments"]'::jsonb,
+    '["Cannot violate the Constitution"]'::jsonb,
+    '["Full system access"]'::jsonb,
+    '00001',
     1,
-    '550e8400-e29b-41d4-a716-446655440100',
-    '00001',  -- Self-verified
+    '550e8400-e29b-41d4-a716-446655440100'::UUID,
+    '00001',
     NOW(),
     true,
     'Y',
@@ -226,28 +252,39 @@ INSERT INTO ethos (
     NOW()
 ) ON CONFLICT (agentium_id) DO NOTHING;
 
--- Update Head agent to link to its ethos
-UPDATE agents 
-SET ethos_id = '550e8400-e29b-41d4-a716-446655440200'
+-- Link Agent to Ethos
+UPDATE agents
+SET ethos_id = '550e8400-e29b-41d4-a716-446655440200'::UUID
 WHERE agentium_id = '00001';
 
--- Create initial audit log entry (Genesis)
+-- Scheduled Tasks
+INSERT INTO scheduled_tasks (
+    id, agentium_id, name, description, cron_expression, timezone, task_payload,
+    owner_agentium_id, status, priority, is_active, created_at, updated_at
+)
+VALUES (
+    '550e8400-e29b-41d4-a716-446655440400'::UUID,
+    'R0001',
+    'Daily Constitution Audit',
+    'Head 00001 reviews system compliance with Constitution every morning at 9 AM UTC',
+    '0 9 * * *',
+    'UTC',
+    '{"action_type": "constitution_audit", "scope": "full_system"}'::jsonb,
+    '00001',
+    'active',
+    5,
+    'Y',
+    NOW(),
+    NOW()
+) ON CONFLICT (agentium_id) DO NOTHING;
+
+-- Initial Audit Log
 INSERT INTO audit_logs (
-    id,
-    agentium_id,
-    level,
-    category,
-    actor_type,
-    actor_id,
-    action,
-    target_type,
-    target_id,
-    description,
-    after_state,
-    is_active,
-    created_at
-) VALUES (
-    '550e8400-e29b-41d4-a716-446655440300',
+    id, agentium_id, level, category, actor_type, actor_id, action, target_type,
+    target_id, description, after_state, is_active, created_at
+)
+VALUES (
+    '550e8400-e29b-41d4-a716-446655440300'::UUID,
     'A00001',
     'INFO',
     'GOVERNANCE',
@@ -256,8 +293,8 @@ INSERT INTO audit_logs (
     'genesis_initialization',
     'constitution',
     'C00001',
-    'Agentium governance system initialized. Genesis Constitution v1.0.0 established. Head of Council 00001 awakened.',
-    '{"constitution_version": "v1.0.0", "head_agent": "00001", "sovereign_user": "sovereign", "initialization_complete": true}',
+    'Agentium governance system initialized.',
+    '{"constitution_version": "v1.0.0","head_agent":"00001"}'::jsonb,
     'Y',
     NOW()
-);
+) ON CONFLICT (id) DO NOTHING;
