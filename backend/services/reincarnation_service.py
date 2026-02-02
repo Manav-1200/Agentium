@@ -213,11 +213,10 @@ Summarize the key learnings, patterns, and wisdom from this life that should be 
 {context[:2000]}  # Truncate to avoid exceeding limits further
 
 Focus on:
-1. Key learnings about tasks completed
-2. Patterns in Sovereign preferences observed
-3. Optimization techniques discovered
-4. Mistakes to avoid in next incarnation
-5. Relationships with other agents
+1. Key learnings about tasks completed.
+2. Mistakes to avoid in next incarnation
+3. Summery of what task you were doing. 
+4. Did you complete the task and if not then what is left to do?
 
 Format as a "Life Summary" that will be stored in the agent's ethos for its successor to inherit."""
         
