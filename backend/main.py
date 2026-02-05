@@ -35,6 +35,7 @@ from backend.api.routes import channels as channels_routes
 from backend.api.routes import webhooks as webhooks_router
 from backend.api.routes import models as model_routes
 from backend.api.routes import websocket as websocket_routes
+from backend.api.routes import auth as auth_routes
 from backend.core.auth import get_current_user
 from backend.api import sovereign
 from backend.api.routes import tool_creation as tool_creation_routes
@@ -185,6 +186,7 @@ app = FastAPI(
 )
 
 # Include routers
+app.include_router(auth_routes.router)
 app.include_router(model_routes.router)
 app.include_router(chat_routes.router)
 app.include_router(channels_routes.router)
@@ -636,6 +638,53 @@ async def get_current_constitution(db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No active constitution found")
     
     return constitution.to_dict()
+
+@app.post("/constitution/update")
+async def update_constitution(
+    preamble: str = None,
+    articles: str = None,
+    prohibited_actions: list = None,
+    sovereign_preferences: dict = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Propose constitution update (requires Council voting in production).
+    For now, creates new version immediately.
+    """
+    current = db.query(Constitution).filter_by(
+        is_active='Y'
+    ).order_by(Constitution.effective_date.desc()).first()
+    
+    if not current:
+        raise HTTPException(status_code=404, detail="No active constitution found")
+    
+    # Deactivate current constitution
+    current.is_active = 'N'
+    
+    # Create new version
+    import json
+    from datetime import datetime
+    
+    new_constitution = Constitution(
+        version=current.version + 1,
+        preamble=preamble or current.preamble,
+        articles=articles or current.articles,
+        prohibited_actions=prohibited_actions or (
+            json.loads(current.prohibited_actions) if isinstance(current.prohibited_actions, str) else current.prohibited_actions
+        ),
+        sovereign_preferences=sovereign_preferences or (
+            json.loads(current.sovereign_preferences) if isinstance(current.sovereign_preferences, str) else current.sovereign_preferences
+        ),
+        effective_date=datetime.utcnow(),
+        is_active='Y',
+        created_by="sovereign"
+    )
+    
+    db.add(new_constitution)
+    db.commit()
+    db.refresh(new_constitution)
+    
+    return new_constitution.to_dict()
 
 # ==================== Monitoring & Oversight ====================
 
