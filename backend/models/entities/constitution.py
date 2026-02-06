@@ -53,15 +53,17 @@ class Constitution(BaseEntity):
 
     amendments = relationship(
         "Constitution",
+        primaryjoin=lambda: remote(Constitution.id) == Constitution.amendment_of,
         back_populates="amended_from",
-        remote_side=lambda: Constitution.id,  # Lambda to avoid NameError
         cascade="all",
         passive_deletes=True,
     )
 
+    # Many-to-one: this constitution points to its parent via amendment_of
     amended_from = relationship(
         "Constitution",
         foreign_keys=[amendment_of],
+        remote_side=lambda: Constitution.id,
         back_populates="amendments",
     )
 
@@ -81,8 +83,8 @@ class Constitution(BaseEntity):
     #     back_populates="replaces_version",
     # )
 
-    # voting_sessions remains unchanged
-    voting_sessions = relationship("AmendmentVoting", back_populates="amendment", lazy="dynamic")
+
+    voting_sessions = relationship("AmendmentVoting", back_populates="amendment")
     
     def __init__(self, **kwargs):
         # Auto-generate version strings if not provided
