@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { useWebSocketChat } from '@/hooks/useWebSocket';
 import {
@@ -9,7 +9,8 @@ import {
     Loader2,
     Wifi,
     WifiOff,
-    CheckCircle
+    CheckCircle,
+    RefreshCw
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -26,16 +27,18 @@ export function ChatPage() {
     const [input, setInput] = useState('');
     const [messages, setMessages] = useState<Message[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const { user } = useAuthStore();
 
-    // Use authenticated WebSocket
+    // 🔑 FIX: Get user from store, then extract isAuthenticated
+    const user = useAuthStore(state => state.user);
+    const isAuthenticated = user?.isAuthenticated ?? false;
+
     const {
         isConnected,
         isConnecting,
         error,
-        sendMessage: sendWsMessage
+        sendMessage: sendWsMessage,
+        reconnect
     } = useWebSocketChat((data) => {
-        // Handle incoming WebSocket messages
         if (data.type === 'message' || data.type === 'system' || data.type === 'error') {
             const newMessage: Message = {
                 id: crypto.randomUUID(),
@@ -46,14 +49,12 @@ export function ChatPage() {
             };
             setMessages(prev => [...prev, newMessage]);
 
-            // Show toast for task creation
             if (data.metadata?.task_created) {
                 toast.success(`Task ${data.metadata.task_id} created`);
             }
         }
     });
 
-    // Auto-scroll
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
@@ -62,7 +63,6 @@ export function ChatPage() {
         e.preventDefault();
         if (!input.trim() || !isConnected) return;
 
-        // Add user message to UI immediately
         const userMessage: Message = {
             id: crypto.randomUUID(),
             role: 'sovereign',
@@ -71,7 +71,6 @@ export function ChatPage() {
         };
         setMessages(prev => [...prev, userMessage]);
 
-        // Send via WebSocket (authenticated)
         const sent = sendWsMessage(input.trim());
 
         if (sent) {
@@ -93,9 +92,26 @@ export function ChatPage() {
         return <WifiOff className="w-5 h-5" />;
     };
 
+    // Show auth error if not logged in
+    if (!isAuthenticated) {
+        return (
+            <div className="h-[calc(100vh-4rem)] flex items-center justify-center">
+                <div className="text-center p-8 bg-red-50 dark:bg-red-900/20 rounded-2xl max-w-md">
+                    <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+                    <h2 className="text-xl font-bold text-red-900 dark:text-red-300 mb-2">
+                        Authentication Required
+                    </h2>
+                    <p className="text-red-700 dark:text-red-400">
+                        Please log in to access the Command Interface.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="h-[calc(100vh-4rem)] flex flex-col max-w-5xl mx-auto">
-            {/* Header with Connection Status */}
+            {/* Header */}
             <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white">
@@ -117,6 +133,15 @@ export function ChatPage() {
                                     isConnecting ? 'Connecting...' :
                                         error || 'Disconnected'}
                             </span>
+                            {!isConnected && !isConnecting && (
+                                <button
+                                    onClick={reconnect}
+                                    className="ml-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors"
+                                    title="Reconnect"
+                                >
+                                    <RefreshCw className="w-4 h-4 text-gray-500" />
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -170,10 +195,19 @@ export function ChatPage() {
 
             {/* Input */}
             <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                {!isConnected && !isConnecting && (
-                    <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg text-sm flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4" />
-                        Not connected. Please check authentication.
+                {!isConnected && (
+                    <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg text-sm flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4" />
+                            <span>{error || 'Not connected'}</span>
+                        </div>
+                        <button
+                            onClick={reconnect}
+                            disabled={isConnecting}
+                            className="px-3 py-1 bg-red-100 dark:bg-red-800 hover:bg-red-200 dark:hover:bg-red-700 disabled:opacity-50 rounded text-xs font-medium transition-colors"
+                        >
+                            {isConnecting ? 'Connecting...' : 'Reconnect'}
+                        </button>
                     </div>
                 )}
 
@@ -187,15 +221,15 @@ export function ChatPage() {
                                 handleSubmit(e);
                             }
                         }}
-                        placeholder={isConnected ? "Issue your command..." : "Connecting..."}
+                        placeholder={isConnected ? "Issue your command..." : "Waiting for connection..."}
                         disabled={!isConnected}
-                        className="flex-1 px-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl resize-none text-gray-900 dark:text-white disabled:opacity-50"
+                        className="flex-1 px-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl resize-none text-gray-900 dark:text-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         rows={2}
                     />
                     <button
                         type="submit"
                         disabled={!input.trim() || !isConnected}
-                        className="px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
+                        className="px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex items-center gap-2"
                     >
                         <Send className="w-5 h-5" />
                     </button>
