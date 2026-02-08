@@ -6,6 +6,7 @@ FastAPI backend with eternal idle council (Head + 2 Council Members).
 from datetime import datetime
 import json
 import logging
+import uvicorn
 from backend.api import host_access
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
@@ -197,7 +198,7 @@ app = FastAPI(
 )
 
 # Include routers
-app.include_router(auth_routes.router, prefix="/api/v1")
+app.include_router(auth_routes.router)
 app.include_router(model_routes.router, prefix="/api/v1")
 app.include_router(chat_routes.router, prefix="/api/v1")
 app.include_router(channels_routes.router, prefix="/api/v1")
@@ -206,7 +207,7 @@ app.include_router(websocket_routes.router, prefix="/api/v1")
 app.include_router(host_access.router, prefix="/api/v1")
 app.include_router(sovereign.router, prefix="/api/v1")
 app.include_router(tool_creation_routes.router, prefix="/api/v1")
-app.include_router(admin_routes.router, prefix="/api/v1")
+app.include_router(admin_routes.router)
 
 # CORS middleware
 app.add_middleware(
@@ -526,7 +527,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-@app.websocket("/api/v1/ws")
+@app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
     """
     WebSocket for real-time updates with IDLE WAKE functionality.
@@ -643,5 +644,4 @@ async def get_agent_health(agentium_id: str, db: Session = Depends(get_db)):
 # (monitoring/health-check, monitoring/report-violation, etc. - keep existing)
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
