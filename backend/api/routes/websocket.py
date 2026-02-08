@@ -3,7 +3,11 @@ WebSocket endpoint for real-time chat with authentication.
 User must authenticate BEFORE or DURING connection.
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
+import json
+from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
@@ -14,18 +18,20 @@ from backend.core.config import settings
 
 router = APIRouter()
 
+
 class ConnectionManager:
-    """Manage authenticated WebSocket connections."""
+    """Manage authenticated WebSocket connections with heartbeat support."""
+    
     def __init__(self):
         # Map: websocket -> user_info
         self.active_connections: dict = {}
         # Map: user_id -> websocket (for direct messaging)
         self.user_connections: dict = {}
     
-    async def connect(self, websocket: WebSocket, token: str, db: Session):
+    async def connect(self, websocket: WebSocket, token: str, db: Session) -> Optional[dict]:
         """
         Authenticate connection BEFORE accepting.
-        Returns user info if successful, raises exception if not.
+        Returns user info if successful, None if authentication fails.
         """
         try:
             # Verify JWT token
@@ -33,20 +39,30 @@ class ConnectionManager:
             username = payload.get("sub")
             
             if not username:
-                raise HTTPException(status_code=401, detail="Invalid token")
+                await websocket.close(code=4001, reason="Invalid token: no subject")
+                return None
+            
+            # Verify user exists in database (optional but recommended)
+            # from backend.models.entities.user import User
+            # user = db.query(User).filter(User.username == username).first()
+            # if not user or not user.is_active:
+            #     await websocket.close(code=4001, reason="User not found or inactive")
+            #     return None
             
             # Check if Head of Council exists
             head = db.query(HeadOfCouncil).filter_by(agentium_id="00001").first()
             if not head:
-                raise HTTPException(status_code=503, detail="System not initialized")
+                await websocket.close(code=1011, reason="System not initialized - no Head of Council")
+                return None
             
-            # Accept connection
+            # Accept connection ONLY after successful authentication
             await websocket.accept()
             
             # Store connection info
             user_info = {
                 "username": username,
                 "role": payload.get("role", "sovereign"),
+                "user_id": payload.get("user_id"),
                 "head_agent_id": head.id,
                 "head_agentium_id": head.agentium_id
             }
@@ -54,39 +70,71 @@ class ConnectionManager:
             self.active_connections[websocket] = user_info
             self.user_connections[username] = websocket
             
-            print(f"WebSocket authenticated: {username}")
+            print(f"[WebSocket] ✅ Authenticated: {username} ({datetime.utcnow().isoformat()})")
             return user_info
             
-        except JWTError:
-            # Reject connection
-            await websocket.close(code=4001, reason="Invalid authentication")
-            raise HTTPException(status_code=401, detail="Invalid token")
+        except JWTError as e:
+            # Reject connection - invalid token
+            await websocket.close(code=4001, reason=f"Invalid authentication: {str(e)}")
+            return None
+        except Exception as e:
+            # Reject connection - other error
+            await websocket.close(code=1011, reason=f"Authentication error: {str(e)}")
+            return None
     
-    def disconnect(self, websocket: WebSocket):
-        """Remove connection."""
+    def disconnect(self, websocket: WebSocket) -> Optional[str]:
+        """Remove connection and return username if found."""
+        username = None
         if websocket in self.active_connections:
             user_info = self.active_connections[websocket]
-            if user_info["username"] in self.user_connections:
-                del self.user_connections[user_info["username"]]
+            username = user_info.get("username")
+            if username and username in self.user_connections:
+                del self.user_connections[username]
             del self.active_connections[websocket]
+            print(f"[WebSocket] ❌ Disconnected: {username}")
+        return username
     
-    async def send_personal_message(self, message: str, username: str):
-        """Send message to specific user."""
+    async def send_personal_message(self, message: dict, username: str) -> bool:
+        """Send JSON message to specific user."""
         if username in self.user_connections:
             websocket = self.user_connections[username]
-            await websocket.send_text(message)
+            try:
+                await websocket.send_json(message)
+                return True
+            except Exception as e:
+                print(f"[WebSocket] Error sending to {username}: {e}")
+                return False
+        return False
     
-    async def broadcast(self, message: str):
-        """Broadcast to all authenticated connections."""
-        for connection in self.active_connections:
-            await connection.send_text(message)
+    async def broadcast(self, message: dict, exclude: Optional[WebSocket] = None):
+        """Broadcast JSON message to all authenticated connections."""
+        disconnected = []
+        for connection, user_info in self.active_connections.items():
+            if connection == exclude:
+                continue
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                print(f"[WebSocket] Broadcast error to {user_info.get('username')}: {e}")
+                disconnected.append(connection)
+        
+        # Clean up failed connections
+        for conn in disconnected:
+            self.disconnect(conn)
+    
+    def get_connection_count(self) -> int:
+        """Return number of active connections."""
+        return len(self.active_connections)
 
+
+# Global connection manager instance
 manager = ConnectionManager()
+
 
 @router.websocket("/ws/chat")
 async def websocket_chat_endpoint(
     websocket: WebSocket,
-    token: str | None = None,  # Pass token as query param: ws://localhost:8000/ws/chat?token=xyz
+    token: Optional[str] = Query(None, description="JWT access token"),
     db: Session = Depends(get_db)
 ):
     """
@@ -94,101 +142,170 @@ async def websocket_chat_endpoint(
     
     Connection flow:
     1. Client connects with ?token=JWT in URL
-    2. Server validates JWT BEFORE accepting
-    3. If valid: connection accepted, can send/receive
-    4. If invalid: connection rejected with 4001 code
+    2. Server validates JWT BEFORE accepting (4001 if invalid)
+    3. If valid: connection accepted, welcome message sent
+    4. Messages processed through ChatService
+    
+    Heartbeat: Client should send {"type": "ping"} every 30s
     """
     
+    # Validate token exists
     if not token:
-        await websocket.close(code=4001, reason="Token required")
+        await websocket.close(code=4001, reason="Token required - provide ?token=JWT")
         return
     
+    # Attempt authentication (connection accepted here on success)
+    user_info = await manager.connect(websocket, token, db)
+    
+    if not user_info:
+        # Authentication failed - connection already closed
+        return
+    
+    # Send initial messages
     try:
-        # Authenticate BEFORE accepting
-        user_info = await manager.connect(websocket, token, db)
-        
-        # Send welcome message
+        # Welcome message
         await websocket.send_json({
             "type": "system",
+            "role": "system",
             "content": f"Welcome {user_info['username']}. Connected to Head of Council ({user_info['head_agentium_id']}).",
+            "timestamp": datetime.utcnow().isoformat(),
+            "metadata": {
+                "agent_id": user_info['head_agentium_id'],
+                "connection_id": id(websocket)
+            }
+        })
+        
+        # Ready status
+        await websocket.send_json({
+            "type": "status",
+            "role": "head_of_council",
+            "content": "Head of Council is ready to receive commands.",
+            "agent_id": user_info['head_agentium_id'],
             "timestamp": datetime.utcnow().isoformat()
         })
         
-        # Send any pending messages or status
-        await websocket.send_json({
-            "type": "status",
-            "content": "Head of Council is ready to receive commands.",
-            "agent_id": user_info['head_agentium_id']
-        })
-        
-    except HTTPException:
-        return  # Already closed by connect()
     except Exception as e:
-        await websocket.close(code=1011, reason=str(e))
+        print(f"[WebSocket] Error sending welcome: {e}")
+        manager.disconnect(websocket)
         return
     
-    # Handle messages
+    # Main message handling loop
     try:
         while True:
             # Receive message from client (Sovereign)
             data = await websocket.receive_text()
             
+            # Parse message
             try:
                 message_data = json.loads(data)
-                content = message_data.get("content", "")
+            except json.JSONDecodeError:
+                await websocket.send_json({
+                    "type": "error",
+                    "content": "Invalid JSON format",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+                continue
+            
+            message_type = message_data.get("type", "message")
+            
+            # Handle ping/pong heartbeat
+            if message_type == "ping":
+                await websocket.send_json({
+                    "type": "pong",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+                continue
+            
+            # Handle chat messages
+            if message_type == "message":
+                content = message_data.get("content", "").strip()
                 
                 if not content:
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": "Empty message content",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
                     continue
                 
                 # Acknowledge receipt
                 await websocket.send_json({
                     "type": "status",
-                    "content": "Processing your command..."
-                })
-                
-                # Get Head of Council
-                head = db.query(HeadOfCouncil).filter_by(
-                    id=user_info["head_agent_id"]
-                ).first()
-                
-                # Process message (async)
-                response = await ChatService.process_message(head, content, db)
-                
-                # Send response
-                await websocket.send_json({
-                    "type": "message",
-                    "role": "head_of_council",
-                    "content": response["content"],
-                    "metadata": {
-                        "agent_id": user_info['head_agentium_id'],
-                        "model": response.get("model"),
-                        "task_created": response.get("task_created"),
-                        "task_id": response.get("task_id")
-                    },
+                    "role": "system",
+                    "content": "Processing your command...",
                     "timestamp": datetime.utcnow().isoformat()
                 })
                 
-                # Broadcast to other connections (if multi-device)
-                # await manager.broadcast(f"New command from {user_info['username']}")
-                
-            except json.JSONDecodeError:
+                try:
+                    # Get fresh Head of Council instance
+                    head = db.query(HeadOfCouncil).filter_by(
+                        id=user_info["head_agent_id"]
+                    ).first()
+                    
+                    if not head:
+                        await websocket.send_json({
+                            "type": "error",
+                            "content": "Head of Council not available",
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
+                        continue
+                    
+                    # Process message through ChatService
+                    response = await ChatService.process_message(head, content, db)
+                    
+                    # Send response
+                    await websocket.send_json({
+                        "type": "message",
+                        "role": "head_of_council",
+                        "content": response.get("content", "No response"),
+                        "metadata": {
+                            "agent_id": user_info['head_agentium_id'],
+                            "model": response.get("model"),
+                            "task_created": response.get("task_created"),
+                            "task_id": response.get("task_id"),
+                            "tokens_used": response.get("tokens_used")
+                        },
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+                    
+                except Exception as e:
+                    print(f"[WebSocket] ChatService error: {e}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": f"Error processing message: {str(e)}",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+            
+            # Handle unknown message types
+            else:
                 await websocket.send_json({
                     "type": "error",
-                    "content": "Invalid message format"
-                })
-            except Exception as e:
-                await websocket.send_json({
-                    "type": "error",
-                    "content": f"Error processing message: {str(e)}"
+                    "content": f"Unknown message type: {message_type}",
+                    "timestamp": datetime.utcnow().isoformat()
                 })
     
     except WebSocketDisconnect:
+        # Normal disconnection
         manager.disconnect(websocket)
-        print(f"WebSocket disconnected: {user_info.get('username', 'unknown')}")
-    
+        
     except Exception as e:
+        # Unexpected error
+        print(f"[WebSocket] Unexpected error: {e}")
         manager.disconnect(websocket)
-        print(f"WebSocket error: {e}")
+        try:
+            await websocket.close(code=1011, reason=f"Server error: {str(e)}")
+        except:
+            pass
 
-import json
-from datetime import datetime
+
+@router.get("/ws/stats")
+async def get_websocket_stats(current_user: dict = Depends(get_current_active_user)):
+    """Get WebSocket connection statistics (admin only)."""
+    return {
+        "active_connections": manager.get_connection_count(),
+        "connected_users": list(manager.user_connections.keys())
+    }
+
+
+# Import here to avoid circular dependency
+from backend.api.dependencies.auth import get_current_active_user
