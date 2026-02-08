@@ -96,7 +96,9 @@ class IdleGovernanceEngine:
     async def _idle_loop(self):
         """Main eternal loop - runs forever during idle periods."""
         while self.is_running:
+            db = None
             try:
+                # Create fresh session for each iteration
                 with get_db_context() as db:
                     # Check if there are user tasks pending (we should pause if so)
                     user_tasks = self._get_pending_user_tasks(db)
@@ -126,6 +128,12 @@ class IdleGovernanceEngine:
                     
             except Exception as e:
                 print(f"❌ Error in idle loop: {e}")
+                # If db session exists and is in transaction, rollback
+                if db:
+                    try:
+                        db.rollback()
+                    except:
+                        pass
                 await asyncio.sleep(self.check_interval)
     
     def _get_pending_user_tasks(self, db: Session) -> List[Task]:
@@ -200,16 +208,17 @@ class IdleGovernanceEngine:
         )
         
         db.add(task)
-        db.flush()
+        db.flush()  # Get the ID without committing
         
         # Assign to agent
         if agent.assign_idle_task(task.id):
             task.start_idle_execution(agent.agentium_id)
             self.current_idle_tasks[agent.agentium_id] = task.id
             print(f"📋 Assigned {task_type.value} to {agent.agentium_id}")
-            db.commit()  # Ensure task is persisted
+            db.commit()  # Commit task creation
         else:
             print(f"⚠️ Could not assign idle task to {agent.agentium_id}")
+            db.rollback()  # Rollback if assignment failed
     
     async def _execute_idle_work(self, db: Session, agents: List[Agent]):
         """Execute the assigned idle work for agents."""
@@ -254,11 +263,20 @@ class IdleGovernanceEngine:
                     
                     print(f"✅ {agent.agentium_id} completed {task.task_type.value} (saved ~{tokens_saved} tokens)")
                     
+                    # Commit after each successful agent to prevent transaction buildup
+                    db.commit()
+                    
                 except Exception as e:
-                    task.fail(str(e), can_retry=True)
                     print(f"❌ {agent.agentium_id} failed {task.task_type.value}: {e}")
+                    try:
+                        task.fail(str(e), can_retry=True)
+                        db.rollback()  # Rollback on failure
+                    except Exception as rollback_error:
+                        print(f"❌ Rollback failed: {rollback_error}")
                 
-                del self.current_idle_tasks[agent.agentium_id]
+                # Always remove from current tasks
+                if agent.agentium_id in self.current_idle_tasks:
+                    del self.current_idle_tasks[agent.agentium_id]
     
     # ============ IDLE TASK EXECUTORS ============
     # These execute with MINIMAL token usage (DB ops, embeddings only)
@@ -305,20 +323,24 @@ class IdleGovernanceEngine:
         
         cutoff = datetime.utcnow() - timedelta(days=30)
         
-        # Count old records (in real impl, would compress and move to cold storage)
-        result = db.execute(text("""
-            SELECT COUNT(*) FROM tasks 
-            WHERE is_idle_task = true 
-            AND status = 'idle_completed'
-            AND completed_at < :cutoff
-        """), {'cutoff': cutoff}).scalar()
+        # Count old records using proper parameter binding
+        try:
+            result = db.execute(text("""
+                SELECT COUNT(*) FROM tasks 
+                WHERE is_idle_task = true 
+                AND status = 'idle_completed'
+                AND completed_at < :cutoff
+            """), {'cutoff': cutoff}).scalar()
+        except Exception as e:
+            print(f"⚠️ Audit archival query failed: {e}")
+            result = 0
         
         return {
             'summary': f"Audit archival analysis: {result} completed idle tasks older than 30 days can be compressed.",
-            'archivable_records': result,
-            'space_estimate_mb': result * 0.001  # Rough estimate
+            'archivable_records': result or 0,
+            'space_estimate_mb': (result or 0) * 0.001  # Rough estimate
         }
-    
+
     async def _execute_predictive_planning(self, db: Session, agent: Agent) -> Dict[str, Any]:
         """Predictive planning - LOW tokens (local model inference)."""
         from sqlalchemy import text

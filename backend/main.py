@@ -207,7 +207,7 @@ app.include_router(websocket_routes.router, prefix="/api/v1")
 app.include_router(host_access.router, prefix="/api/v1")
 app.include_router(sovereign.router, prefix="/api/v1")
 app.include_router(tool_creation_routes.router, prefix="/api/v1")
-app.include_router(admin_routes.router)
+app.include_router(admin_routes.router, prefix="/api/v1")
 
 # CORS middleware
 app.add_middleware(

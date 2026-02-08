@@ -27,20 +27,20 @@ api.interceptors.response.use(
         const message = error.response?.data?.detail || error.message || 'An unexpected error occurred';
 
         if (status === 401) {
-            localStorage.removeItem('access_token');
-            window.location.href = '/login';
+            if (!window.location.pathname.includes('/login')) {
+                localStorage.removeItem('access_token');
+                delete api.defaults.headers.common['Authorization'];
+                window.location.href = '/login';
+            }
         } else if (status === 403) {
             toast.error(`Permission Denied: ${message}`);
         } else if (status === 404) {
-            // Don't toast on 404s sometimes they are expected (like "check status")
-            // But for now, let's toast if it's likely an action failure
-            if (error.config.method !== 'get') {
+            if (error.config?.method !== 'get') {
                 toast.error(`Not Found: ${message}`);
             }
         } else if (status >= 500) {
             toast.error(`Server Error: ${message}`);
-        } else {
-            // General error for other codes
+        } else if (status !== 401) {
             toast.error(message);
         }
 

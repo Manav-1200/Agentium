@@ -2,7 +2,7 @@
 Authentication API for frontend.
 Database-backed with user approval workflow.
 """
-
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
@@ -216,10 +216,38 @@ async def login(
 
 @router.post("/verify", response_model=VerifyResponse)
 async def verify_token_endpoint(
-    token: str
+    token: Optional[str] = None  # Make it optional query param
 ):
     """
     Verify if a JWT token is valid.
+    Accepts token as query parameter or in request body.
+    """
+    # If no token provided, return invalid
+    if not token:
+        return VerifyResponse(valid=False)
+    
+    payload = verify_token(token)
+    
+    if not payload:
+        return VerifyResponse(valid=False)
+    
+    return VerifyResponse(
+        valid=True,
+        user={
+            "username": payload.get("sub"),
+            "user_id": payload.get("user_id"),
+            "is_admin": payload.get("is_admin", False),
+            "role": payload.get("role", "user")
+        }
+    )
+
+
+@router.get("/verify", response_model=VerifyResponse)
+async def verify_token_get(
+    token: str
+):
+    """
+    Verify token via GET request (for query param support).
     """
     payload = verify_token(token)
     
