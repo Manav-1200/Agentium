@@ -32,7 +32,7 @@ def upgrade() -> None:
     op.create_table(
         'scheduled_tasks',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=False),  # R0001 format
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=False),  # R0001 format
         sa.Column('name', sa.String(200), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('cron_expression', sa.String(100), nullable=False),  # "0 9 * * *"
@@ -97,7 +97,7 @@ def upgrade() -> None:
     op.create_table(
         'constitutions',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=False),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=False),
         sa.Column('version', sa.String(10), unique=True, nullable=False),
         sa.Column('version_number', sa.Integer(), unique=True, nullable=False),
         sa.Column('document_type', sa.String(20), nullable=False),
@@ -126,7 +126,7 @@ def upgrade() -> None:
     op.create_table(
         'ethos',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=True),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=True),
         sa.Column('agent_type', sa.String(20), nullable=False),
         sa.Column('mission_statement', sa.Text(), nullable=False),
         sa.Column('core_values', sa.Text(), nullable=False),
@@ -149,7 +149,7 @@ def upgrade() -> None:
     op.create_table(
         'agents',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=False),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=False),
         sa.Column('agent_type', sa.String(20), nullable=False),
         sa.Column('name', sa.String(100), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
@@ -226,7 +226,7 @@ def upgrade() -> None:
     op.create_table(
         'tasks',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=False),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=False),
         sa.Column('title', sa.String(200), nullable=False),
         sa.Column('description', sa.Text(), nullable=False),
         sa.Column('status', sa.String(50), default='pending'),
@@ -246,7 +246,7 @@ def upgrade() -> None:
         'subtasks',
         sa.Column('id', sa.String(36), primary_key=True),
         sa.Column('task_id', sa.String(36), sa.ForeignKey('tasks.id')),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=False),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=False),
         sa.Column('description', sa.Text(), nullable=False),
         sa.Column('status', sa.String(20), default='pending'),
         sa.Column('assigned_to_agent_id', sa.String(36), sa.ForeignKey('agents.id'), nullable=True),
@@ -261,7 +261,7 @@ def upgrade() -> None:
     op.create_table(
         'amendment_votings',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=False),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=False),
         sa.Column('constitution_id', sa.String(36), sa.ForeignKey('constitutions.id')),
         sa.Column('proposed_by_agentium_id', sa.String(10), nullable=False),
         sa.Column('proposed_changes', sa.Text(), nullable=False),
@@ -287,7 +287,7 @@ def upgrade() -> None:
     op.create_table(
         'individual_votes',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=False),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=False),
         sa.Column('amendment_voting_id', sa.String(36), sa.ForeignKey('amendment_votings.id')),
         sa.Column('voter_agentium_id', sa.String(10), nullable=False),
         sa.Column('vote', sa.String(10), nullable=False),  # for, against, abstain
@@ -301,7 +301,7 @@ def upgrade() -> None:
     op.create_table(
         'audit_logs',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=False),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=False),
         sa.Column('level', sa.String(20), nullable=False),
         sa.Column('category', sa.String(30), nullable=False),
         sa.Column('actor_type', sa.String(20), nullable=False),
@@ -326,7 +326,7 @@ def upgrade() -> None:
     op.create_table(
         'channels',
         sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('agentium_id', sa.String(10), unique=True, nullable=False),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=False),
         sa.Column('name', sa.String(100), nullable=False),
         sa.Column('channel_type', sa.String(20), nullable=False),  # slack, discord, etc
         sa.Column('webhook_url', sa.String(500), nullable=True),

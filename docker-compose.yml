@@ -10,7 +10,6 @@ services:
       POSTGRES_USER: agentium
       POSTGRES_PASSWORD: agentium
     volumes:
-      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - postgres_data:/var/lib/postgresql/data # ⬅️ Added missing data mount
     ports:
       - "5432:5432"

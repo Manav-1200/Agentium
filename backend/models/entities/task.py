@@ -468,7 +468,7 @@ class TaskAuditLog(BaseEntity):
     __tablename__ = 'task_audit_logs'
     
     task_id = Column(String(36), ForeignKey('tasks.id'), nullable=False)
-    agentium_id = Column(String(10), nullable=False)
+    agentium_id = Column(String(20), nullable=False)
     
     action = Column(String(50), nullable=False)
     action_details = Column(JSON, nullable=True)
