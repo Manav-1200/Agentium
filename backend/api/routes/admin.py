@@ -33,7 +33,9 @@ async def get_budget(
     Get current API budget and usage statistics.
     Returns nested structure expected by BudgetControl.tsx frontend.
     """
-    # Return nested structure matching frontend expectations
+    # Check if user can modify budget (admin or sovereign)
+    can_modify = current_user.get("is_admin", False) or current_user.get("role") == "sovereign"
+    
     return {
         "current_limits": {
             "daily_token_limit": 200000,
@@ -43,11 +45,11 @@ async def get_budget(
             "tokens_used_today": 50000,
             "tokens_remaining": 150000,
             "cost_used_today_usd": 25.50,
-            "cost_remaining_usd": 74.50,  # Note: frontend expects cost_remaining_usd not cost_remaining_today_usd
+            "cost_remaining_usd": 74.50,
             "cost_percentage_used": 25.5,
-            "cost_percentage_tokens": 25.0  # Calculate: tokens_used / token_limit * 100
+            "cost_percentage_tokens": 25.0
         },
-        "can_modify": current_user.get("is_admin", False),
+        "can_modify": can_modify,  # Now based on is_admin, not agentium_id
         "optimizer_status": {
             "idle_mode_active": False,
             "time_since_last_activity_seconds": 120
@@ -57,16 +59,45 @@ async def get_budget(
 
 @router.post("/admin/budget")
 async def update_budget(
-    daily_token_limit: int,
-    daily_cost_limit: float,
-    current_user: dict = Depends(require_admin),
+    request: dict,  # Accept JSON body
+    current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Update budget limits (Head of Council only).
+    Update budget limits (Admin or Sovereign only).
     """
-    # TODO: Implement actual budget update logic
+    # Check permissions - allow admin or sovereign
+    if not (current_user.get("is_admin") or current_user.get("role") == "sovereign"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can modify budget settings"
+        )
+    
+    daily_token_limit = request.get("daily_token_limit")
+    daily_cost_limit = request.get("daily_cost_limit")
+    
+    # Validate inputs
+    if daily_token_limit is None or daily_cost_limit is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="daily_token_limit and daily_cost_limit are required"
+        )
+    
+    if daily_token_limit < 1000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token limit must be at least 1,000"
+        )
+    
+    if daily_cost_limit < 0 or daily_cost_limit > 1000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cost limit must be between $0 and $1,000"
+        )
+    
+    # TODO: Implement actual budget persistence
     # For now, just return success
+    
     return {
         "success": True,
         "message": "Budget updated successfully",

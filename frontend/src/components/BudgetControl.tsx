@@ -69,7 +69,9 @@ export default function BudgetControl() {
 
     if (!budget) return <div className="text-center p-4">Loading budget control...</div>;
 
-    const isHeadOfCouncil = user?.agentium_id?.startsWith('0');
+    // CHANGED: Use can_modify from API response instead of checking agentium_id
+    const canModifyBudget = budget.can_modify;
+
     const isOverBudget = budget.usage.cost_percentage_used > 90;
     const isNearLimit = budget.usage.cost_percentage_used > 75;
 
@@ -81,8 +83,8 @@ export default function BudgetControl() {
                     <Coins className="h-6 w-6 text-blue-600" />
                     Budget Control Dashboard
                 </h2>
-                {isHeadOfCouncil && (
-                    <div title="Head of Council Access">
+                {canModifyBudget && (
+                    <div title="Admin Access">
                         <Shield className="h-5 w-5 text-green-600" />
                     </div>
                 )}
@@ -192,8 +194,8 @@ export default function BudgetControl() {
                     </div>
                 </div>
 
-                {/* Update Form - Head of Council Only */}
-                {isHeadOfCouncil ? (
+                {/* Update Form - Admin Only */}
+                {canModifyBudget ? (
                     <div className="space-y-4 border-t pt-4">
                         <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                             <Shield className="h-4 w-4 text-green-600" />
@@ -265,7 +267,7 @@ export default function BudgetControl() {
                     <div className="bg-blue-50 border border-blue-500 rounded-lg p-4 flex items-start gap-3">
                         <Shield className="h-4 w-4 text-blue-600 mt-0.5" />
                         <p className="text-sm text-blue-700">
-                            Only Head of Council (agent starting with '0') can modify budget settings.
+                            Only administrators can modify budget settings.
                         </p>
                     </div>
                 )}
