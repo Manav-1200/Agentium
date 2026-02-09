@@ -9,6 +9,8 @@
 
 Built for those who believe AI should be **transparent, accountable, and sovereign**, Agentium runs entirely on your infrastructure with local-first architecture.
 
+
+![Image](./docs/dashboard.png)
 ---
 
 ## ✨ What Makes Agentium Unique?

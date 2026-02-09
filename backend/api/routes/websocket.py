@@ -5,7 +5,7 @@ User must authenticate BEFORE or DURING connection.
 
 import json
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query
 from jose import JWTError, jwt
@@ -15,6 +15,7 @@ from backend.models.database import get_db
 from backend.models.entities import Agent, HeadOfCouncil
 from backend.services.chat_service import ChatService
 from backend.core.config import settings
+from backend.core.auth import get_current_active_user  # ✅ Import at top
 
 router = APIRouter()
 
@@ -24,11 +25,11 @@ class ConnectionManager:
     
     def __init__(self):
         # Map: websocket -> user_info
-        self.active_connections: dict = {}
+        self.active_connections: Dict[WebSocket, Dict[str, Any]] = {}
         # Map: user_id -> websocket (for direct messaging)
-        self.user_connections: dict = {}
+        self.user_connections: Dict[str, WebSocket] = {}
     
-    async def connect(self, websocket: WebSocket, token: str, db: Session) -> Optional[dict]:
+    async def connect(self, websocket: WebSocket, token: str, db: Session) -> Optional[Dict[str, Any]]:
         """
         Authenticate connection BEFORE accepting.
         Returns user info if successful, None if authentication fails.
@@ -41,13 +42,6 @@ class ConnectionManager:
             if not username:
                 await websocket.close(code=4001, reason="Invalid token: no subject")
                 return None
-            
-            # Verify user exists in database (optional but recommended)
-            # from backend.models.entities.user import User
-            # user = db.query(User).filter(User.username == username).first()
-            # if not user or not user.is_active:
-            #     await websocket.close(code=4001, reason="User not found or inactive")
-            #     return None
             
             # Check if Head of Council exists
             head = db.query(HeadOfCouncil).filter_by(agentium_id="00001").first()
@@ -305,7 +299,3 @@ async def get_websocket_stats(current_user: dict = Depends(get_current_active_us
         "active_connections": manager.get_connection_count(),
         "connected_users": list(manager.user_connections.keys())
     }
-
-
-# Import here to avoid circular dependency
-from backend.api.dependencies.auth import get_current_active_user
