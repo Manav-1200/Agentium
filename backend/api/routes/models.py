@@ -60,16 +60,16 @@ class ModelConfigUpdate(BaseModel):
 class ModelConfigResponse(BaseModel):
     id: str
     provider: str
-    provider_name: Optional[str]
+    provider_name: Optional[str] = None
     config_name: str
     default_model: str
-    api_base_url: Optional[str]
-    available_models: List[str]
+    api_base_url: Optional[str] = None
+    available_models: List[str] = Field(default_factory=list)
     status: str
     is_default: bool
-    settings: Dict[str, Any]
-    last_tested: Optional[str]
-    total_usage: Dict[str, Any]
+    settings: Dict[str, Any] = Field(default_factory=dict)
+    last_tested: Optional[str] = None  # FIXED: Made optional
+    total_usage: Dict[str, Any] = Field(default_factory=dict)
     
     class Config:
         from_attributes = True
@@ -81,7 +81,7 @@ class ProviderInfo(BaseModel):
     display_name: str
     requires_api_key: bool
     requires_base_url: bool
-    default_base_url: Optional[str]
+    default_base_url: Optional[str] = None
     description: str
     popular_models: List[str]
 
@@ -272,6 +272,7 @@ async def create_config(
     
     # Encrypt API key if provided
     encrypted_key = None
+    raw_key = None
     if config.api_key:
         raw_key = config.api_key.get_secret_value()
         if raw_key:
@@ -306,7 +307,7 @@ async def create_config(
     # Test in background
     background_tasks.add_task(_test_config_async, db_config.id, user_id)
     
-    return db_config
+    return _serialize_config(db_config)
 
 
 @router.post("/configs/universal", response_model=ModelConfigResponse, status_code=status.HTTP_201_CREATED)
@@ -328,6 +329,7 @@ async def create_universal_config(
     
     # Encrypt key
     encrypted_key = None
+    raw_key = None
     if config.api_key:
         raw_key = config.api_key.get_secret_value()
         encrypted_key = encrypt_api_key(raw_key)
@@ -358,7 +360,7 @@ async def create_universal_config(
         db_config.status = ConnectionStatus.ACTIVE
         db.commit()
     
-    return db_config
+    return _serialize_config(db_config)
 
 
 async def _test_config_async(config_id: str, user_id: str):
@@ -375,6 +377,33 @@ async def _test_config_async(config_id: str, user_id: str):
             db.commit()
 
 
+def _serialize_config(config: UserModelConfig) -> Dict[str, Any]:
+    """Serialize config to response format with safe defaults."""
+    return {
+        'id': str(config.id),
+        'provider': config.provider.value if hasattr(config.provider, 'value') else str(config.provider),
+        'provider_name': config.provider_name,
+        'config_name': config.config_name,
+        'default_model': config.default_model,
+        'api_base_url': config.api_base_url,
+        'available_models': config.available_models or [],
+        'status': config.status.value if hasattr(config.status, 'value') else str(config.status),
+        'is_default': config.is_default,
+        'settings': {
+            'max_tokens': config.max_tokens,
+            'temperature': config.temperature,
+            'top_p': config.top_p,
+            'timeout': config.timeout_seconds
+        },
+        'last_tested': config.last_tested_at.isoformat() if hasattr(config, 'last_tested_at') and config.last_tested_at else None,
+        'total_usage': {
+            'requests': config.total_requests or 0,
+            'tokens': config.total_tokens or 0,
+            'cost_usd': round(config.estimated_cost_usd or 0, 4)
+        }
+    }
+
+
 @router.get("/configs", response_model=List[ModelConfigResponse])
 async def list_configs(
     db: Session = Depends(get_db),
@@ -382,18 +411,7 @@ async def list_configs(
 ):
     """List user's model configurations."""
     configs = db.query(UserModelConfig).filter_by(user_id=user_id).all()
-    
-    result = []
-    for config in configs:
-        resp = config.to_dict()
-        resp['total_usage'] = {
-            'requests': config.total_requests,
-            'tokens': config.total_tokens,
-            'cost_usd': round(config.estimated_cost_usd, 4)
-        }
-        result.append(resp)
-    
-    return result
+    return [_serialize_config(c) for c in configs]
 
 
 @router.get("/configs/{config_id}", response_model=ModelConfigResponse)
@@ -403,13 +421,7 @@ async def get_config(config_id: str, db: Session = Depends(get_db), user_id: str
     if not config:
         raise HTTPException(status_code=404, detail="Configuration not found")
     
-    resp = config.to_dict()
-    resp['total_usage'] = {
-        'requests': config.total_requests,
-        'tokens': config.total_tokens,
-        'cost_usd': round(config.estimated_cost_usd, 4)
-    }
-    return resp
+    return _serialize_config(config)
 
 
 @router.put("/configs/{config_id}", response_model=ModelConfigResponse)
@@ -449,12 +461,7 @@ async def update_config(
     db.commit()
     db.refresh(config)
     
-    resp = config.to_dict()
-    resp['total_usage'] = {
-        'requests': config.total_requests,
-        'tokens': config.total_tokens
-    }
-    return resp
+    return _serialize_config(config)
 
 
 @router.delete("/configs/{config_id}")

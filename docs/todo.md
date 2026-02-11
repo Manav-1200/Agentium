@@ -744,6 +744,9 @@ Final:
 -Tools to connect to mcp server
 -System to change the agent to the next available api key if the current api key is not working.
 - Notification if none of the api key is responding. in both frontend and in running channels.
+- verify the message history is stored and access correctly. i.e the history is the ethos itself, and should be updated/edited/minimized/summarized for better use. 
+the steps will be reading constitution, updating individual ethos, and while working updating ethos on what the agent is doing and what is done and what is remaning, for all agents.
+- Ensure that when request is sent to the api the content of ethos is also sent eveytime.
 ---
 
 *Last Updated: 2026-02-01*  

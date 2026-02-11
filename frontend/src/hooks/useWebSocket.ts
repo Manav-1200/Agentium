@@ -63,6 +63,7 @@ export function useWebSocketChat(onMessage: (msg: WebSocketMessage) => void): Us
     const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const reconnectAttemptsRef = useRef(0);
     const isManualDisconnect = useRef(false);
+    const lastPingTimeRef = useRef<number | null>(null); // MOVED INSIDE COMPONENT
 
     // Get auth state from store
     const user = useAuthStore(state => state.user);
@@ -108,8 +109,8 @@ export function useWebSocketChat(onMessage: (msg: WebSocketMessage) => void): Us
         pingIntervalRef.current = setInterval(() => {
             if (ws.current?.readyState === WebSocket.OPEN) {
                 const pingTime = Date.now();
+                lastPingTimeRef.current = pingTime;
                 setConnectionStats(prev => ({ ...prev, lastPingTime: pingTime }));
-
                 ws.current.send(JSON.stringify({ type: 'ping', timestamp: pingTime }));
 
                 // Set timeout for pong response
@@ -123,15 +124,14 @@ export function useWebSocketChat(onMessage: (msg: WebSocketMessage) => void): Us
     }, [stopHeartbeat]);
 
     // Handle pong response
-    const handlePong = useCallback((timestamp: string) => {
+    const handlePong = useCallback((_timestamp: string) => {
         if (pongTimeoutRef.current) {
             clearTimeout(pongTimeoutRef.current);
             pongTimeoutRef.current = null;
         }
-
-        const latency = Date.now() - (connectionStats.lastPingTime || Date.now());
+        const latency = Date.now() - (lastPingTimeRef.current || Date.now());
         setConnectionStats(prev => ({ ...prev, latencyMs: latency }));
-    }, [connectionStats.lastPingTime]);
+    }, []);
 
     // Disconnect WebSocket
     const disconnect = useCallback((isManual: boolean = false) => {
@@ -191,11 +191,10 @@ export function useWebSocketChat(onMessage: (msg: WebSocketMessage) => void): Us
         setError(null);
         isManualDisconnect.current = false;
 
-        // Build WebSocket URL
-        const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
-        const wsUrl = `${WS_URL}/ws/chat?token=${encodeURIComponent(token)}`;
+        // Build WebSocket URL - CONNECT DIRECTLY TO BACKEND (bypass Vite proxy)
+        const wsUrl = `ws://localhost:8000/api/v1/ws/chat?token=${encodeURIComponent(token)}`;
 
-        console.log(`[WebSocket] Connecting to ${WS_URL}... (attempt ${reconnectAttemptsRef.current + 1})`);
+        console.log(`[WebSocket] Connecting to ${wsUrl}... (attempt ${reconnectAttemptsRef.current + 1})`);
 
         try {
             ws.current = new WebSocket(wsUrl);

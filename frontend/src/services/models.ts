@@ -10,14 +10,18 @@ import type {
 export const modelsApi = {
     // Get all available providers with metadata
     getProviders: async (): Promise<ProviderInfo[]> => {
-        const response = await api.get('/models/providers');
+        const response = await api.get('/api/v1/models/providers');
         return response.data;
     },
 
     // Get user's configurations
     getConfigs: async (): Promise<ModelConfig[]> => {
-        const response = await api.get('/models/configs');
-        return response.data;
+        const response = await api.get('/api/v1/models/configs');
+        // Handle both array and wrapped responses
+        const data = response.data;
+        if (Array.isArray(data)) return data;
+        if (data?.configs) return data.configs;
+        return [];
     },
 
     // Create standard configuration (OpenAI, Anthropic, Groq, etc.)
@@ -35,13 +39,13 @@ export const modelsApi = {
         top_p?: number;
         timeout_seconds?: number;
     }): Promise<ModelConfig> => {
-        const response = await api.post('/models/configs', config);
+        const response = await api.post('/api/v1/models/configs', config);
         return response.data;
     },
 
     // Universal endpoint for ANY OpenAI-compatible provider not in standard list
     createUniversalConfig: async (input: UniversalProviderInput): Promise<ModelConfig> => {
-        const response = await api.post('/models/configs/universal', input);
+        const response = await api.post('/api/v1/models/configs/universal', input);
         return response.data;
     },
 
@@ -58,18 +62,18 @@ export const modelsApi = {
         temperature: number;
         status: string;
     }>): Promise<ModelConfig> => {
-        const response = await api.put(`/models/configs/${configId}`, updates);
+        const response = await api.put(`/api/v1/models/configs/${configId}`, updates);
         return response.data;
     },
 
     // Delete configuration
     deleteConfig: async (configId: string): Promise<void> => {
-        await api.delete(`/models/configs/${configId}`);
+        await api.delete(`/api/v1/models/configs/${configId}`);
     },
 
     // Test connection
     testConfig: async (configId: string): Promise<TestResult> => {
-        const response = await api.post(`/models/configs/${configId}/test`);
+        const response = await api.post(`/api/v1/models/configs/${configId}/test`);
         return response.data;
     },
 
@@ -79,13 +83,13 @@ export const modelsApi = {
         models: string[];
         count: number;
     }> => {
-        const response = await api.post(`/models/configs/${configId}/fetch-models`);
+        const response = await api.post(`/api/v1/models/configs/${configId}/fetch-models`);
         return response.data;
     },
 
     // Set as default
     setDefault: async (configId: string): Promise<void> => {
-        await api.post(`/models/configs/${configId}/set-default`);
+        await api.post(`/api/v1/models/configs/${configId}/set-default`);
     },
 
     // Get usage statistics
@@ -97,7 +101,7 @@ export const modelsApi = {
         success_rate: number;
         daily_breakdown: Record<string, { tokens: number; requests: number; cost: number }>;
     }> => {
-        const response = await api.get(`/models/configs/${configId}/usage?days=${days}`);
+        const response = await api.get(`/api/v1/models/configs/${configId}/usage?days=${days}`);
         return response.data;
     }
 };

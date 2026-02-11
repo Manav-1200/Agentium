@@ -66,19 +66,53 @@ export function ChannelsPage() {
     const [qrCodeData, setQrCodeData] = useState<string | null>(null);
     const [pollingChannelId, setPollingChannelId] = useState<string | null>(null);
 
-    // Fetch channels
-    const { data: channels = [], isLoading } = useQuery({
+    // Fetch channels - FIXED: Properly handle response structure and ensure array return
+    const { data: channelsData, isLoading, error } = useQuery({
         queryKey: ['channels'],
         queryFn: async () => {
-            const response = await api.get('/channels/');
-            return response.data as Channel[];
-        }
+            try {
+                const response = await api.get('/api/v1/channels/');
+
+                // Handle different response structures defensively
+                let data = response.data;
+
+                // If data is null/undefined, return empty array
+                if (!data) {
+                    console.warn('Channels API returned null/undefined');
+                    return [];
+                }
+
+                // If data is an object with 'channels' property (wrapped response)
+                if (typeof data === 'object' && !Array.isArray(data) && data.channels) {
+                    data = data.channels;
+                }
+
+                // If data is still not an array, return empty array
+                if (!Array.isArray(data)) {
+                    console.error('Channels API returned non-array:', data);
+                    return [];
+                }
+
+                return data as Channel[];
+            } catch (err) {
+                console.error('Failed to fetch channels:', err);
+                toast.error('Failed to load channels');
+                return [];
+            }
+        },
+        // Ensure we always have an array even on error
+        initialData: [],
+        // Refetch on window focus to keep data fresh
+        refetchOnWindowFocus: true
     });
+
+    // Ensure channels is always an array (defensive)
+    const channels = Array.isArray(channelsData) ? channelsData : [];
 
     // Create channel mutation
     const createMutation = useMutation({
         mutationFn: async (data: ChannelFormData) => {
-            const response = await api.post('/channels/', data);
+            const response = await api.post('/api/v1/channels/', data);
             return response.data;
         },
         onSuccess: (data: any) => {
@@ -101,7 +135,7 @@ export function ChannelsPage() {
     // Delete channel mutation
     const deleteMutation = useMutation({
         mutationFn: async (id: string) => {
-            await api.delete(`/channels/${id}`);
+            await api.delete(`/api/v1/channels/${id}`);
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['channels'] });
@@ -112,7 +146,7 @@ export function ChannelsPage() {
     // Test connection mutation
     const testMutation = useMutation({
         mutationFn: async (id: string) => {
-            const response = await api.post(`/channels/${id}/test`);
+            const response = await api.post(`/api/v1/channels/${id}/test`);
             return response.data;
         },
         onSuccess: (data: any) => {
@@ -128,7 +162,7 @@ export function ChannelsPage() {
     // Poll for QR code (WhatsApp)
     const pollForQR = async (channelId: string) => {
         try {
-            const response = await api.get(`/channels/${channelId}/qr`);
+            const response = await api.get(`/api/v1/channels/${channelId}/qr`);
             if (response.data.qr_code) {
                 setQrCodeData(response.data.qr_code);
             } else if (response.data.status === 'active') {
@@ -213,6 +247,11 @@ export function ChannelsPage() {
         return colors[status] || 'bg-gray-400';
     };
 
+    // Calculate stats safely
+    const activeCount = channels.filter((c: Channel) => c.status === 'active').length;
+    const totalReceived = channels.reduce((acc: number, c: Channel) => acc + (c.stats?.received || 0), 0);
+    const totalSent = channels.reduce((acc: number, c: Channel) => acc + (c.stats?.sent || 0), 0);
+
     return (
         <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
             {/* Header */}
@@ -235,6 +274,15 @@ export function ChannelsPage() {
                 </button>
             </div>
 
+            {/* Error Display */}
+            {error && (
+                <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+                    <p className="text-red-700 dark:text-red-400">
+                        Error loading channels. Please try refreshing the page.
+                    </p>
+                </div>
+            )}
+
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
@@ -245,19 +293,19 @@ export function ChannelsPage() {
                 </div>
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
                     <div className="text-2xl font-bold text-green-600">
-                        {channels.filter((c: Channel) => c.status === 'active').length}
+                        {activeCount}
                     </div>
                     <div className="text-sm text-gray-500 dark:text-gray-400">Active</div>
                 </div>
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
                     <div className="text-2xl font-bold text-blue-600">
-                        {channels.reduce((acc: number, c: Channel) => acc + (c.stats?.received || 0), 0)}
+                        {totalReceived}
                     </div>
                     <div className="text-sm text-gray-500 dark:text-gray-400">Received</div>
                 </div>
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
                     <div className="text-2xl font-bold text-purple-600">
-                        {channels.reduce((acc: number, c: Channel) => acc + (c.stats?.sent || 0), 0)}
+                        {totalSent}
                     </div>
                     <div className="text-sm text-gray-500 dark:text-gray-400">Sent</div>
                 </div>

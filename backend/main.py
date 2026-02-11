@@ -208,6 +208,16 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 # Include routers
 app.include_router(auth_routes.router)
 app.include_router(model_routes.router, prefix="/api/v1")
@@ -221,14 +231,6 @@ app.include_router(tool_creation_routes.router, prefix="/api/v1")
 app.include_router(admin_routes.router, prefix="/api/v1")
 app.include_router(tasks_routes.router, prefix="/api/v1")
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # ==================== Health Check ====================
 

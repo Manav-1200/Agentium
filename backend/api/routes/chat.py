@@ -2,7 +2,7 @@
 Chat API for Sovereign to communicate with Head of Council.
 Supports streaming responses for real-time communication.
 """
-
+import json
 from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse

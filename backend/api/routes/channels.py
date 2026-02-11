@@ -1,12 +1,13 @@
 """
 Channel management API for frontend.
 CRUD operations for external channel configurations.
+FIXED: Added noload to prevent DetachedInstanceError, custom serialization
 """
 
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, noload
 import secrets
 import json
 
@@ -37,6 +38,50 @@ class TestResult(BaseModel):
 # In-memory store for QR codes (production: use Redis)
 qr_code_store = {}
 pairing_status = {}
+
+
+def _serialize_channel(channel: ExternalChannel) -> dict:
+    """
+    Safely convert ExternalChannel ORM → dict.
+    Does NOT call channel.to_dict() to avoid triggering lazy-loaded relationships.
+    """
+    # Safely get config dict
+    config = channel.config or {}
+    
+    # Build routing info safely
+    routing = {
+        "default_agent": channel.default_agent_id,
+        "auto_create_tasks": channel.auto_create_tasks,
+        "require_approval": channel.require_approval
+    }
+    
+    # Build stats safely
+    stats = {
+        "received": config.get("stats_received", 0),
+        "sent": config.get("stats_sent", 0),
+        "last_message": config.get("last_message")
+    }
+    
+    return {
+        "id": str(channel.id),
+        "name": channel.name or "",
+        "type": channel.channel_type.value if channel.channel_type else "unknown",
+        "status": channel.status.value if channel.status else "unknown",
+        "config": {
+            **config,
+            "has_credentials": bool(
+                config.get("access_token") or 
+                config.get("bot_token") or 
+                config.get("smtp_host")
+            ),
+            "webhook_url": config.get("webhook_url_display") or config.get("webhook_url")
+        },
+        "routing": routing,
+        "stats": stats,
+        "created_at": channel.created_at.isoformat() if channel.created_at else None,
+        "updated_at": channel.updated_at.isoformat() if hasattr(channel, 'updated_at') and channel.updated_at else None
+    }
+
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_channel(
@@ -71,57 +116,73 @@ async def create_channel(
     
     # If WhatsApp, initialize QR code generation
     if channel_data.channel_type == ChannelType.WHATSAPP:
-        # In production, this would start a WhatsApp Web session
-        # For now, generate a placeholder QR
-        import qrcode
-        import qrcode.image.svg
-        import io
-        import base64
-        
-        # Generate pairing token
-        pairing_token = secrets.token_urlsafe(32)
-        qr_code_store[channel.id] = {
-            'token': pairing_token,
-            'expires': None  # Would set expiration
-        }
-        pairing_status[channel.id] = 'waiting'
-        
-        # Generate QR code data (this would be the actual WhatsApp Web pairing code)
-        qr_data = f"agentium:watsapp:{channel.id}:{pairing_token}"
-        
-        # Generate QR image
-        factory = qrcode.image.svg.SvgImage
-        qr = qrcode.make(qr_data, image_factory=factory)
-        buffer = io.BytesIO()
-        qr.save(buffer)
-        svg_qr = buffer.getvalue().decode()
-        
-        # Store for retrieval
-        qr_code_store[channel.id]['qr_svg'] = svg_qr
-        qr_code_store[channel.id]['qr_data'] = qr_data
+        try:
+            import qrcode
+            import qrcode.image.svg
+            import io
+            
+            # Generate pairing token
+            pairing_token = secrets.token_urlsafe(32)
+            qr_code_store[str(channel.id)] = {
+                'token': pairing_token,
+                'expires': None
+            }
+            pairing_status[str(channel.id)] = 'waiting'
+            
+            # Generate QR code data
+            qr_data = f"agentium:whatsapp:{channel.id}:{pairing_token}"
+            
+            # Generate QR image
+            factory = qrcode.image.svg.SvgImage
+            qr = qrcode.make(qr_data, image_factory=factory)
+            buffer = io.BytesIO()
+            qr.save(buffer)
+            svg_qr = buffer.getvalue().decode()
+            
+            # Store for retrieval
+            qr_code_store[str(channel.id)]['qr_svg'] = svg_qr
+            qr_code_store[str(channel.id)]['qr_data'] = qr_data
+            
+        except ImportError:
+            # qrcode library not installed, store placeholder
+            pairing_token = secrets.token_urlsafe(32)
+            qr_code_store[str(channel.id)] = {
+                'token': pairing_token,
+                'qr_data': f"agentium:whatsapp:{channel.id}:{pairing_token}",
+                'qr_svg': None
+            }
+            pairing_status[str(channel.id)] = 'waiting'
     
-    return channel.to_dict()
+    return _serialize_channel(channel)
 
-@router.get("/", response_model=List[dict])
+
+@router.get("/")
 async def list_channels(db: Session = Depends(get_db)):
     """List all configured channels."""
-    channels = db.query(ExternalChannel).all()
-    return [c.to_dict() for c in channels]
+    # Use noload to prevent lazy-loading issues
+    channels = db.query(ExternalChannel).options(
+        noload(ExternalChannel.default_agent),
+        noload(ExternalChannel.messages)
+    ).all()
+    return [_serialize_channel(c) for c in channels]
+
 
 @router.get("/{channel_id}")
 async def get_channel(channel_id: str, db: Session = Depends(get_db)):
     """Get channel details."""
-    channel = db.query(ExternalChannel).filter_by(id=channel_id).first()
+    channel = db.query(ExternalChannel).options(
+        noload(ExternalChannel.default_agent),
+        noload(ExternalChannel.messages)
+    ).filter_by(id=channel_id).first()
+    
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    return channel.to_dict()
+    return _serialize_channel(channel)
+
 
 @router.get("/{channel_id}/qr")
 async def get_qr_code(channel_id: str, db: Session = Depends(get_db)):
-    """
-    Get QR code for WhatsApp pairing.
-    Frontend polls this endpoint until status changes to 'active'.
-    """
+    """Get QR code for WhatsApp pairing."""
     channel = db.query(ExternalChannel).filter_by(id=channel_id).first()
     
     if not channel:
@@ -139,14 +200,16 @@ async def get_qr_code(channel_id: str, db: Session = Depends(get_db)):
         }
     
     # Return QR code if available
-    if channel_id in qr_code_store:
+    cid = str(channel_id)
+    if cid in qr_code_store:
         return {
-            "status": pairing_status.get(channel_id, "waiting"),
-            "qr_code": qr_code_store[channel_id].get('qr_data'),
-            "expires_in": 60  # seconds, frontend should refresh
+            "status": pairing_status.get(cid, "waiting"),
+            "qr_code": qr_code_store[cid].get('qr_data'),
+            "expires_in": 60
         }
     
     raise HTTPException(status_code=404, detail="QR code not found or expired")
+
 
 @router.post("/{channel_id}/activate")
 async def activate_channel(
@@ -155,34 +218,24 @@ async def activate_channel(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """
-    Activate channel with credentials.
-    For WhatsApp: Called after QR scan or with API credentials
-    For Others: Validates API keys/tokens
-    """
+    """Activate channel with credentials."""
     channel = db.query(ExternalChannel).filter_by(id=channel_id).first()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     
     try:
-        # Merge credentials (encrypt sensitive ones)
         credentials = activation_data.credentials
         
         if channel.channel_type == ChannelType.WHATSAPP:
-            # WhatsApp can activate via QR or API credentials
             if 'qr_token' in credentials:
-                # Verify QR token
                 stored = qr_code_store.get(channel_id, {})
                 if stored.get('token') != credentials['qr_token']:
                     raise HTTPException(status_code=400, detail="Invalid QR token")
                 
-                # Mark as active (simulated - in real impl, would verify with WhatsApp Web)
                 channel.status = ChannelStatus.ACTIVE
                 channel.config['connection_method'] = 'qr'
                 
             elif 'access_token' in credentials and 'phone_number_id' in credentials:
-                # Meta Business API method
-                # Test the credentials
                 test_result = await test_whatsapp_credentials(credentials)
                 if not test_result:
                     raise HTTPException(status_code=400, detail="Invalid WhatsApp credentials")
@@ -192,7 +245,6 @@ async def activate_channel(
                 channel.config['phone_number_id'] = credentials['phone_number_id']
                 channel.config['phone_number'] = credentials.get('phone_number')
                 channel.config['connection_method'] = 'api'
-                
             else:
                 raise HTTPException(status_code=400, detail="QR token or API credentials required")
                 
@@ -200,7 +252,6 @@ async def activate_channel(
             if not credentials.get('bot_token'):
                 raise HTTPException(status_code=400, detail="Bot token required")
             
-            # Test Slack connection
             import httpx
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -219,7 +270,6 @@ async def activate_channel(
             if not credentials.get('bot_token'):
                 raise HTTPException(status_code=400, detail="Bot token required")
             
-            # Test Telegram connection
             import httpx
             async with httpx.AsyncClient() as client:
                 response = await client.get(
@@ -230,7 +280,6 @@ async def activate_channel(
             
             channel.status = ChannelStatus.ACTIVE
             channel.config['bot_token'] = encrypt_api_key(credentials['bot_token'])
-            # Store bot info
             bot_info = response.json().get('result', {})
             channel.config['bot_username'] = bot_info.get('username')
             channel.config['bot_name'] = bot_info.get('first_name')
@@ -241,7 +290,6 @@ async def activate_channel(
             if missing:
                 raise HTTPException(status_code=400, detail=f"Missing fields: {', '.join(missing)}")
             
-            # Test SMTP (lightweight - just validate format, full test on send)
             channel.status = ChannelStatus.ACTIVE
             channel.config['smtp_host'] = credentials['smtp_host']
             channel.config['smtp_port'] = int(credentials['smtp_port'])
@@ -249,28 +297,30 @@ async def activate_channel(
             channel.config['smtp_pass'] = encrypt_api_key(credentials['smtp_pass'])
             channel.config['from_email'] = credentials.get('from_email', credentials['smtp_user'])
         
-        # Update channel
+        # Update channel config
         channel.config.update({k: v for k, v in credentials.items() if k not in ['access_token', 'bot_token', 'smtp_pass']})
         db.commit()
         
         # Clean up QR store if applicable
         if channel_id in qr_code_store:
             del qr_code_store[channel_id]
+        if channel_id in pairing_status:
             del pairing_status[channel_id]
         
         return {
             "status": "success",
-            "channel": channel.to_dict(),
-            "webhook_url": channel.generate_webhook_url("https://your-domain.com")
+            "channel": _serialize_channel(channel),
+            "webhook_url": channel.config.get('webhook_url_display')
         }
         
     except HTTPException:
         raise
     except Exception as e:
         channel.status = ChannelStatus.ERROR
-        channel.error_message = str(e)
+        channel.config['error_message'] = str(e)
         db.commit()
         raise HTTPException(status_code=500, detail=f"Activation failed: {str(e)}")
+
 
 @router.post("/{channel_id}/test")
 async def test_channel_connection(
@@ -298,16 +348,9 @@ async def test_channel_connection(
                 data = response.json()
                 
                 if data.get('ok'):
-                    return TestResult(
-                        success=True,
-                        message=f"Connected as @{data.get('user')}"
-                    )
+                    return TestResult(success=True, message=f"Connected as @{data.get('user')}")
                 else:
-                    return TestResult(
-                        success=False,
-                        message="Connection failed",
-                        error=data.get('error')
-                    )
+                    return TestResult(success=False, message="Connection failed", error=data.get('error'))
         
         elif channel.channel_type == ChannelType.TELEGRAM:
             import httpx
@@ -316,27 +359,17 @@ async def test_channel_connection(
             token = decrypt_api_key(channel.config.get('bot_token', ''))
             
             async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"https://api.telegram.org/bot{token}/getMe"
-                )
+                response = await client.get(f"https://api.telegram.org/bot{token}/getMe")
                 data = response.json()
                 
                 if data.get('ok'):
                     bot = data.get('result', {})
-                    return TestResult(
-                        success=True,
-                        message=f"Connected as @{bot.get('username')}"
-                    )
+                    return TestResult(success=True, message=f"Connected as @{bot.get('username')}")
                 else:
-                    return TestResult(
-                        success=False,
-                        message="Connection failed",
-                        error=data.get('description')
-                    )
+                    return TestResult(success=False, message="Connection failed", error=data.get('description'))
         
         elif channel.channel_type == ChannelType.WHATSAPP:
             if channel.config.get('connection_method') == 'api':
-                # Test WhatsApp Business API
                 creds = {
                     'access_token': channel.config.get('access_token'),
                     'phone_number_id': channel.config.get('phone_number_id')
@@ -349,7 +382,6 @@ async def test_channel_connection(
                 return TestResult(success=True, message="WhatsApp Web session active")
         
         elif channel.channel_type == ChannelType.EMAIL:
-            # Try to connect to SMTP
             import aiosmtplib
             from backend.core.security import decrypt_api_key
             
@@ -370,6 +402,7 @@ async def test_channel_connection(
     except Exception as e:
         return TestResult(success=False, message="Test failed", error=str(e))
 
+
 @router.delete("/{channel_id}")
 async def delete_channel(
     channel_id: str,
@@ -384,13 +417,14 @@ async def delete_channel(
     # Cleanup QR store if exists
     if channel_id in qr_code_store:
         del qr_code_store[channel_id]
-        if channel_id in pairing_status:
-            del pairing_status[channel_id]
+    if channel_id in pairing_status:
+        del pairing_status[channel_id]
     
     db.delete(channel)
     db.commit()
     
     return {"status": "deleted"}
+
 
 @router.get("/{channel_id}/messages")
 async def get_channel_messages(
@@ -399,7 +433,7 @@ async def get_channel_messages(
     status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get messages for a channel (Unified Inbox view)."""
+    """Get messages for a channel."""
     channel = db.query(ExternalChannel).filter_by(id=channel_id).first()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -410,10 +444,23 @@ async def get_channel_messages(
         query = query.filter_by(status=status)
     
     messages = query.order_by(ExternalMessage.created_at.desc()).limit(limit).all()
+    
+    # Safely serialize messages
+    def serialize_message(m):
+        return {
+            "id": str(m.id),
+            "channel_id": str(m.channel_id),
+            "direction": m.direction.value if hasattr(m, 'direction') else "unknown",
+            "content": m.content or "",
+            "status": m.status if hasattr(m, 'status') else "unknown",
+            "created_at": m.created_at.isoformat() if m.created_at else None
+        }
+    
     return {
-        "messages": [m.to_dict() for m in messages],
+        "messages": [serialize_message(m) for m in messages],
         "count": len(messages)
     }
+
 
 @router.get("/messages/all")
 async def get_all_messages(
@@ -421,17 +468,29 @@ async def get_all_messages(
     status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get all messages across all channels (Unified Inbox)."""
+    """Get all messages across all channels."""
     query = db.query(ExternalMessage)
     
     if status:
         query = query.filter_by(status=status)
     
     messages = query.order_by(ExternalMessage.created_at.desc()).limit(limit).all()
+    
+    def serialize_message(m):
+        return {
+            "id": str(m.id),
+            "channel_id": str(m.channel_id),
+            "direction": m.direction.value if hasattr(m, 'direction') else "unknown",
+            "content": m.content or "",
+            "status": m.status if hasattr(m, 'status') else "unknown",
+            "created_at": m.created_at.isoformat() if m.created_at else None
+        }
+    
     return {
-        "messages": [m.to_dict() for m in messages],
+        "messages": [serialize_message(m) for m in messages],
         "count": len(messages)
     }
+
 
 # Helper function
 async def test_whatsapp_credentials(credentials: dict) -> bool:

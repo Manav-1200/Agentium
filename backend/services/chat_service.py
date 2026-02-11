@@ -32,7 +32,8 @@ class ChatService:
         )
         
         # Get provider
-        provider = await ModelService.get_provider("sovereign")
+        config = head.get_model_config(db)
+        provider = await ModelService.get_provider("sovereign", config.id if config else None)
         if not provider:
             raise ValueError("No model provider available")
         
@@ -44,22 +45,19 @@ class ChatService:
         context = await ChatService.get_system_context(db)
         
         # If confused about task, consult parent (for reincarnated agents)
-        consultation_result = None
-        if "[System: I've evolved" in message or "predecessor" in message.lower():
-            consultation_result = clarification_service.consult_supervisor(head, db, 
-                "I was just reincarnated. What was my predecessor doing?", 
-                "Post-reincarnation clarification")
-        
+        consultation_note = (
+            f"\nRecent consultation with parent: {consultation_result['guidance']}"
+            if consultation_result
+            else ""
+        )
+
         full_prompt = f"""{system_prompt}
 
-Current System State:
-{context}
+        Current System State:
+        {context}{consultation_note}
 
-{(1 if consultation_result else 0)}
-Recent consultation with parent: {consultation_result['guidance']}
+        Address the Sovereign respectfully. If they issue a command that requires execution, indicate that you will create a task."""
 
-Address the Sovereign respectfully. If they issue a command that requires execution, indicate that you will create a task."""
-        
         # Generate response
         result = await provider.generate(full_prompt, message)
         
