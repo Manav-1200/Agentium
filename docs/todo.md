@@ -1425,4 +1425,70 @@ _Status: Active Development - Phase 2 & 6 In Progress_
 
 ---
 
+# ✅ Final Verification & System Checklist
+
+## 0. Rough Ideas (What to do and What to check)
+
+1. Multi-Channel Integration (Messaging Platforms)
+   Add support for WhatsApp, Telegram, Slack, Discord, Signal, Google Chat, iMessage, Microsoft Teams, Zalo, and Matrix to enable local-first AI agents across communication platforms.
+   Priority order:
+   Easy: Telegram, Discord, Slack (API-first)
+   Moderate: WhatsApp (Baileys), Signal (signal-cli), Google Chat, Matrix
+   Hard: iMessage (macOS only), Microsoft Teams (enterprise complexity), Zalo (limited API)
+   Architecture: Map each channel to Task Agents (3xxxx) under a "Communications Council" Lead Agent (2xxxx).
+
+2. Idle Task Deduplication (Critical Bug)
+   Prevent duplicate idle optimization tasks from spawning. Currently seeing 20+ identical tasks ("Vector Maintenance", "Cache Optimization", "Storage Dedupe", "Audit Archival") running simultaneously.
+   Root cause: No uniqueness check before task creation.
+   Solution: Implement idempotency key or status check before spawning idle tasks.
+
+## 1. Access & Permissions
+
+- Verify that the **Head of Council** has full system access.
+- Verify **Browser Control** functionality.
+
+## 2. System Testing
+
+- Perform complete system testing.
+- Ensure all modules and workflows are functioning correctly.
+
+## 3. Memory Management
+
+### Database & Vector Database
+
+- Implement proper memory management.
+- Delete very old data records and outdated data versions.
+- **Do NOT delete the original constitution.**
+
+### Additional Requirements
+
+- Tools to connect to the MCP server.
+- Automatic fallback system:
+  - Switch to the next available API key if the current API key fails.
+- Send notifications if **none of the API keys** respond:
+  - In the frontend.
+  - In running/background channels.
+
+## 4. Ethos & Message History Management
+
+- Verify that message history is stored and accessed correctly.
+- The message history represents the **Ethos** and must:
+  - Be updated
+  - Be editable
+  - Be minimized/summarized for efficiency
+
+### Ethos Update Workflow
+
+1. Read the Constitution.
+2. Update individual Ethos.
+3. While working:
+   - Log what the agent is doing.
+   - Log what has been completed.
+   - Log what remains.
+4. Apply this workflow to all agents.
+
+## 5. API Request Validation
+
+- Ensure that the **Ethos content is always included** in every API request.
+
 **End of Roadmap**
