@@ -90,6 +90,13 @@ from backend.models.entities.monitoring import (
     MonitoringStatus
 )
 
+from backend.models.entities.critics import (
+    CriticAgent,
+    CritiqueReview,
+    CriticType,
+    CriticVerdict
+)
+
 # All models for Alembic/database creation
 __all__ = [
     # Base
@@ -160,5 +167,11 @@ __all__ = [
     'TaskVerification',
     'PerformanceMetric',
     'MonitoringAlert',
-    'MonitoringStatus'
+    'MonitoringStatus',
+    
+    # Critics (Veto Authority)
+    'CriticAgent',
+    'CritiqueReview',
+    'CriticType',
+    'CriticVerdict',
 ]

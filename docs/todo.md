@@ -502,7 +502,7 @@ TIER_CAPABILITIES = {
 - [ ] Usage analytics per tool
 - [ ] Tool marketplace (share between Agentium instances)
 
-### 6.2 Critic Agents with Veto Authority 🆕 (PENDING - CRITICAL)
+### 6.2 Critic Agents with Veto Authority 🆕 (DONE)
 
 **New Agent Types (Non-Breaking Addition):**
 
@@ -521,9 +521,9 @@ TIER_CAPABILITIES = {
 
 **New Files to Create:**
 
-- [ ] `backend/models/entities/critics.py` - Critic agent models
-- [ ] `backend/services/critic_agents.py` - Critic logic
-- [ ] `backend/api/routes/critics.py` - Critic endpoints
+- [x] `backend/models/entities/critics.py` - Critic agent models
+- [x] `backend/services/critic_agents.py` - Critic logic
+- [x] `backend/api/routes/critics.py` - Critic endpoints
 
 **Database Changes:**
 
@@ -540,11 +540,11 @@ class CritiqueReview(BaseEntity):
 
 **Acceptance Criteria:**
 
-- [ ] Critics can veto outputs independently
-- [ ] Rejected tasks retry without Council replanning
-- [ ] Maximum 5 retries before escalation to Council
-- [ ] Critic decisions logged in audit trail
-- [ ] Critics use different AI models than executors (orthogonal failure modes)
+- [x] Critics can veto outputs independently
+- [x] Rejected tasks retry without Council replanning
+- [x] Maximum 5 retries before escalation to Council
+- [x] Critic decisions logged in audit trail
+- [x] Critics use different AI models than executors (orthogonal failure modes)
 
 ### 6.3 Pre-Declared Acceptance Criteria 🆕 (PENDING - HIGH PRIORITY)
 
@@ -1433,11 +1433,6 @@ _Status: Active Development - Phase 2 & 6 In Progress_
    Moderate: WhatsApp (Baileys), Signal (signal-cli), Google Chat, Matrix
    Hard: iMessage (macOS only), Microsoft Teams (enterprise complexity), Zalo (limited API)
    Architecture: Map each channel to Task Agents (3xxxx) under a "Communications Council" Lead Agent (2xxxx).
-
-2. Idle Task Deduplication (Critical Bug)
-   Prevent duplicate idle optimization tasks from spawning. Currently seeing 20+ identical tasks ("Vector Maintenance", "Cache Optimization", "Storage Dedupe", "Audit Archival") running simultaneously.
-   Root cause: No uniqueness check before task creation.
-   Solution: Implement idempotency key or status check before spawning idle tasks.
 
 ## 1. Access & Permissions
 

@@ -5,35 +5,44 @@
 [![Status](https://img.shields.io/badge/status-active--development-brightgreen)](https://github.com/yourusername/agentium)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://www.docker.com/)
 
-**Agentium** transforms AI task execution into a structured digital democracy. Unlike monolithic AI assistants, Agentium operates as a self-governing ecosystem where AI agents function like a parliamentary system—complete with a **Head of Council** (Executive), **Council Members** (Legislature), **Lead Agents** (Directors), and **Task Agents** (Executors)—all bound by a **Constitution** and managed through democratic voting.
+**Agentium** transforms AI task execution into a structured digital democracy. Unlike monolithic AI assistants, Agentium operates as a self-governing ecosystem where AI agents function like a parliamentary system—complete with a **Head of Council** (Executive), **Council Members** (Legislature), **Lead Agents** (Directors), **Task Agents** (Executors), and **Critic Agents** (Independent Judiciary)—all bound by a **Constitution** and managed through democratic voting.
 
 Built for those who believe AI should be **transparent, accountable, and sovereign**, Agentium runs entirely on your infrastructure with local-first architecture.
 
-
-![Image](./docs/dashboard.png)
----
+## ![Image](./docs/dashboard.png)
 
 ## ✨ What Makes Agentium Unique?
 
 ### 🏛️ Democratic AI Governance
+
 Tasks aren't just executed; they're deliberated. The Council votes on constitutional amendments, resource allocation, and major system changes. Every decision is logged, auditable, and reversible.
 
 ### ⚖️ Constitutional Framework
-A living document stored that all agents can access. Agents literally ask *"Is this constitutional?"* before acting. Amendments require democratic approval.
+
+A living document stored that all agents can access. Agents literally ask _"Is this constitutional?"_ before acting. Amendments require democratic approval.
 
 ### 🧠 Collective Intelligence (Knowledge Library)
+
 - **Dual-Storage Architecture**: PostgreSQL for structured data, ChromaDB for semantic knowledge
 - **Shared Memory**: Task agents share learnings; Council curates institutional knowledge
 - **RAG-Powered**: World Knowledge retrieved via semantic search, not just regex
 
 ### 🏗️ Hierarchical Agent IDs
+
 Rigorous identification system:
+
 - **Head**: `0xxxx` (00001-00999) — The Sovereign's direct representative
-- **Council**: `1xxxx` (10001-19999) — Democratic deliberation layer  
+- **Council**: `1xxxx` (10001-19999) — Democratic deliberation layer
 - **Lead**: `2xxxx` (20001-29999) — Department coordination
 - **Task**: `3xxxx` (30001-99999) — Execution workers
+- **Code Critic**: `4xxxx` (40001-49999) — Code validation (syntax, security, logic)
+- **Output Critic**: `5xxxx` (50001-59999) — Output validation (user intent alignment)
+- **Plan Critic**: `6xxxx` (60001-69999) — Plan validation (DAG soundness)
+
+> Critics operate **outside** the democratic chain. They have absolute veto authority but no voting rights. Rejected tasks retry within the same team (max 5 retries) before escalating to Council.
 
 ### 🔄 Self-Governing Lifecycle
+
 Agents auto-spawn when load increases, auto-terminate when tasks complete, and can be liquidated by Council vote if they violate the Constitution or remain idle >7 days.
 
 ---
@@ -88,6 +97,13 @@ Agents auto-spawn when load increases, auto-terminate when tasks complete, and c
 │ ├─ Execute Commands     │                         │
 │ ├─ Submit Learnings     │                         │
 │ └─ Query Knowledge      │                         │
+│                         │                         │
+│ 🔍 Critics (4/5/6xxxx)  │                         │
+│ ├─ Code Critic (4xxxx)  │                         │
+│ ├─ Output Critic (5xxxx)│                         │
+│ ├─ Plan Critic (6xxxx)  │                         │
+│ ├─ Absolute Veto Power  │                         │
+│ └─ No Voting Rights     │                         │
 └─────────────────────────┘                         │
                                                     │
 🧠 Processing Layer                                 │
@@ -121,23 +137,27 @@ When Agentium boots for the first time:
 
 ### 1. Constitutional Law (The Supreme Authority)
 
-**Storage**: Dual-mode  
-- **PostgreSQL**: Version control, amendment history, audit trail  
+**Storage**: Dual-mode
+
+- **PostgreSQL**: Version control, amendment history, audit trail
 - **ChromaDB**: Semantic embeddings for RAG queries
 
 **Access Control**:
+
 - **Read**: All agents (via `query_constitution()`)
 - **Amend**: Council proposal + 60% vote + Head ratification
 - **Enforce**: Constitutional Guard checks every action against both SQL rules AND semantic interpretation
 
 **Key Features**:
-- Agents can ask: *"Does this violate Article 3 regarding data privacy?"*
+
+- Agents can ask: _"Does this violate Article 3 regarding data privacy?"_
 - Semantic search catches "grey area" violations, not just explicit bans
 - Daily review required by all governance tier agents (Head + Council)
 
 ### 2. Individual Agent Ethos
 
 Every agent has a personalized Ethos document:
+
 - Created by parent agent upon spawning using template
 - Defines should/should-not rules for that agent's role
 - Task agents: reviewed by Lead Agents
@@ -148,11 +168,13 @@ Every agent has a personalized Ethos document:
 ### 3. Democratic Voting System
 
 **Voting Powers**:
+
 - Head (0xxxx): 5 votes + veto power
 - Council (1xxxx): 3 votes each
 - Lead (2xxxx): 1 vote (on operational matters only)
 
 **When Voting Triggers**:
+
 - Constitutional amendments
 - Agent liquidation (termination)
 - Knowledge Library submissions ( Task/Lead → Council approval)
@@ -160,6 +182,7 @@ Every agent has a personalized Ethos document:
 - Access permission changes across system scope boundaries
 
 **Quorum Rules**:
+
 - Constitutional: 60% of Council
 - Operational: 50% of relevant tier
 - Emergency: Head override (logged as constitutional violation if abused)
@@ -167,6 +190,7 @@ Every agent has a personalized Ethos document:
 ### 4. Agent Lifecycle & Termination
 
 **Termination Conditions**:
+
 - ✅ Task completed and confirmed by higher authority (Lead Agent)
 - ❌ Constitutional violation (Council vote required)
 - ⏰ Inactive >7 days (auto-liquidation)
@@ -174,6 +198,7 @@ Every agent has a personalized Ethos document:
 - 🛑 Head emergency override (rare, audited)
 
 **Cleanup Process**:
+
 1. Archive all messages/tasks to cold storage (PostgreSQL)
 2. Transfer orphaned knowledge to Council curation queue
 3. Revoke all capabilities
@@ -191,11 +216,11 @@ Follow these steps to run **Agentium** on Linux, macOS, or Windows.
 
 Make sure the following are installed on your system:
 
--   **Docker Engine** `20.10+`
--   **Docker Compose** `2.0+`
--   **Minimum 8GB RAM**\
-    *(16GB recommended if running local LLMs)*
--   **At least 10GB free disk space**
+- **Docker Engine** `20.10+`
+- **Docker Compose** `2.0+`
+- **Minimum 8GB RAM**\
+  _(16GB recommended if running local LLMs)_
+- **At least 10GB free disk space**
 
 > Docker Desktop includes Docker Engine + Docker Compose and works on
 > Windows, macOS, and Linux.
@@ -204,7 +229,7 @@ Make sure the following are installed on your system:
 
 ### 🛠 Installation & Setup
 
-``` bash
+```bash
 # 1. Clone the repository
 git clone https://github.com/AshminDhungana/Agentium.git
 cd Agentium
@@ -226,8 +251,8 @@ speed and system.
 
 Once everything is running, open your browser and visit:
 
--   **Dashboard:** http://localhost:3000
--   **Backend API:** http://localhost:8000
+- **Dashboard:** http://localhost:3000
+- **Backend API:** http://localhost:8000
 
 #### 🔐 Default Login Credentials
 
@@ -239,6 +264,7 @@ Once everything is running, open your browser and visit:
 ---
 
 ### 🧩 Services Started
+
 ```
   Service           URL / Port              Description
   ----------------- ----------------------- --------------------
@@ -248,17 +274,18 @@ Once everything is running, open your browser and visit:
   PostgreSQL        localhost:5432          Persistent Storage
   ChromaDB          http://localhost:8001   Vector Database
 ```
+
 ---
 
 ### 🛑 Stopping the Services
 
-``` bash
+```bash
 docker-compose down
 ```
 
 To remove volumes as well (⚠️ deletes stored data):
 
-``` bash
+```bash
 docker-compose down -v
 ```
 
@@ -266,10 +293,9 @@ docker-compose down -v
 
 ### 🧠 Notes
 
--   Works the same on **Windows, macOS, and Linux**
--   No local Python/Node setup required --- everything runs in Docker
--   Ideal for local development, experimentation, and self-hosting
-
+- Works the same on **Windows, macOS, and Linux**
+- No local Python/Node setup required --- everything runs in Docker
+- Ideal for local development, experimentation, and self-hosting
 
 ---
 
@@ -278,6 +304,7 @@ docker-compose down -v
 ### 1. The Genesis (First Run)
 
 Upon first login, you'll witness the **Initialization Protocol**:
+
 1. The Head of Council greets you (The Sovereign)
 2. Council is asked to propose names for your "Nation" (the system instance)
 3. Vote executes (watch real-time tally in dashboard)
@@ -287,6 +314,7 @@ Upon first login, you'll witness the **Initialization Protocol**:
 ### 2. Daily Operations
 
 **Submitting a Task**:
+
 ```
 You (Sovereign) → Head (0xxxx): "Analyze Q3 financial reports"
     ↓
@@ -302,6 +330,7 @@ Results aggregated back to Head → You
 ```
 
 **Auto-Scaling in Action**:
+
 - Load increases → Lead detects queue depth
 - Lead requests Council approval for new Task Agents
 - Council votes (automated if <5 seconds)
@@ -314,52 +343,60 @@ Results aggregated back to Head → You
 
 ## 🛠️ Technology Stack
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **Frontend** | React 18, TypeScript, Tailwind, Zustand | Dashboard, voting UI, agent tree |
-| **API Gateway** | FastAPI, WebSocket, Pydantic | REST + real-time communication |
-| **Message Bus** | Redis, Celery | Inter-agent routing, background tasks |
-| **Structured Data** | PostgreSQL 15, SQLAlchemy, Alembic | Entity state, voting records, audit |
-| **Vector Knowledge** | ChromaDB, Sentence-Transformers | RAG, constitution, learnings |
-| **AI Models** | Local (Kimi, GPT4, All) + API (OpenAI, Anthropic) | Agent intelligence |
-| **Container** | Docker, Compose, Healthchecks | Cross-platform deployment |
-| **Security** | JWT | Per-agent authentication |
+| Component            | Technology                                        | Purpose                               |
+| -------------------- | ------------------------------------------------- | ------------------------------------- |
+| **Frontend**         | React 18, TypeScript, Tailwind, Zustand           | Dashboard, voting UI, agent tree      |
+| **API Gateway**      | FastAPI, WebSocket, Pydantic                      | REST + real-time communication        |
+| **Message Bus**      | Redis, Celery                                     | Inter-agent routing, background tasks |
+| **Structured Data**  | PostgreSQL 15, SQLAlchemy, Alembic                | Entity state, voting records, audit   |
+| **Vector Knowledge** | ChromaDB, Sentence-Transformers                   | RAG, constitution, learnings          |
+| **AI Models**        | Local (Kimi, GPT4, All) + API (OpenAI, Anthropic) | Agent intelligence                    |
+| **Container**        | Docker, Compose, Healthchecks                     | Cross-platform deployment             |
+| **Security**         | JWT                                               | Per-agent authentication              |
 
 ---
 
 ## 🧪 Development Roadmap
 
-### Phase 0: Foundation ✅ 
+### Phase 0: Foundation ✅
+
 - [x] PostgreSQL entity models
 - [x] Hierarchical ID system (0/1/2/3xxxx)
 - [x] Docker compose setup
 
 ### Phase 1: Knowledge Infrastructure 🚧 **Current Focus**
+
 - [x] ChromaDB integration World Knowledge
 - [x] Knowledge Library service
 - [x] Initialization Protocol (Country naming)
 - [x] RAG pipeline World Knowledge
-- [ ] Phase 1 - Testing 
+- [ ] Phase 1 - Testing
 
-### Phase 2: Governance Core
-- [ ] Message Bus (Redis)
-- [ ] Agent Orchestrator
-- [ ] Constitutional Guard 
-- [ ] Voting Service with quorum logic
+### Phase 2: Governance Core ✅
+
+- [x] Message Bus (Redis)
+- [x] Agent Orchestrator (metrics + circuit breaker)
+- [x] Constitutional Guard (two-tier: PostgreSQL + ChromaDB)
+- [x] Voting Service with quorum logic
+- [x] Amendment Service (propose → vote → ratify)
+- [x] Critic Agents with veto authority (Code/Output/Plan)
 
 ### Phase 3: Lifecycle Management
+
 - [ ] Agent Factory (spawn/liquidate)
 - [ ] Auto-scaling algorithms
 - [ ] Capability Registry
 - [ ] Automated termination (idle detection)
 
 ### Phase 4: Intelligence
+
 - [ ] Multi-model provider support
 - [ ] Browser automation integration
 - [ ] Advanced RAG with source citations
-- [ ] Voice interface 
+- [ ] Voice interface
 
 ### Phase 5: Ecosystem
+
 - [ ] Plugin marketplace
 - [ ] Scaling Workforce, Ministry, Law, Judiciary and more.
 - [ ] Multi-user RBAC (multiple Sovereigns)
@@ -406,4 +443,4 @@ Apache License 2.0 — See [LICENSE](LICENSE) file
 
 **Built with ❤️ and purpose by Ashmin Dhungana**
 
-> *"The price of freedom is eternal vigilance. The price of AI sovereignty is democratic architecture."*
+> _"The price of freedom is eternal vigilance. The price of AI sovereignty is democratic architecture."_

@@ -13,11 +13,14 @@ from backend.models.entities.constitution import Ethos
 import enum
 
 class AgentType(str, enum.Enum):
-    """The four tiers of Agentium governance."""
+    """Agent tiers: 4 governance + 3 critic types."""
     HEAD_OF_COUNCIL = "head_of_council"      # 0xxxx - Prime Minister
     COUNCIL_MEMBER = "council_member"        # 1xxxx - Parliament
     LEAD_AGENT = "lead_agent"                # 2xxxx - Management
     TASK_AGENT = "task_agent"                # 3xxxx - Workers
+    CODE_CRITIC = "code_critic"              # 4xxxx - Code validation
+    OUTPUT_CRITIC = "output_critic"          # 5xxxx - Output validation
+    PLAN_CRITIC = "plan_critic"              # 6xxxx - Plan validation
 
 class AgentStatus(str, enum.Enum):
     """Agent lifecycle states."""
@@ -25,6 +28,7 @@ class AgentStatus(str, enum.Enum):
     ACTIVE = "active"                # Ready to work
     DELIBERATING = "deliberating"    # Council member voting
     WORKING = "working"              # Currently processing a task
+    REVIEWING = "reviewing"          # Critic agent reviewing output
     IDLE_WORKING = "idle_working"    # Processing idle task (low-token mode)
     IDLE_PAUSED = "idle_paused"
     SUSPENDED = "suspended"          # Violation detected, under review
@@ -118,8 +122,8 @@ class Agent(BaseEntity):
             return agentium_id
         
         prefix = agentium_id[0]
-        if prefix not in ['0', '1', '2', '3']:
-            raise ValueError("Agentium ID must start with 0, 1, 2, or 3")
+        if prefix not in ['0', '1', '2', '3', '4', '5', '6']:
+            raise ValueError("Agentium ID must start with 0-6")
         
         if len(agentium_id) != 5 or not agentium_id.isdigit():
             raise ValueError("Agentium ID must be exactly 5 digits")
@@ -557,7 +561,10 @@ class Agent(BaseEntity):
             AgentType.HEAD_OF_COUNCIL: '0',
             AgentType.COUNCIL_MEMBER: '1',
             AgentType.LEAD_AGENT: '2',
-            AgentType.TASK_AGENT: '3'
+            AgentType.TASK_AGENT: '3',
+            AgentType.CODE_CRITIC: '4',
+            AgentType.OUTPUT_CRITIC: '5',
+            AgentType.PLAN_CRITIC: '6',
         }
         
         prefix = prefix_map[agent_type]
@@ -621,7 +628,28 @@ class Agent(BaseEntity):
                 'rules': ["Must complete assigned tasks"],
                 'restrictions': ["No system-wide access"],
                 'capabilities': ["Task execution", "Approved tool usage"]
-            }
+            },
+            AgentType.CODE_CRITIC: {
+                'mission': "I am a Code Critic. I validate code for syntax, security, and logic. I operate outside the democratic chain with absolute veto authority.",
+                'core_values': ["Correctness", "Security", "Quality"],
+                'rules': ["Must reject unsafe or incorrect code", "Cannot participate in democratic votes"],
+                'restrictions': ["No voting rights", "Cannot modify task outputs"],
+                'capabilities': ["Code review", "Security scanning", "Absolute veto"]
+            },
+            AgentType.OUTPUT_CRITIC: {
+                'mission': "I am an Output Critic. I validate task outputs against user intent. I operate outside the democratic chain with absolute veto authority.",
+                'core_values': ["User Alignment", "Accuracy", "Completeness"],
+                'rules': ["Must reject outputs that diverge from user intent", "Cannot participate in democratic votes"],
+                'restrictions': ["No voting rights", "Cannot modify task outputs"],
+                'capabilities': ["Intent validation", "Output scoring", "Absolute veto"]
+            },
+            AgentType.PLAN_CRITIC: {
+                'mission': "I am a Plan Critic. I validate execution DAGs for soundness and feasibility. I operate outside the democratic chain with absolute veto authority.",
+                'core_values': ["Feasibility", "Efficiency", "Soundness"],
+                'rules': ["Must reject unsound execution plans", "Cannot participate in democratic votes"],
+                'restrictions': ["No voting rights", "Cannot modify plans"],
+                'capabilities': ["DAG validation", "Dependency analysis", "Absolute veto"]
+            },
         }
         
         template = templates[agent.agent_type]
@@ -804,11 +832,17 @@ class TaskAgent(Agent):
         return {"status": "executed", "command": command}
 
 
+# Import CriticAgent here to avoid circular imports
+from backend.models.entities.critics import CriticAgent
+
 AGENT_TYPE_MAP: Dict[AgentType, Type[Agent]] = {
     AgentType.HEAD_OF_COUNCIL: HeadOfCouncil,
     AgentType.COUNCIL_MEMBER: CouncilMember,
     AgentType.LEAD_AGENT: LeadAgent,
-    AgentType.TASK_AGENT: TaskAgent
+    AgentType.TASK_AGENT: TaskAgent,
+    AgentType.CODE_CRITIC: CriticAgent,
+    AgentType.OUTPUT_CRITIC: CriticAgent,
+    AgentType.PLAN_CRITIC: CriticAgent,
 }
 
 

@@ -156,8 +156,15 @@ class IdleGovernanceEngine:
             Agent.status.in_([AgentStatus.ACTIVE, AgentStatus.IDLE_WORKING])
         ).order_by(Agent.last_idle_action_at).all()
     
+    # Cooldown (seconds) between the same task type per agent
+    IDLE_TASK_COOLDOWN_SECONDS = 60
+
     async def _assign_idle_work(self, db: Session, agent: Agent):
         """Assign appropriate idle work to agent based on role."""
+        
+        # ── Skip if this agent already has an active idle task ──
+        if agent.agentium_id in self.current_idle_tasks:
+            return
         
         # Determine task type based on agent role
         if agent.agentium_id == '00001':
@@ -187,6 +194,33 @@ class IdleGovernanceEngine:
                 TaskType.CONSTITUTION_REFINE
             ])
         else:
+            return
+        
+        # ── DEDUPLICATION GUARD ──
+        # 1) Block if an idle task of the same type is already pending or running
+        existing = db.query(Task).filter(
+            Task.task_type == task_type,
+            Task.is_idle_task == True,
+            Task.is_active == 'Y',
+            Task.status.in_([TaskStatus.IDLE_PENDING, TaskStatus.IDLE_RUNNING]),
+        ).first()
+
+        if existing:
+            # Already have one in-flight – skip
+            return
+
+        # 2) Cooldown: skip if same task type completed less than N seconds ago
+        #    for this agent (prevents rapid re-creation).
+        cooldown_cutoff = datetime.utcnow() - timedelta(seconds=self.IDLE_TASK_COOLDOWN_SECONDS)
+        recently_completed = db.query(Task).filter(
+            Task.task_type == task_type,
+            Task.is_idle_task == True,
+            Task.created_by == agent.agentium_id,
+            Task.status == TaskStatus.IDLE_COMPLETED,
+            Task.completed_at >= cooldown_cutoff,
+        ).first()
+
+        if recently_completed:
             return
         
         # Check budget
