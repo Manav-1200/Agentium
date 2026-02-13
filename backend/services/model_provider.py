@@ -65,11 +65,14 @@ class BaseModelProvider(ABC):
         """Rough cost estimation per provider."""
         # Approximate costs per 1K tokens
         costs = {
-            ProviderType.OPENAI: 0.03,      # GPT-4
-            ProviderType.ANTHROPIC: 0.03,   # Claude-3
+            ProviderType.OPENAI: 0.01,      # Avg blended
+            ProviderType.ANTHROPIC: 0.015,  # Avg blended
             ProviderType.GROQ: 0.0005,      # Very cheap
             ProviderType.MISTRAL: 0.002,    # Mistral medium
-            ProviderType.TOGETHER: 0.001,   # Competitive
+            ProviderType.TOGETHER: 0.0008,  # Llama 3 70B
+            ProviderType.MOONSHOT: 0.0017,  # Kimi
+            ProviderType.DEEPSEEK: 0.0002,  # DeepSeek Chat (very cheap)
+            ProviderType.AZURE_OPENAI: 0.01,# Similar to OpenAI
             ProviderType.LOCAL: 0.0,        # Free
             ProviderType.CUSTOM: 0.001,     # Assume competitive
         }
@@ -199,37 +202,111 @@ class GeminiProvider(BaseModelProvider):
         # or native gemini library. Using OpenAI compat for simplicity:
         import openai
         
+        # Use configured base_url or default to Google's OpenAI-compatible endpoint
+        base_url = self.base_url or "https://generativelanguage.googleapis.com/v1beta/openai/"
+        
         client = openai.AsyncOpenAI(
             api_key=self.api_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            base_url=base_url,
             timeout=self.config.timeout_seconds
         )
         
         start_time = time.time()
-        response = await client.chat.completions.create(
+        try:
+            response = await client.chat.completions.create(
+                model=kwargs.get('model', self.config.default_model),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=kwargs.get('max_tokens', self.config.max_tokens),
+            )
+            
+            latency = int((time.time() - start_time) * 1000)
+            
+            return {
+                "content": response.choices[0].message.content,
+                "tokens_used": response.usage.total_tokens if response.usage else 0,
+                "latency_ms": latency,
+                "model": response.model
+            }
+        except Exception as e:
+            await self._log_usage(0, 0, success=False, error=str(e))
+            raise
+    
+    async def stream_generate(self, system_prompt: str, user_message: str, **kwargs):
+        import openai
+        
+        base_url = self.base_url or "https://generativelanguage.googleapis.com/v1beta/openai/"
+        
+        client = openai.AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=base_url
+        )
+        
+        stream = await client.chat.completions.create(
             model=kwargs.get('model', self.config.default_model),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
             ],
+            stream=True,
             max_tokens=kwargs.get('max_tokens', self.config.max_tokens),
         )
         
-        latency = int((time.time() - start_time) * 1000)
-        
-        return {
-            "content": response.choices[0].message.content,
-            "tokens_used": response.usage.total_tokens if response.usage else 0,
-            "latency_ms": latency,
-            "model": response.model
-        }
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
+
+
+class AzureOpenAIProvider(BaseModelProvider):
+    """Azure OpenAI Service."""
     
-    async def stream_generate(self, system_prompt: str, user_message: str, **kwargs):
-        import openai
+    async def generate(self, system_prompt: str, user_message: str, **kwargs) -> Dict[str, Any]:
+        from openai import AsyncAzureOpenAI
         
-        client = openai.AsyncOpenAI(
+        # Default to a recent stable version
+        api_version = "2024-05-01-preview"
+        
+        client = AsyncAzureOpenAI(
             api_key=self.api_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+            azure_endpoint=self.base_url,
+            api_version=api_version,
+            timeout=self.config.timeout_seconds
+        )
+        
+        start_time = time.time()
+        try:
+            response = await client.chat.completions.create(
+                model=kwargs.get('model', self.config.default_model),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=kwargs.get('max_tokens', self.config.max_tokens),
+            )
+            
+            latency = int((time.time() - start_time) * 1000)
+            
+            return {
+                "content": response.choices[0].message.content,
+                "tokens_used": response.usage.total_tokens if response.usage else 0,
+                "latency_ms": latency,
+                "model": response.model
+            }
+        except Exception as e:
+            await self._log_usage(0, 0, success=False, error=str(e))
+            raise
+
+    async def stream_generate(self, system_prompt: str, user_message: str, **kwargs):
+        from openai import AsyncAzureOpenAI
+        
+        client = AsyncAzureOpenAI(
+            api_key=self.api_key,
+            azure_endpoint=self.base_url,
+            api_version="2024-05-01-preview",
+            timeout=self.config.timeout_seconds
         )
         
         stream = await client.chat.completions.create(
@@ -313,6 +390,7 @@ PROVIDERS = {
     # Specific providers with special handling
     ProviderType.ANTHROPIC: AnthropicProvider,
     ProviderType.GEMINI: GeminiProvider,
+    ProviderType.AZURE_OPENAI: AzureOpenAIProvider,
     
     # All others use OpenAI-compatible endpoint
     ProviderType.OPENAI: OpenAICompatibleProvider,
@@ -327,7 +405,6 @@ PROVIDERS = {
     ProviderType.DEEPSEEK: OpenAICompatibleProvider,
     ProviderType.QIANWEN: OpenAICompatibleProvider,
     ProviderType.ZHIPU: OpenAICompatibleProvider,
-    ProviderType.AZURE_OPENAI: OpenAICompatibleProvider,
     ProviderType.CUSTOM: OpenAICompatibleProvider,
     ProviderType.OPENAI_COMPATIBLE: OpenAICompatibleProvider,
     ProviderType.LOCAL: LocalProvider,
@@ -440,33 +517,97 @@ class ModelService:
                 models = await client.models.list()
                 return [m.id for m in models.data if "gpt" in m.id or "text-" in m.id]
             
+            elif provider == ProviderType.ANTHROPIC and api_key:
+                # Anthropic doesn't have a public models.list endpoint yet in all SDK versions,
+                # but we can try or fallback
+                return ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"]
+            
             elif provider == ProviderType.GROQ and api_key:
                 import openai
                 client = openai.AsyncOpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
                 models = await client.models.list()
                 return [m.id for m in models.data]
             
-            elif provider == ProviderType.LOCAL:
-                # Try Ollama
-                import aiohttp
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"{base_url or 'http://localhost:11434'}/api/tags") as resp:
-                        data = await resp.json()
-                        return [m['name'] for m in data.get('models', [])]
+            elif provider == ProviderType.MISTRAL and api_key:
+                import openai
+                client = openai.AsyncOpenAI(api_key=api_key, base_url="https://api.mistral.ai/v1")
+                models = await client.models.list()
+                return [m.id for m in models.data]
             
+            elif provider == ProviderType.TOGETHER and api_key:
+                import openai
+                client = openai.AsyncOpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
+                models = await client.models.list()
+                return [m.id for m in models.data]
+                
+            elif provider == ProviderType.MOONSHOT and api_key:
+                import openai
+                client = openai.AsyncOpenAI(api_key=api_key, base_url="https://api.moonshot.cn/v1")
+                models = await client.models.list()
+                return [m.id for m in models.data]
+                
+            elif provider == ProviderType.DEEPSEEK and api_key:
+                import openai
+                client = openai.AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+                models = await client.models.list()
+                return [m.id for m in models.data]
+
+            elif provider == ProviderType.GEMINI and api_key:
+                # Support fetching real models from Gemini
+                import openai
+                # Ensure we use the correct base_url for model listing
+                url = base_url or "https://generativelanguage.googleapis.com/v1beta/openai/"
+                client = openai.AsyncOpenAI(api_key=api_key, base_url=url)
+                try:
+                    models = await client.models.list()
+                    return [m.id for m in models.data if "gemini" in m.id]
+                except Exception:
+                    # Fallback if list endpoint not supported by compat layer yet
+                    return ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b"]
+            
+            elif provider == ProviderType.LOCAL:
+                # Try Ollama (optimized)
+                import aiohttp
+                base = base_url or 'http://localhost:11434'
+                # Clean base url for tags endpoint
+                if '/v1' in base:
+                    base = base.replace('/v1', '')
+                
+                async with aiohttp.ClientSession() as session:
+                    # Try /api/tags (Ollama)
+                    try:
+                        async with session.get(f"{base}/api/tags", timeout=2) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                return [m['name'] for m in data.get('models', [])]
+                    except:
+                        pass
+                    
+                    # Try /v1/models (Standard / LM Studio)
+                    try:
+                        async with session.get(f"{base_url or 'http://localhost:11434/v1'}/models", timeout=2) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                return [m['id'] for m in data.get('data', [])]
+                    except:
+                        pass
+                        
+                return ["llama3", "mistral"] 
+
             # Default: return common models
             default_models = {
-                ProviderType.OPENAI: ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"],
-                ProviderType.ANTHROPIC: ["claude-3-opus", "claude-3-sonnet", "claude-3-haiku"],
-                ProviderType.GROQ: ["llama3-70b-8192", "mixtral-8x7b-32768", "gemma-7b-it"],
-                ProviderType.MISTRAL: ["mistral-large", "mistral-medium", "mistral-small"],
-                ProviderType.TOGETHER: ["meta-llama/Llama-3-70b", "mistralai/Mixtral-8x7B"],
-                ProviderType.GEMINI: ["gemini-pro", "gemini-pro-vision"],
-                ProviderType.MOONSHOT: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
-                ProviderType.LOCAL: ["llama3", "mistral", "mixtral", "qwen2"],
+                ProviderType.OPENAI: ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+                ProviderType.ANTHROPIC: ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229", "claude-3-haiku-20240307"],
+                ProviderType.GROQ: ["llama-3.1-70b-versatile", "llama-3.1-8b-instant"],
+                ProviderType.MISTRAL: ["mistral-large-latest", "mistral-small-latest"],
+                ProviderType.TOGETHER: ["meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo"],
+                ProviderType.GEMINI: ["gemini-1.5-flash", "gemini-1.5-pro"],
+                ProviderType.MOONSHOT: ["moonshot-v1-8k", "moonshot-v1-32k"],
+                ProviderType.DEEPSEEK: ["deepseek-chat", "deepseek-coder"],
+                ProviderType.LOCAL: ["llama3.1", "mistral", "qwen2"],
             }
             return default_models.get(provider, ["custom-model"])
             
         except Exception as e:
             print(f"Error listing models for {provider}: {e}")
-            return ["model-1", "model-2"]  # Fallback
+            return ["model-error"]  # Fallback

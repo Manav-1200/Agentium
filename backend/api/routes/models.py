@@ -83,6 +83,7 @@ class ProviderInfo(BaseModel):
     requires_base_url: bool
     default_base_url: Optional[str] = None
     description: str
+    popular_models: List[str] = Field(default_factory=list)
 
 
 class TestResult(BaseModel):
@@ -132,7 +133,8 @@ async def list_providers():
             requires_api_key=True,
             requires_base_url=False,
             default_base_url="https://api.openai.com/v1",
-            description="GPT-4, GPT-3.5 Turbo, and other OpenAI models"
+            description="GPT-4o, GPT-4 Turbo, and other OpenAI models",
+            popular_models=["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
         ),
         ProviderInfo(
             id=ProviderType.ANTHROPIC.value,
@@ -141,7 +143,8 @@ async def list_providers():
             requires_api_key=True,
             requires_base_url=False,
             default_base_url="https://api.anthropic.com/v1",
-            description="Claude 3 Opus, Sonnet, Haiku - excellent reasoning"
+            description="Claude 3.5 Sonnet, Claude 3 Opus/Haiku - excellent reasoning",
+            popular_models=["claude-3-5-sonnet-20240620", "claude-3-opus-20240229", "claude-3-haiku-20240307"]
         ),
         ProviderInfo(
             id=ProviderType.GEMINI.value,
@@ -150,7 +153,8 @@ async def list_providers():
             requires_api_key=True,
             requires_base_url=False,
             default_base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            description="Google's multimodal models (Gemini 1.5 Pro, Flash, etc.)"
+            description="Google's multimodal models (Gemini 1.5 Pro, Flash)",
+            popular_models=["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b"]
         ),
         ProviderInfo(
             id=ProviderType.GROQ.value,
@@ -159,7 +163,8 @@ async def list_providers():
             requires_api_key=True,
             requires_base_url=False,
             default_base_url="https://api.groq.com/openai/v1",
-            description="Ultra-fast inference (100+ tokens/sec) with Llama 3"
+            description="Ultra-fast inference (100+ tokens/sec) with Llama 3.1",
+            popular_models=["llama-3.1-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
         ),
         ProviderInfo(
             id=ProviderType.MISTRAL.value,
@@ -168,7 +173,8 @@ async def list_providers():
             requires_api_key=True,
             requires_base_url=False,
             default_base_url="https://api.mistral.ai/v1",
-            description="European AI with Mistral and Mixtral models"
+            description="European AI with Mistral, Mixtral, and Codestral",
+            popular_models=["mistral-large-latest", "mistral-small-latest", "codestral-latest"]
         ),
         ProviderInfo(
             id=ProviderType.TOGETHER.value,
@@ -177,7 +183,8 @@ async def list_providers():
             requires_api_key=True,
             requires_base_url=False,
             default_base_url="https://api.together.xyz/v1",
-            description="Access to 100+ open-source models"
+            description="Access to 100+ open-source models (Llama 3.1, Qwen 2)",
+            popular_models=["meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", "Qwen/Qwen2-72B-Instruct"]
         ),
         ProviderInfo(
             id=ProviderType.COHERE.value,
@@ -186,16 +193,18 @@ async def list_providers():
             requires_api_key=True,
             requires_base_url=False,
             default_base_url="https://api.cohere.ai/v1",
-            description="Command R+ and Embed models"
+            description="Command R+ and Embed models",
+            popular_models=["command-r-plus", "command-r"]
         ),
         ProviderInfo(
             id=ProviderType.MOONSHOT.value,
             name="moonshot",
-            display_name="Moonshot (Kimi 2.5)",
+            display_name="Moonshot (Kimi)",
             requires_api_key=True,
             requires_base_url=False,
             default_base_url="https://api.moonshot.cn/v1",
-            description="Kimi 2.5 - Long context (200K+ tokens), Chinese/English"
+            description="Kimi - Long context (200K+ tokens), Chinese/English",
+            popular_models=["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"]
         ),
         ProviderInfo(
             id=ProviderType.DEEPSEEK.value,
@@ -204,7 +213,8 @@ async def list_providers():
             requires_api_key=True,
             requires_base_url=False,
             default_base_url="https://api.deepseek.com/v1",
-            description="DeepSeek Coder and Chat models"
+            description="DeepSeek Coder V2 and Chat models",
+            popular_models=["deepseek-chat", "deepseek-coder"]
         ),
         ProviderInfo(
             id=ProviderType.AZURE_OPENAI.value,
@@ -212,8 +222,9 @@ async def list_providers():
             display_name="Azure OpenAI",
             requires_api_key=True,
             requires_base_url=True,
-            default_base_url=None,
-            description="Enterprise OpenAI through Azure"
+            default_base_url="https://{resource}.openai.azure.com",
+            description="Enterprise OpenAI through Azure (requires Endpoint URL)",
+            popular_models=["gpt-4o", "gpt-4", "gpt-35-turbo"]
         ),
         ProviderInfo(
             id=ProviderType.LOCAL.value,
@@ -222,7 +233,8 @@ async def list_providers():
             requires_api_key=False,
             requires_base_url=False,
             default_base_url="http://localhost:11434/v1",
-            description="Run models locally with Ollama or LM Studio"
+            description="Run models locally with Ollama or LM Studio",
+            popular_models=["llama3.1", "mistral", "gemma2", "qwen2"]
         ),
         ProviderInfo(
             id=ProviderType.CUSTOM.value,
@@ -231,7 +243,8 @@ async def list_providers():
             requires_api_key=True,
             requires_base_url=True,
             default_base_url=None,
-            description="Any OpenAI-compatible API endpoint"
+            description="Any OpenAI-compatible API endpoint",
+            popular_models=[]
         ),
     ]
     return providers
