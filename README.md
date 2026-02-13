@@ -234,11 +234,7 @@ Make sure the following are installed on your system:
 git clone https://github.com/AshminDhungana/Agentium.git
 cd Agentium
 
-# 2. (Optional) Configure environment variables
-cp .env.example .env
-# Open .env and add API keys (OpenAI, Anthropic, etc.) if required
-
-# 3. Build and start all services
+# 2. Build and start all services
 docker-compose up --build
 ```
 
@@ -252,7 +248,7 @@ speed and system.
 Once everything is running, open your browser and visit:
 
 - **Dashboard:** http://localhost:3000
-- **Backend API:** http://localhost:8000
+- **Swagger UI:** http://localhost:3000/docs
 
 #### 🔐 Default Login Credentials
 
