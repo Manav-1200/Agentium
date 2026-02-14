@@ -26,6 +26,7 @@ import {
 import { modelsApi } from '../services/models';
 import { ModelConfigForm } from '../components/models/ModelConfigForm';
 import type { ModelConfig } from '../types';
+import toast from 'react-hot-toast';
 
 /* ─── Provider meta ────────────────────────────────────────────────── */
 const PROVIDER_META: Record<
@@ -119,6 +120,7 @@ const getProviderMeta = (provider: string) =>
         icon: <Cpu className="w-5 h-5" />,
     };
 
+
 /* ─── Status badge ─────────────────────────────────────────────────── */
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     const map: Record<string, { cls: string; icon: React.ReactNode; label: string }> = {
@@ -153,28 +155,48 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     );
 };
 
-/* ─── Summary stat card (top row) ─────────────────────────────────── */
+/* ─── Summary stat card ─────────────────────────────────────────────── */
 const SummaryCard: React.FC<{
     label: string;
     value: string | number;
     icon: React.ReactNode;
-    gradient: string;
-    colorText: string;
-}> = ({ label, value, icon, gradient, colorText }) => (
-    <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl p-5 border border-gray-200/50 dark:border-gray-700/50 hover:shadow-lg transition-all duration-300 group">
-        <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-xl bg-gradient-to-r ${gradient} flex items-center justify-center shrink-0 shadow-lg group-hover:scale-110 transition-transform`}>
-                <span className="text-white">{icon}</span>
-            </div>
-            <div>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white leading-none mb-1">
+    color: 'blue' | 'green' | 'purple' | 'orange';
+}> = ({ label, value, icon, color }) => {
+    const colorClasses = {
+        blue: {
+            bg: 'bg-blue-100 dark:bg-blue-900/30',
+            text: 'text-blue-600 dark:text-blue-400'
+        },
+        green: {
+            bg: 'bg-green-100 dark:bg-green-900/30',
+            text: 'text-green-600 dark:text-green-400'
+        },
+        purple: {
+            bg: 'bg-purple-100 dark:bg-purple-900/30',
+            text: 'text-purple-600 dark:text-purple-400'
+        },
+        orange: {
+            bg: 'bg-orange-100 dark:bg-orange-900/30',
+            text: 'text-orange-600 dark:text-orange-400'
+        }
+    };
+
+    return (
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow">
+            <div className="flex items-center justify-between mb-4">
+                <div className={`w-12 h-12 rounded-lg ${colorClasses[color].bg} flex items-center justify-center`}>
+                    <span className={colorClasses[color].text}>{icon}</span>
+                </div>
+                <span className="text-2xl font-bold text-gray-900 dark:text-white">
                     {value}
-                </p>
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
+                </span>
             </div>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                {label}
+            </p>
         </div>
-    </div>
-);
+    );
+};
 
 /* ─── Main component ───────────────────────────────────────────────── */
 export const ModelsPage: React.FC = () => {
@@ -269,6 +291,13 @@ export const ModelsPage: React.FC = () => {
         await loadConfigs();
         setShowForm(false);
         setEditingConfig(null);
+        
+        // Clear voice status cache if OpenAI provider was added/updated
+        if (config.provider === 'openai') {
+            const { voiceApi } = await import('@/services/voiceApi');
+            voiceApi.clearStatusCache();
+            toast.success('Voice features now available with OpenAI provider!');
+        }
     };
 
     const handleEdit = (config: ModelConfig) => {
@@ -294,7 +323,7 @@ export const ModelsPage: React.FC = () => {
     /* ── Loading skeleton ── */
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/20 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 p-8 flex items-center justify-center">
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6 flex items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 border-4 border-blue-200 dark:border-blue-800 border-t-blue-600 rounded-full animate-spin"></div>
                     <p className="text-gray-600 dark:text-gray-400 text-sm">
@@ -320,66 +349,59 @@ export const ModelsPage: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/20 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 p-8">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
             <div className="max-w-7xl mx-auto">
 
-                    {/* ── Page Header ─────────────────────────────────── */}
-                    <div className="mb-10">
-                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                            <div>
-                                <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-blue-900 to-purple-900 dark:from-white dark:via-blue-200 dark:to-purple-200 bg-clip-text text-transparent mb-3 leading-tight pb-1">
-                                    AI Model Configurations
-                                </h1>
-                                <p className="text-gray-600 dark:text-gray-400 text-lg">
-                                    Connect to powerful AI providers and manage your model fleet
-                                </p>
-                            </div>
-                            <button
-                                onClick={() => setShowForm(true)}
-                                className="group relative px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center gap-2 shrink-0"
-                            >
-                                <Plus className="w-5 h-5" />
-                                <span>Add Provider</span>
-                                <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-400 to-purple-400 opacity-0 group-hover:opacity-20 transition-opacity blur-xl"></div>
-                            </button>
-                        </div>
-                
-                    {/* ── Summary Stats ────────────────────────────────── */}
-                    <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <SummaryCard
-                            label="Total Providers"
-                            value={configs.length}
-                            icon={<Server className="w-5 h-5" />}
-                            gradient="from-blue-500 to-blue-600"
-                            colorText="text-blue-600 dark:text-blue-400"
-                        />
-                        <SummaryCard
-                            label="Active Providers"
-                            value={activeCount}
-                            icon={<CheckCircle2 className="w-5 h-5" />}
-                            gradient="from-green-500 to-emerald-600"
-                            colorText="text-green-600 dark:text-green-400"
-                        />
-                        <SummaryCard
-                            label="Total Tokens"
-                            value={totalTokens.toLocaleString()}
-                            icon={<BarChart3 className="w-5 h-5" />}
-                            gradient="from-purple-500 to-violet-600"
-                            colorText="text-purple-600 dark:text-purple-400"
-                        />
-                        <SummaryCard
-                            label="Est. Cost"
-                            value={`$${totalCost.toFixed(2)}`}
-                            icon={<Activity className="w-5 h-5" />}
-                            gradient="from-orange-500 to-amber-600"
-                            colorText="text-orange-600 dark:text-orange-400"
-                        />
+                {/* ── Page Header ─────────────────────────────────── */}
+                <div className="mb-8">
+                    <div className="flex items-center justify-between mb-2">
+                        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                            AI Model Configurations
+                        </h1>
+                        <button
+                            onClick={() => setShowForm(true)}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                        >
+                            <Plus className="w-5 h-5" />
+                            <span>Add Provider</span>
+                        </button>
                     </div>
+                    <p className="text-gray-600 dark:text-gray-400">
+                        Connect to powerful AI providers and manage your model fleet
+                    </p>
+                </div>
+
+                {/* ── Summary Stats ────────────────────────────────── */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <SummaryCard
+                        label="Total Providers"
+                        value={configs.length}
+                        icon={<Server className="w-6 h-6" />}
+                        color="blue"
+                    />
+                    <SummaryCard
+                        label="Active Providers"
+                        value={activeCount}
+                        icon={<CheckCircle2 className="w-6 h-6" />}
+                        color="green"
+                    />
+                    <SummaryCard
+                        label="Total Tokens"
+                        value={totalTokens.toLocaleString()}
+                        icon={<BarChart3 className="w-6 h-6" />}
+                        color="purple"
+                    />
+                    <SummaryCard
+                        label="Est. Cost"
+                        value={`$${totalCost.toFixed(2)}`}
+                        icon={<Activity className="w-6 h-6" />}
+                        color="orange"
+                    />
                 </div>
 
                 {/* ── Error Banner ─────────────────────────────────── */}
                 {error && (
-                    <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-start gap-3">
+                    <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
                         <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                         <div className="flex-1">
                             <p className="font-medium text-red-900 dark:text-red-300">
@@ -401,8 +423,8 @@ export const ModelsPage: React.FC = () => {
                 {/* ── Configurations Grid ───────────────────────────── */}
                 {configs.length === 0 ? (
                     <div className="text-center py-20">
-                        <div className="inline-flex items-center justify-center w-24 h-24 bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 dark:from-blue-900/30 dark:via-purple-900/30 dark:to-pink-900/30 rounded-3xl mb-6 shadow-inner">
-                            <Settings className="w-12 h-12 text-blue-600 dark:text-blue-400" />
+                        <div className="inline-flex items-center justify-center w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-2xl mb-6">
+                            <Settings className="w-10 h-10 text-gray-400 dark:text-gray-500" />
                         </div>
                         <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No Configurations Yet</h3>
                         <p className="text-gray-600 dark:text-gray-400 mb-8 max-w-md mx-auto">
@@ -410,12 +432,10 @@ export const ModelsPage: React.FC = () => {
                         </p>
                         <button
                             onClick={() => setShowForm(true)}
-                            className="group relative px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors inline-flex items-center gap-2"
                         >
-                            <div className="flex items-center gap-2">
-                                <Plus className="w-5 h-5" />
-                                <span>Add Your First Provider</span>
-                            </div>
+                            <Plus className="w-5 h-5" />
+                            <span>Add Your First Provider</span>
                         </button>
                     </div>
                 ) : (
@@ -425,17 +445,17 @@ export const ModelsPage: React.FC = () => {
                             return (
                                 <div
                                     key={config.id}
-                                    className="group relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300 hover:-translate-y-1"
+                                    className="group relative bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden"
                                 >
-                                    {/* Gradient Header Bar */}
-                                    <div className={`h-1.5 bg-gradient-to-r ${meta.gradient}`}></div>
+                                    {/* Gradient Header Bar - Subtle effect */}
+                                    <div className={`h-1 bg-gradient-to-r ${meta.gradient}`}></div>
                                     
                                     <div className="p-6">
                                         {/* Header Row */}
                                         <div className="flex items-start justify-between mb-4">
-                                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${meta.bg} ${meta.color}`}>
-                                                {meta.icon}
-                                                <span className="text-sm font-semibold">
+                                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${meta.bg}`}>
+                                                <span className={meta.color}>{meta.icon}</span>
+                                                <span className={`text-sm font-semibold ${meta.color}`}>
                                                     {config.provider_name || meta.label}
                                                 </span>
                                             </div>
@@ -498,17 +518,17 @@ export const ModelsPage: React.FC = () => {
                                             </div>
                                         )}
 
-                                        {/* Usage Stats */}
-                                        <div className="grid grid-cols-3 gap-3 p-3 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-900/50 dark:to-gray-800/50 rounded-xl mb-4 border border-gray-100 dark:border-gray-700/50">
+                                        {/* Usage Stats - Subtle gradient */}
+                                        <div className="grid grid-cols-3 gap-3 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg mb-4 border border-gray-100 dark:border-gray-700">
                                             <div className="text-center">
                                                 <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Requests</div>
-                                                <div className="text-lg font-bold text-gray-900 dark:text-white">
+                                                <div className="text-base font-bold text-gray-900 dark:text-white">
                                                     {config.total_usage?.requests?.toLocaleString() || 0}
                                                 </div>
                                             </div>
                                             <div className="text-center border-x border-gray-200 dark:border-gray-700">
                                                 <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Tokens</div>
-                                                <div className="text-lg font-bold text-gray-900 dark:text-white">
+                                                <div className="text-base font-bold text-gray-900 dark:text-white">
                                                     {(config.total_usage?.tokens || 0) >= 1000 
                                                         ? `${((config.total_usage?.tokens || 0) / 1000).toFixed(1)}k`
                                                         : config.total_usage?.tokens || 0
@@ -517,7 +537,7 @@ export const ModelsPage: React.FC = () => {
                                             </div>
                                             <div className="text-center">
                                                 <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Cost</div>
-                                                <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                                                <div className="text-base font-bold text-emerald-600 dark:text-emerald-400">
                                                     ${(config.total_usage?.cost_usd || 0).toFixed(2)}
                                                 </div>
                                             </div>
@@ -583,8 +603,8 @@ export const ModelsPage: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    {/* Hover Glow Effect */}
-                                    <div className={`absolute inset-0 bg-gradient-to-r ${meta.gradient} opacity-0 group-hover:opacity-5 transition-opacity pointer-events-none`}></div>
+                                    {/* Hover Glow Effect - Subtle */}
+                                    <div className={`absolute inset-0 bg-gradient-to-r ${meta.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-300 pointer-events-none`}></div>
                                 </div>
                             );
                         })}

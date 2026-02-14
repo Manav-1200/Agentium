@@ -46,6 +46,8 @@ from backend.api import sovereign
 from backend.api.routes import tool_creation as tool_creation_routes
 from backend.api.routes import admin as admin_routes
 from backend.api.routes import tasks as tasks_routes
+from backend.api.routes import files as files_routes
+from backend.api.routes import voice as voice_routes
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -230,6 +232,9 @@ app.include_router(sovereign.router, prefix="/api/v1")
 app.include_router(tool_creation_routes.router, prefix="/api/v1")
 app.include_router(admin_routes.router, prefix="/api/v1")
 app.include_router(tasks_routes.router, prefix="/api/v1")
+app.include_router(files_routes.router)
+app.include_router(voice_routes.router)
+
 
 
 # ==================== Health Check ====================

@@ -37,6 +37,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Set working directory
 WORKDIR /app
 
+# Create temp upload directories with proper permissions BEFORE switching to non-root user
+RUN mkdir -p /tmp/agentium_uploads/files /tmp/agentium_uploads/voice && \
+    chmod -R 777 /tmp/agentium_uploads
+
 # Copy application code
 COPY . .
 

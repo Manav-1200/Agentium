@@ -3,16 +3,19 @@ Chat API for Sovereign to communicate with Head of Council.
 Supports streaming responses for real-time communication.
 """
 import json
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 
 from backend.models.database import get_db
 from backend.models.entities import Agent, HeadOfCouncil, Task
+from backend.models.entities.user import User  # Import User model
 from backend.services.chat_service import ChatService
 from backend.services.model_provider import ModelService
+from backend.core.auth import get_current_active_user  # Import this at the top
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -25,6 +28,158 @@ class ChatResponse(BaseModel):
     agent_id: str
     task_created: bool = False
     task_id: str = None
+
+
+@router.get("/conversations")
+async def list_conversations(
+    include_archived: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """List all conversations for current user."""
+    from backend.models.entities.chat_message import Conversation
+    
+    query = db.query(Conversation).filter(
+        Conversation.user_id == str(current_user.id),
+        Conversation.is_deleted == 'N'
+    )
+    
+    if not include_archived:
+        query = query.filter(Conversation.is_archived == 'N')
+    
+    conversations = query.order_by(desc(Conversation.last_message_at)).all()
+    
+    return {
+        "conversations": [c.to_dict() for c in conversations],
+        "total": len(conversations)
+    }
+
+
+@router.post("/conversations")
+async def create_conversation(
+    title: Optional[str] = None,
+    context: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Create a new conversation."""
+    from backend.models.entities.chat_message import Conversation
+    
+    conversation = Conversation(
+        user_id=str(current_user.id),
+        title=title or "New Conversation",
+        context=context
+    )
+    
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+    
+    return conversation.to_dict()
+
+
+@router.get("/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    include_messages: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get a specific conversation with messages."""
+    from backend.models.entities.chat_message import Conversation
+    
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == str(current_user.id),
+        Conversation.is_deleted == 'N'
+    ).first()
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    return conversation.to_dict(include_messages=include_messages)
+
+
+@router.post("/conversations/{conversation_id}/archive")
+async def archive_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Archive a conversation."""
+    from backend.models.entities.chat_message import Conversation
+    
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == str(current_user.id)
+    ).first()
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    conversation.is_archived = 'Y'
+    db.commit()
+    
+    return {"success": True, "message": "Conversation archived"}
+
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Soft delete a conversation."""
+    from backend.models.entities.chat_message import Conversation
+    
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == str(current_user.id)
+            ).first()
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    conversation.is_deleted = 'Y'
+    db.commit()
+    
+    return {"success": True, "message": "Conversation deleted"}
+
+
+@router.get("/stats")
+async def get_chat_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get chat statistics for current user."""
+    from backend.models.entities.chat_message import ChatMessage, Conversation
+    
+    total_conversations = db.query(Conversation).filter(
+        Conversation.user_id == str(current_user.id),
+        Conversation.is_deleted == 'N'
+    ).count()
+    
+    total_messages = db.query(ChatMessage).filter(
+        ChatMessage.user_id == str(current_user.id),
+        ChatMessage.is_deleted == 'N'
+    ).count()
+    
+    # Messages today
+    from datetime import datetime, timedelta
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    messages_today = db.query(ChatMessage).filter(
+        ChatMessage.user_id == str(current_user.id),
+        ChatMessage.created_at >= today_start,
+        ChatMessage.is_deleted == 'N'
+    ).count()
+    
+    return {
+        "total_conversations": total_conversations,
+        "total_messages": total_messages,
+        "messages_today": messages_today,
+        "storage_used_bytes": 0  # Placeholder - would calculate from attachments
+    }
+
 
 @router.post("/send", response_class=StreamingResponse)
 async def send_message(
@@ -70,6 +225,7 @@ async def send_message(
             task_created=response.get("task_created", False),
             task_id=response.get("task_id")
         )
+
 
 async def _stream_response(
     agent_id: str, 
@@ -173,6 +329,7 @@ You are speaking directly to the Sovereign. Address them respectfully and provid
         db.close()
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
+
 @router.get("/history")
 async def get_chat_history(
     limit: int = 50,
@@ -200,5 +357,3 @@ async def get_chat_history(
             for log in reversed(logs)
         ]
     }
-
-import json

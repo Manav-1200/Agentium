@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, func
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from backend.models.database import Base
+from sqlalchemy.orm import relationship 
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -18,6 +19,8 @@ class User(Base):
     is_pending = Column(Boolean, default=True)  # New: For approval workflow
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    chat_messages = relationship("ChatMessage", back_populates="user", order_by="ChatMessage.created_at.desc()")
+    conversations = relationship("Conversation", back_populates="user", order_by="Conversation.updated_at.desc()")
     
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:

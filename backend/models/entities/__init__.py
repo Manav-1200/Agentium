@@ -19,6 +19,8 @@ from backend.models.entities.channels import (
     ChannelStatus
 )
 
+from backend.models.entities.chat_message import ChatMessage, Conversation
+
 from backend.models.entities.scheduled_task import (
     ScheduledTask, 
     ScheduledTaskExecution,
@@ -108,7 +110,8 @@ __all__ = [
     'ProviderType', 
     'ConnectionStatus',
     'ModelUsageLog',
-    
+    "ChatMessage",
+    "Conversation",
     # Constitution
     'Constitution',
     'Ethos', 

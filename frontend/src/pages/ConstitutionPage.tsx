@@ -38,7 +38,7 @@ function Section({
 }) {
     const [open, setOpen] = useState(true);
 
-    const accentMap = {
+    const accentMap: Record<string, { bar: string; icon: string; ring: string }> = {
         blue: { bar: 'bg-blue-500', icon: 'text-blue-400', ring: 'ring-blue-500/20' },
         red: { bar: 'bg-red-500', icon: 'text-red-400', ring: 'ring-red-500/20' },
         purple: { bar: 'bg-purple-500', icon: 'text-purple-400', ring: 'ring-purple-500/20' },
@@ -346,7 +346,7 @@ export function ConstitutionPage() {
                         { label: 'Prohibitions', value: prohibitedCount, icon: Lock, color: 'red' },
                         { label: 'Preferences', value: prefCount, icon: Sliders, color: 'purple' },
                     ].map(({ label, value, icon: Icon, color }) => {
-                        const colorMap = {
+                        const colorMap: Record<string, string> = {
                             blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-800/50',
                             red: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-800/50',
                             purple: 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border-purple-100 dark:border-purple-800/50',

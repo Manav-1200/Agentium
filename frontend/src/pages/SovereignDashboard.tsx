@@ -13,7 +13,11 @@ import {
     Trash2,
     CheckCircle,
     XCircle,
-    Clock
+    Clock,
+    Cpu,
+    Database,
+    HardDrive,
+    Zap
 } from 'lucide-react';
 import { hostAccessApi } from '@/services/hostAccessApi';
 
@@ -55,7 +59,6 @@ export function SovereignDashboard() {
             fetchContainers();
             fetchCommandLogs();
 
-            // Set up WebSocket for real-time updates
             const ws = hostAccessApi.connectWebSocket((data) => {
                 if (data.type === 'system_status') {
                     setSystemStatus(data.payload);
@@ -123,14 +126,14 @@ export function SovereignDashboard() {
     const getStatusColor = (status: string) => {
         switch (status.toLowerCase()) {
             case 'running':
-                return 'text-green-600 bg-green-100 dark:bg-green-900/30 dark:text-green-400';
+                return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
             case 'stopped':
             case 'exited':
-                return 'text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400';
+                return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
             case 'paused':
-                return 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400';
+                return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
             default:
-                return 'text-gray-600 bg-gray-100 dark:bg-gray-900/30 dark:text-gray-400';
+                return 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400';
         }
     };
 
@@ -138,21 +141,47 @@ export function SovereignDashboard() {
         switch (status) {
             case 'approved':
             case 'executed':
-                return <CheckCircle className="w-4 h-4 text-green-600" />;
+                return <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />;
             case 'rejected':
-                return <XCircle className="w-4 h-4 text-red-600" />;
+                return <XCircle className="w-4 h-4 text-red-600 dark:text-red-400" />;
             case 'pending':
-                return <Clock className="w-4 h-4 text-yellow-600" />;
+                return <Clock className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />;
             default:
                 return null;
         }
     };
 
+    const getResourceColor = (value: number) => {
+        if (value >= 90) return 'bg-red-600';
+        if (value >= 75) return 'bg-yellow-600';
+        if (value >= 50) return 'bg-blue-600';
+        return 'bg-green-600';
+    };
+
+    const colorClasses = {
+        blue: {
+            bg: 'bg-blue-100 dark:bg-blue-900/30',
+            text: 'text-blue-600 dark:text-blue-400'
+        },
+        green: {
+            bg: 'bg-green-100 dark:bg-green-900/30',
+            text: 'text-green-600 dark:text-green-400'
+        },
+        purple: {
+            bg: 'bg-purple-100 dark:bg-purple-900/30',
+            text: 'text-purple-600 dark:text-purple-400'
+        },
+        orange: {
+            bg: 'bg-orange-100 dark:bg-orange-900/30',
+            text: 'text-orange-600 dark:text-orange-400'
+        }
+    };
+
     if (!user?.isSovereign) {
         return (
-            <div className="flex items-center justify-center h-full">
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-6">
                 <div className="text-center">
-                    <Shield className="w-16 h-16 text-red-600 mx-auto mb-4" />
+                    <Shield className="w-16 h-16 text-red-600 dark:text-red-400 mx-auto mb-4" />
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                         Access Denied
                     </h2>
@@ -164,103 +193,129 @@ export function SovereignDashboard() {
         );
     }
 
+    const runningContainers = containers.filter(c => c.status.toLowerCase() === 'running').length;
+
     return (
-        <div className="space-y-6">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+            <div className="mb-8">
+                <div className="flex items-center gap-3 mb-2">
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
                         Sovereign Control Panel
                     </h1>
-                    <p className="text-gray-600 dark:text-gray-400">
-                        Full system access and administrative controls
-                    </p>
+                    <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-semibold rounded-full">
+                        ADMIN
+                    </span>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Shield className="w-8 h-8 text-blue-600" />
-                </div>
+                <p className="text-gray-600 dark:text-gray-400">
+                    Full system access and administrative controls
+                </p>
             </div>
 
             {/* System Status Grid */}
             {systemStatus && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">CPU Usage</span>
-                            <Activity className="w-4 h-4 text-blue-600" />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    {/* CPU */}
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className={`w-12 h-12 rounded-lg ${colorClasses.blue.bg} flex items-center justify-center`}>
+                                <Cpu className={`w-6 h-6 ${colorClasses.blue.text}`} />
+                            </div>
+                            <span className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {systemStatus.cpu.toFixed(1)}%
+                            </span>
                         </div>
-                        <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {systemStatus.cpu.toFixed(1)}%
-                        </div>
-                        <div className="mt-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">
+                            CPU Usage
+                        </p>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                             <div
-                                className="bg-blue-600 h-2 rounded-full transition-all"
+                                className={`${getResourceColor(systemStatus.cpu)} h-2 rounded-full transition-all`}
                                 style={{ width: `${systemStatus.cpu}%` }}
                             />
                         </div>
                     </div>
 
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">Memory</span>
-                            <Server className="w-4 h-4 text-purple-600" />
+                    {/* Memory */}
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className={`w-12 h-12 rounded-lg ${colorClasses.purple.bg} flex items-center justify-center`}>
+                                <Server className={`w-6 h-6 ${colorClasses.purple.text}`} />
+                            </div>
+                            <span className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {systemStatus.memory.toFixed(1)}%
+                            </span>
                         </div>
-                        <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {systemStatus.memory.toFixed(1)}%
-                        </div>
-                        <div className="mt-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">
+                            Memory
+                        </p>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                             <div
-                                className="bg-purple-600 h-2 rounded-full transition-all"
+                                className={`${getResourceColor(systemStatus.memory)} h-2 rounded-full transition-all`}
                                 style={{ width: `${systemStatus.memory}%` }}
                             />
                         </div>
                     </div>
 
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">Disk</span>
-                            <Server className="w-4 h-4 text-green-600" />
+                    {/* Disk */}
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className={`w-12 h-12 rounded-lg ${colorClasses.green.bg} flex items-center justify-center`}>
+                                <HardDrive className={`w-6 h-6 ${colorClasses.green.text}`} />
+                            </div>
+                            <span className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {systemStatus.disk.toFixed(1)}%
+                            </span>
                         </div>
-                        <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {systemStatus.disk.toFixed(1)}%
-                        </div>
-                        <div className="mt-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">
+                            Disk Usage
+                        </p>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                             <div
-                                className="bg-green-600 h-2 rounded-full transition-all"
+                                className={`${getResourceColor(systemStatus.disk)} h-2 rounded-full transition-all`}
                                 style={{ width: `${systemStatus.disk}%` }}
                             />
                         </div>
                     </div>
 
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-gray-600 dark:text-gray-400">Uptime</span>
-                            <Clock className="w-4 h-4 text-orange-600" />
+                    {/* Uptime */}
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className={`w-12 h-12 rounded-lg ${colorClasses.orange.bg} flex items-center justify-center`}>
+                                <Zap className={`w-6 h-6 ${colorClasses.orange.text}`} />
+                            </div>
+                            <span className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {Math.floor(systemStatus.uptime / 3600)}h
+                            </span>
                         </div>
-                        <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {Math.floor(systemStatus.uptime / 3600)}h
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {Math.floor((systemStatus.uptime % 3600) / 60)}m running
+                        <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">
+                            System Uptime
+                        </p>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {Math.floor((systemStatus.uptime % 3600) / 60)} minutes running
                         </div>
                     </div>
                 </div>
             )}
 
             {/* Container Management */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 mb-6">
                 <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            <Terminal className="w-5 h-5 text-blue-600" />
+                            <Terminal className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                                 Container Management
                             </h2>
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                                ({runningContainers}/{containers.length} running)
+                            </span>
                         </div>
                         <button
                             onClick={fetchContainers}
-                            className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
                         >
+                            <RotateCw className="w-4 h-4" />
                             Refresh
                         </button>
                     </div>
@@ -271,7 +326,7 @@ export function SovereignDashboard() {
                         <thead className="bg-gray-50 dark:bg-gray-900/50">
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                    Name
+                                    Container
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                     Status
@@ -290,31 +345,31 @@ export function SovereignDashboard() {
                         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                             {containers.map((container) => (
                                 <tr key={container.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                    <td className="px-6 py-4 whitespace-nowrap">
+                                    <td className="px-6 py-4">
                                         <div className="text-sm font-medium text-gray-900 dark:text-white">
                                             {container.name}
                                         </div>
-                                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
                                             {container.id.substring(0, 12)}
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
+                                    <td className="px-6 py-4">
                                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(container.status)}`}>
                                             {container.status}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 font-mono">
                                         {container.image}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
                                         {new Date(container.created).toLocaleDateString()}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                                    <td className="px-6 py-4">
                                         <div className="flex items-center justify-end gap-2">
                                             <button
                                                 onClick={() => handleContainerAction(container.id, 'start')}
                                                 disabled={isLoading || container.status === 'running'}
-                                                className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="p-2 text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                                 title="Start"
                                             >
                                                 <Play className="w-4 h-4" />
@@ -322,7 +377,7 @@ export function SovereignDashboard() {
                                             <button
                                                 onClick={() => handleContainerAction(container.id, 'stop')}
                                                 disabled={isLoading || container.status !== 'running'}
-                                                className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                                 title="Stop"
                                             >
                                                 <Square className="w-4 h-4" />
@@ -330,7 +385,7 @@ export function SovereignDashboard() {
                                             <button
                                                 onClick={() => handleContainerAction(container.id, 'restart')}
                                                 disabled={isLoading}
-                                                className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                                 title="Restart"
                                             >
                                                 <RotateCw className="w-4 h-4" />
@@ -338,7 +393,7 @@ export function SovereignDashboard() {
                                             <button
                                                 onClick={() => handleContainerAction(container.id, 'remove')}
                                                 disabled={isLoading}
-                                                className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                                 title="Remove"
                                             >
                                                 <Trash2 className="w-4 h-4" />
@@ -362,29 +417,32 @@ export function SovereignDashboard() {
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
                 <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex items-center gap-3">
-                        <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                        <Activity className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                             Command History
                         </h2>
                     </div>
                 </div>
 
-                <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-[500px] overflow-y-auto">
                     {commandLogs.slice(0, 10).map((log) => (
-                        <div key={log.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                            <div className="flex items-center justify-between">
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        {getCommandStatusIcon(log.status)}
-                                        <code className="text-sm font-mono text-gray-900 dark:text-white">
-                                            {log.command}
-                                        </code>
-                                    </div>
-                                    <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-                                        <span>{new Date(log.timestamp).toLocaleString()}</span>
-                                        {log.executor && <span>Executor: {log.executor}</span>}
-                                    </div>
-                                </div>
+                        <div key={log.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                            <div className="flex items-center gap-3 mb-2">
+                                {getCommandStatusIcon(log.status)}
+                                <code className="text-sm font-mono text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                                    {log.command}
+                                </code>
+                                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                    log.status === 'executed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                    log.status === 'rejected' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                                    'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                }`}>
+                                    {log.status}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 ml-7">
+                                <span>{new Date(log.timestamp).toLocaleString()}</span>
+                                {log.executor && <span>Executor: {log.executor}</span>}
                             </div>
                         </div>
                     ))}

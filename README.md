@@ -52,283 +52,169 @@ Agents auto-spawn when load increases, auto-terminate when tasks complete, and c
 ### Dual-Storage Knowledge System
 
 ```
-                           ┌───────────────────────────────────────────────────┐
-                           │            AGENTIUM GOVERNANCE STACK              │
-                           └───────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       AGENTIUM GOVERNANCE STACK                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-                           💬 Interface Layer
-                           ┌───────────────────────────────────────────────────┐
-                           │ Web Dashboard (React+Vite)  │ WhatsApp   Telegram │
-                           │ ├─ Agent Tree Visualization │ Discord    API      │
-                           │ ├─ Voting Interface         │ Slack               │
-                           │ ├─ Critic Review Queue      │                     │
-                           │ └─ Constitution Editor      │                     │
-                           └───────────────────────────────────────────────────┘
-                                                  │
-                                                  ▼
-                           ⚡ Control Layer
-                           ┌───────────────────────────────────────────────────┐
-                           │ FastAPI Gateway │ WebSocket Hub │ Redis Msg Bus   │
-                           │ ├─ Agent Orchestrator       │ Hierarchical Routing│
-                           │ ├─ Constitutional Guard     │ 3x→2x→1x→0x Routing │
-                           │ ├─ Voting Service           │ Persistent Queues   │
-                           │ └─ Checkpoint Service       │ Time-Travel Recovery│
-                           └───────────────────────────────────────────────────┘
-                                                  │
-                                  ┌───────────────┴───────────────┐
-                                  ▼                               ▼
-            🏛️ Governance Layer                    💾 Storage Layer
-            ┌─────────────────────────┐        ┌──────────────────────────────────────┐
-            │ 👑 Head (0xxxx)         │        │  PostgreSQL (Structured Truth)       │
-            │ ├─ Veto Power           │        │  ├─ Agent Entities (hierarchy FKs)   │
-            │ ├─ Emergency Override   │        │  ├─ Voting Records (tally, timestamp)│
-            │ ├─ Genesis Protocol     │        │  ├─ Audit Logs (immutable trail)     │
-            │ └─ Final Approval       │        │  ├─ Constitution Versions (text)     │
-            │                         │        │  ├─ Checkpoint States                │
-            │ ⚖️ Council (1xxxx)      │        │  └─ User Config                      │
-            │ ├─ Propose Amendments   │        │                                      │
-            │ ├─ Vote on Tasks        │        │  ChromaDB (Vector Meaning) ⭐        │
-            │ ├─ Knowledge Moderation │        │  ├─ Constitution (embeddings)        │
-            │ ├─ Agent Liquidation    │        │  ├─ Country Values                   │
-            │ └─ Strategic Decisions  │        │  ├─ Task Learnings (RAG)             │
-            │                         │        │  ├─ Best Practices                   │
-            │ 🎯 Lead (2xxxx)         │        │  └─ Staged Knowledge                 │
-            │ ├─ Spawn Task Agents    │        └──────────────────────────────────────┘
-            │ ├─ Delegate Work        │                      ▲
-            │ ├─ Resource Allocation  │                      │
-            │ └─ Aggregate Results    │                      │
-            │                         │                      │
-            │ 🤖 Task (3xxxx)         │                      │
-            │ ├─ Execute Commands     │                      │
-            │ ├─ Generate Code        │                      │
-            │ ├─ Submit Learnings     │                      │
-            │ └─ Query Knowledge      │                      │
-            └───────────┬─────────────┘                      │
-                        │                                    │
-                        ▼                                    │
-            🔍 Execution Validation Layer                    │
-            ┌────────────────────────────────────────────────│────────────────────────┐
-            │                                                │                        │
-            │  ┌─────────────────┐    ┌─────────────────┐    │    ┌─────────────────┐ │
-            │  │ 🔍 Plan Critic  │    │ 🔍 Code Critic  │    │    │ 🔍 Output Critic│ │
-            │  │    (6xxxx)      │    │    (4xxxx)      │    │    │    (5xxxx)      │ │
-            │  │                 │    │                 │    │    │                 │ │
-            │  │ Reviews:        │    │ Reviews:        │    │    │ Reviews:        │ │
-            │  │ • DAG Soundness │    │ • Syntax        │    │    │ • User Intent   │ │
-            │  │ • Dependencies  │    │ • Security      │    │    │ • Acceptance    │ │
-            │  │ • Feasibility   │    │ • Logic Bugs    │    │    │   Criteria      │ │
-            │  │                 │    │ • API Misuse    │    │    │ • Completeness  │ │
-            │  │ Authority:      │    │                 │    │    │                 │ │
-            │  │ VETO → Retry    │    │ Authority:      │    │    │ Authority:      │ │
-            │  │ ESCALATE→Council│    │ VETO → Retry    │    │    │ VETO → Retry    │ │
-            │  │ (No Vote)       │    │ ESCALATE→Lead   │    │    │ ESCALATE→Lead   │ │
-            │  │                 │    │ (No Vote)       │    │    │ (No Vote)       │ │
-            │  └────────┬────────┘    └────────┬────────┘    │    └────────┬────────┘ │
-            │           │                      │             │             │          │
-            │           └──────────────────────┼─────────────┼─────────────┘          │
-            │                                  │             │                        │
-            │                    ┌─────────────┴─────────────┴┐                       │
-            │                    ▼                            ▼                       │
-            │         ┌─────────────────────┐    ┌─────────────────────┐              │
-            │         │   REMOTE EXECUTOR   │    │   CHECKPOINT SVC    │              │
-            │         │   (Sandboxed Env)   │    │   (State Capture)   │              │
-            │         │                     │    │                     │              │
-            │         │ • Code Execution    │    │ • Phase Boundaries  │              │
-            │         │ • Data Transform    │    │ • Time-Travel       │              │
-            │         │ • Tool Invocation   │    │ • Branch/Restore    │              │
-            │         │ • Returns Summary   │    │ • Audit Trail       │              │
-            │         │   (Never Raw Data)  │    │                     │              │
-            │         └─────────────────────┘    └─────────────────────┘              │
-            │                                                                         │
-            └─────────────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-            🧠 Background Processing Layer
-            ┌─────────────────────────────────────────────────────────────────────────┐
-            │  Celery Workers  │  Constitutional Patrol  │  Knowledge Maintenance    │
-            │  ├─ Task Queue    │  (Heartbeat)            │  (Deduplication)          │
-            │  ├─ Vote Tally    │  Compliance Checks      │  Embedding Updates         │
-            │  ├─ Critic Queue  │  Auto-termination       │  Orphaned Data Cleanup     │
-            │  └─ Retry Loop    │  Critic Health Check    │  Vector Optimization       │
-            └─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 💬 Interface Layer                                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Web Dashboard (React+Vite)      │  WhatsApp    Telegram                    │
+│  ├─ Agent Tree Visualization     │  Discord     API                         │
+│  ├─ Voting Interface              │  Slack                                   │
+│  ├─ Critic Review Queue           │                                          │
+│  └─ Constitution Editor           │                                          │
+└───────────────────────────────────┴──────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ ⚡ Control Layer                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  FastAPI Gateway    │  WebSocket Hub    │  Redis Message Bus                │
+│  ├─ Agent Orchestrator                  │  Hierarchical Routing             │
+│  ├─ Constitutional Guard                │  3x→2x→1x→0x Routing              │
+│  ├─ Voting Service                      │  Persistent Queues                │
+│  └─ Checkpoint Service                  │  Time-Travel Recovery             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+            ┌───────────────────────┴───────────────────────┐
+            ▼                                               ▼
+┌───────────────────────────────┐           ┌───────────────────────────────┐
+│ 🏛️ Governance Layer            │           │ 💾 Storage Layer               │
+├───────────────────────────────┤           ├───────────────────────────────┤
+│                               │           │ PostgreSQL (Structured Truth) │
+│ 👑 Head (0xxxx)               │           │ ├─ Agent Entities             │
+│ ├─ Veto Power                 │           │ ├─ Voting Records             │
+│ ├─ Emergency Override         │           │ ├─ Audit Logs                 │
+│ ├─ Genesis Protocol           │           │ ├─ Constitution Versions      │
+│ └─ Final Approval             │           │ ├─ Checkpoint States          │
+│                               │           │ └─ User Config                │
+│ ⚖️ Council (1xxxx)             │           │                               │
+│ ├─ Propose Amendments         │           │ ChromaDB (Vector Meaning) ⭐  │
+│ ├─ Vote on Tasks              │           │ ├─ Constitution (embeddings)  │
+│ ├─ Knowledge Moderation       │           │ ├─ Country Values             │
+│ ├─ Agent Liquidation          │           │ ├─ Task Learnings (RAG)       │
+│ └─ Strategic Decisions        │           │ ├─ Best Practices             │
+│                               │           │ └─ Staged Knowledge           │
+│ 🎯 Lead (2xxxx)                │           └───────────────────────────────┘
+│ ├─ Spawn Task Agents          │                         │
+│ ├─ Delegate Work              │                         │
+│ ├─ Resource Allocation        │                         │
+│ └─ Aggregate Results          │                         │
+│                               │                         │
+│ 🤖 Task (3xxxx)                │                         │
+│ ├─ Execute Commands           │                         │
+│ ├─ Generate Code              │                         │
+│ ├─ Submit Learnings           │                         │
+│ └─ Query Knowledge            │                         │
+└───────────────┬───────────────┘                         │
+                │                                         │
+                ▼                                         │
+┌─────────────────────────────────────────────────────────┴───────────────────┐
+│ 🔍 Execution Validation Layer                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐       │
+│  │ 🔍 Plan Critic   │   │ 🔍 Code Critic   │   │ 🔍 Output Critic │       │
+│  │    (6xxxx)       │   │    (4xxxx)       │   │    (5xxxx)       │       │
+│  │                  │   │                  │   │                  │       │
+│  │ Reviews:         │   │ Reviews:         │   │ Reviews:         │       │
+│  │ • DAG Soundness  │   │ • Syntax         │   │ • User Intent    │       │
+│  │ • Dependencies   │   │ • Security       │   │ • Acceptance     │       │
+│  │ • Feasibility    │   │ • Logic Bugs     │   │   Criteria       │       │
+│  │                  │   │ • API Misuse     │   │ • Completeness   │       │
+│  │ Authority:       │   │                  │   │                  │       │
+│  │ VETO → Retry     │   │ Authority:       │   │ Authority:       │       │
+│  │ ESCALATE→Council │   │ VETO → Retry     │   │ VETO → Retry     │       │
+│  │ (No Vote)        │   │ ESCALATE→Lead    │   │ ESCALATE→Lead    │       │
+│  │                  │   │ (No Vote)        │   │ (No Vote)        │       │
+│  └────────┬─────────┘   └────────┬─────────┘   └────────┬─────────┘       │
+│           │                      │                      │                 │
+│           └──────────────────────┼──────────────────────┘                 │
+│                                  │                                        │
+│                    ┌─────────────┴──────────────┐                         │
+│                    ▼                            ▼                         │
+│         ┌──────────────────────┐    ┌──────────────────────┐             │
+│         │  REMOTE EXECUTOR     │    │  CHECKPOINT SERVICE  │             │
+│         │  (Sandboxed Env)     │    │  (State Capture)     │             │
+│         │                      │    │                      │             │
+│         │ • Code Execution     │    │ • Phase Boundaries   │             │
+│         │ • Data Transform     │    │ • Time-Travel        │             │
+│         │ • Tool Invocation    │    │ • Branch/Restore     │             │
+│         │ • Returns Summary    │    │ • Audit Trail        │             │
+│         │   (Never Raw Data)   │    │                      │             │
+│         └──────────────────────┘    └──────────────────────┘             │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 🧠 Background Processing Layer                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Celery Workers       │  Constitutional Patrol   │  Knowledge Maintenance   │
+│  ├─ Task Queue        │  (Heartbeat)             │  (Deduplication)         │
+│  ├─ Vote Tally        │  Compliance Checks       │  Embedding Updates       │
+│  ├─ Critic Queue      │  Auto-termination        │  Orphaned Data Cleanup   │
+│  └─ Agent Liquidation │  Idle Detection          │  Semantic Indexing       │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### The Genesis Protocol (Initialization)
+### Key Design Principles
 
-When Agentium boots for the first time:
+**Separation of Powers**
+
+- **Executive** (Head): Final approval, emergency override
+- **Legislative** (Council): Voting, amendments, strategic policy
+- **Judicial** (Critics): Independent validation, veto authority
+- **Workers** (Task/Lead): Execution without political influence
+
+**Democratic Accountability**
+
+- All Council votes stored in PostgreSQL with timestamp, tally, and agent signatures
+- Constitution changes require 66% majority + Head ratification
+- Agent liquidation requires Council vote or constitutional violation proof
+- Every action traceable to a specific agent ID
+
+**Knowledge Sovereignty**
+
+- **PostgreSQL**: Source of truth for entities, hierarchies, votes
+- **ChromaDB**: Semantic understanding (embeddings of constitution, learnings)
+- **Dual Query**: Agents ask _both_ databases before major decisions
+- **Vector Augmented Retrieval**: Task agents retrieve past learnings via RAG
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Docker Desktop (Windows/macOS) or Docker Engine + Compose (Linux)
+- 8GB RAM minimum (16GB recommended)
+- 10GB free disk space
+
+### Installation
 
 ```bash
-1. Docker Compose initializes PostgreSQL + ChromaDB + Redis
-2. Head of Council (0xxxx) is instantiated
-3. Two Council Members (1xxxx) are spawned
-4. Head prompts Council: "What shall we name our Nation?"
-5. Council votes (first democratic process)
-6. Constitution template loaded with Country Name in preamble
-7. Vector DB indexes the Constitution (semantic + full-text)
-8. Knowledge Library grants Council admin rights
-9. Status: OPERATIONAL — Ready to serve The Sovereign (You)
+# Clone the repository
+git clone https://github.com/yourusername/agentium.git
+cd agentium
+
+# Launch the stack
+docker compose up -d
+
+# Watch initialization logs
+docker compose logs -f agentium-backend
+
+# Access the dashboard
+open http://localhost:3000
 ```
 
----
+**First Login**: You'll be guided through the Genesis Protocol where you name your AI Nation.
 
-## 🗳️ Governance Mechanics
-
-### 1. Constitutional Law (The Supreme Authority)
-
-**Storage**: Dual-mode
-
-- **PostgreSQL**: Version control, amendment history, audit trail
-- **ChromaDB**: Semantic embeddings for RAG queries
-
-**Access Control**:
-
-- **Read**: All agents (via `query_constitution()`)
-- **Amend**: Council proposal + 60% vote + Head ratification
-- **Enforce**: Constitutional Guard checks every action against both SQL rules AND semantic interpretation
-
-**Key Features**:
-
-- Agents can ask: _"Does this violate Article 3 regarding data privacy?"_
-- Semantic search catches "grey area" violations, not just explicit bans
-- Daily review required by all governance tier agents (Head + Council)
-
-### 2. Individual Agent Ethos
-
-Every agent has a personalized Ethos document:
-
-- Created by parent agent upon spawning using template
-- Defines should/should-not rules for that agent's role
-- Task agents: reviewed by Lead Agents
-- Lead agents: reviewed by Head of Council
-- Agents may query parent for clarification
-- Agent Ethos is stored in PostgreSQL
-
-### 3. Democratic Voting System
-
-**Voting Powers**:
-
-- Head (0xxxx): 5 votes + veto power
-- Council (1xxxx): 3 votes each
-- Lead (2xxxx): 1 vote (on operational matters only)
-
-**When Voting Triggers**:
-
-- Constitutional amendments
-- Agent liquidation (termination)
-- Knowledge Library submissions ( Task/Lead → Council approval)
-- Resource allocation disputes
-- Access permission changes across system scope boundaries
-
-**Quorum Rules**:
-
-- Constitutional: 60% of Council
-- Operational: 50% of relevant tier
-- Emergency: Head override (logged as constitutional violation if abused)
-
-### 4. Agent Lifecycle & Termination
-
-**Termination Conditions**:
-
-- ✅ Task completed and confirmed by higher authority (Lead Agent)
-- ❌ Constitutional violation (Council vote required)
-- ⏰ Inactive >7 days (auto-liquidation)
-- ⏰ Lifetime exceeded 30 days (max lifespan)
-- 🛑 Head emergency override (rare, audited)
-
-**Cleanup Process**:
-
-1. Archive all messages/tasks to cold storage (PostgreSQL)
-2. Transfer orphaned knowledge to Council curation queue
-3. Revoke all capabilities
-4. Mark as `liquidated` in registry (never reuse IDs)
-
----
-
-## 🚀 Quick Start (Any OS)
-
-Follow these steps to run **Agentium** on Linux, macOS, or Windows.
-
----
-
-### 📦 Prerequisites
-
-Make sure the following are installed on your system:
-
-- **Docker Engine** `20.10+`
-- **Docker Compose** `2.0+`
-- **Minimum 8GB RAM**\
-  _(16GB recommended if running local LLMs)_
-- **At least 10GB free disk space**
-
-> Docker Desktop includes Docker Engine + Docker Compose and works on
-> Windows, macOS, and Linux.
-
----
-
-### 🛠 Installation & Setup
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/AshminDhungana/Agentium.git
-cd Agentium
-
-# 2. Build and start all services
-docker-compose up --build
-```
-
-⏳ The first build may take a few minutes depending on your internet
-speed and system.
-
----
-
-### 🌐 Access the Application
-
-Once everything is running, open your browser and visit:
-
-- **Dashboard:** http://localhost:3000
-- **Swagger UI:** http://localhost:3000/docs
-
-#### 🔐 Default Login Credentials
-
-    Username: admin
-    Password: admin
-
-> ⚠️ Change these credentials after login.
-
----
-
-### 🧩 Services Started
-
-```
-  Service           URL / Port              Description
-  ----------------- ----------------------- --------------------
-  React Dashboard   http://localhost:3000   Web UI
-  FastAPI Backend   http://localhost:8000   API + WebSocket
-  Redis             localhost:6379          Message Bus
-  PostgreSQL        localhost:5432          Persistent Storage
-  ChromaDB          http://localhost:8001   Vector Database
-```
-
----
-
-### 🛑 Stopping the Services
-
-```bash
-docker-compose down
-```
-
-To remove volumes as well (⚠️ deletes stored data):
-
-```bash
-docker-compose down -v
-```
-
----
-
-### 🧠 Notes
+### System Requirements
 
 - Works the same on **Windows, macOS, and Linux**
-- No local Python/Node setup required --- everything runs in Docker
+- No local Python/Node setup required — everything runs in Docker
 - Ideal for local development, experimentation, and self-hosting
 
 ---
@@ -370,8 +256,8 @@ Results aggregated back to Head → You
 - Council votes (automated if <5 seconds)
 - New 3xxxx agents spawned, provisioned with knowledge from Vector DB
 - When queue empties, oldest Task Agents liquidated
-- Lead Agents can have other Lead Agents below them if task agent count increases.
-- Lead agents can have many layers of Leads below them as per required.
+- Lead Agents can have other Lead Agents below them if task agent count increases
+- Lead agents can have many layers of Leads below them as per required
 
 ---
 
@@ -432,7 +318,7 @@ Results aggregated back to Head → You
 ### Phase 5: Ecosystem
 
 - [ ] Plugin marketplace
-- [ ] Scaling Workforce, Ministry, Law, Judiciary and more.
+- [ ] Scaling Workforce, Ministry, Law, Judiciary and more
 - [ ] Multi-user RBAC (multiple Sovereigns)
 - [ ] Federation (inter-Agentium communication)
 - [ ] Mobile apps
@@ -460,8 +346,8 @@ Read our [Contributing Guide](./CONTRIBUTING.md)
 - **Principle of Least Privilege**: Task agents cannot spawn other agents
 - **Constitutional Bounded**: Agents cannot override the Constitution without democratic process
 - **Emergency Brakes**: Head can halt entire system; Council can veto Head with 75% vote
-- **Individual Ethos**: Individual agents ethos must be removed after agent deletion or reassignment.
-- **World Knowledge**: World knowledge must be updated and maintained regularly.
+- **Individual Ethos**: Individual agents ethos must be removed after agent deletion or reassignment
+- **World Knowledge**: World knowledge must be updated and maintained regularly
 
 ---
 
