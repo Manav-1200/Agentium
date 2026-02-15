@@ -9,36 +9,36 @@ interface FlatMapAuthBackgroundProps {
 }
 
 const citiesData = [
-  { lat: 40.71, lng: -74.00, name: 'New York', size: 1.2, color: '#D4AF37' },
-  { lat: 37.77, lng: -122.41, name: 'San Francisco', size: 1.0, color: '#D4AF37' },
-  { lat: 34.05, lng: -118.24, name: 'Los Angeles', size: 1.0, color: '#D4AF37' },
-  { lat: 43.65, lng: -79.38, name: 'Toronto', size: 1.0, color: '#D4AF37' },
-  { lat: 19.43, lng: -99.13, name: 'Mexico City', size: 1.0, color: '#D4AF37' },
-  { lat: -23.55, lng: -46.63, name: 'Sao Paulo', size: 1.0, color: '#D4AF37' },
-  { lat: -34.60, lng: -58.38, name: 'Buenos Aires', size: 1.0, color: '#D4AF37' },
-  { lat: 51.50, lng: -0.12, name: 'London', size: 1.2, color: '#D4AF37' },
-  { lat: 52.52, lng: 13.40, name: 'Berlin', size: 1.0, color: '#D4AF37' },
-  { lat: 48.85, lng: 2.35, name: 'Paris', size: 1.2, color: '#D4AF37' },
-  { lat: 41.90, lng: 12.49, name: 'Rome', size: 0.9, color: '#D4AF37' },
-  { lat: 59.91, lng: 10.75, name: 'Oslo', size: 0.8, color: '#D4AF37' },
-  { lat: 59.32, lng: 18.06, name: 'Stockholm', size: 0.8, color: '#D4AF37' },
-  { lat: 52.22, lng: 21.01, name: 'Warsaw', size: 0.8, color: '#D4AF37' },
-  { lat: 41.00, lng: 28.97, name: 'Istanbul', size: 1.0, color: '#D4AF37' },
-  { lat: 55.75, lng: 37.61, name: 'Moscow', size: 1.2, color: '#D4AF37' },
-  { lat: 39.90, lng: 116.40, name: 'Beijing', size: 1.2, color: '#D4AF37' },
-  { lat: 31.23, lng: 121.47, name: 'Shanghai', size: 1.4, color: '#D4AF37' },
-  { lat: 37.56, lng: 126.97, name: 'Seoul', size: 1.2, color: '#D4AF37' },
-  { lat: 35.67, lng: 139.65, name: 'Tokyo', size: 1.4, color: '#D4AF37' },
-  { lat: 25.03, lng: 121.56, name: 'Taipei', size: 0.8, color: '#D4AF37' },
-  { lat: 13.75, lng: 100.50, name: 'Bangkok', size: 1.0, color: '#D4AF37' },
-  { lat: 28.61, lng: 77.20, name: 'New Delhi', size: 1.2, color: '#D4AF37' },
-  { lat: 25.20, lng: 55.27, name: 'Dubai', size: 1.0, color: '#D4AF37' },
-  { lat: 30.04, lng: 31.23, name: 'Cairo', size: 1.0, color: '#D4AF37' },
-  { lat: 1.35, lng: 103.81, name: 'Singapore', size: 0.9, color: '#D4AF37' },
-  { lat: -1.28, lng: 36.82, name: 'Nairobi', size: 0.9, color: '#D4AF37' },
-  { lat: -33.86, lng: 151.20, name: 'Sydney', size: 1.0, color: '#D4AF37' },
-  { lat: -37.81, lng: 144.96, name: 'Melbourne', size: 1.0, color: '#D4AF37' },
-  { lat: 27.71, lng: 85.32, name: 'Kathmandu', size: 2.0, color: '#DC2626' },
+  { lat: 40.7128, lng: -74.0060, name: 'New York', size: 0.9, color: '#D4AF37' },
+  { lat: 37.7749, lng: -122.4194, name: 'San Francisco', size: 0.8, color: '#D4AF37' },
+  { lat: 34.0522, lng: -118.2437, name: 'Los Angeles', size: 0.8, color: '#D4AF37' },
+  { lat: 43.6532, lng: -79.3832, name: 'Toronto', size: 0.8, color: '#D4AF37' },
+  { lat: 19.4326, lng: -99.1332, name: 'Mexico City', size: 0.8, color: '#D4AF37' },
+  { lat: -23.5505, lng: -46.6333, name: 'Sao Paulo', size: 0.8, color: '#D4AF37' },
+  { lat: -34.6037, lng: -58.3816, name: 'Buenos Aires', size: 0.8, color: '#D4AF37' },
+  { lat: 51.5074, lng: -0.1278, name: 'London', size: 0.9, color: '#D4AF37' },
+  { lat: 52.5200, lng: 13.4050, name: 'Berlin', size: 0.8, color: '#D4AF37' },
+  { lat: 48.8566, lng: 2.3522, name: 'Paris', size: 0.9, color: '#D4AF37' },
+  { lat: 41.9028, lng: 12.4964, name: 'Rome', size: 0.75, color: '#D4AF37' },
+  { lat: 59.9139, lng: 10.7522, name: 'Oslo', size: 0.7, color: '#D4AF37' },
+  { lat: 59.3293, lng: 18.0686, name: 'Stockholm', size: 0.7, color: '#D4AF37' },
+  { lat: 52.2297, lng: 21.0122, name: 'Warsaw', size: 0.7, color: '#D4AF37' },
+  { lat: 41.0082, lng: 28.9784, name: 'Istanbul', size: 0.8, color: '#D4AF37' },
+  { lat: 55.7558, lng: 37.6173, name: 'Moscow', size: 0.9, color: '#D4AF37' },
+  { lat: 39.9042, lng: 116.4074, name: 'Beijing', size: 0.9, color: '#D4AF37' },
+  { lat: 31.2304, lng: 121.4737, name: 'Shanghai', size: 1.0, color: '#D4AF37' },
+  { lat: 37.5665, lng: 126.9780, name: 'Seoul', size: 0.9, color: '#D4AF37' },
+  { lat: 35.6762, lng: 139.6503, name: 'Tokyo', size: 1.0, color: '#D4AF37' },
+  { lat: 25.0330, lng: 121.5654, name: 'Taipei', size: 0.7, color: '#D4AF37' },
+  { lat: 13.7563, lng: 100.5018, name: 'Bangkok', size: 0.8, color: '#D4AF37' },
+  { lat: 25.7041, lng: 77.1025, name: 'New Delhi', size: 0.8, color: '#D4AF37' },
+  { lat: 25.2048, lng: 55.2708, name: 'Dubai', size: 0.8, color: '#D4AF37' },
+  { lat: 30.0444, lng: 31.2357, name: 'Cairo', size: 0.8, color: '#D4AF37' },
+  { lat: 1.3521, lng: 103.8198, name: 'Singapore', size: 0.75, color: '#D4AF37' },
+  { lat: -1.2921, lng: 36.8219, name: 'Nairobi', size: 0.75, color: '#D4AF37' },
+  { lat: -33.8688, lng: 151.2093, name: 'Sydney', size: 0.8, color: '#D4AF37' },
+  { lat: -37.8136, lng: 144.9631, name: 'Melbourne', size: 0.8, color: '#D4AF37' },
+  { lat: 27.7172, lng: 85.3240, name: 'Kathmandu', size: 1.2, color: '#DC2626' },
 ];
 
 function latLngToXY(lat: number, lng: number, width: number, height: number) {
@@ -113,32 +113,48 @@ export function FlatMapAuthBackground({ variant = 'login' }: FlatMapAuthBackgrou
         if (c.name === 'Kathmandu') return false;
         const pos = latLngToXY(c.lat, c.lng, mapWidth, mapHeight);
         const dist = Math.sqrt(Math.pow(pos.x - kathmanduPos.x, 2) + Math.pow(pos.y - kathmanduPos.y, 2));
-        return dist < 60;
+        return dist < 80;
       });
 
       nearbyCities.forEach((city, index) => {
         const cityPos = latLngToXY(city.lat, city.lng, mapWidth, mapHeight);
         
-        const beamGeometry = new THREE.BufferGeometry();
-        const points = [
-          new THREE.Vector3(cityPos.x, cityPos.y, 0.05),
+        // Create the base line (very subtle) - from Kathmandu to city
+        const baseGeometry = new THREE.BufferGeometry();
+        const basePoints = [
           new THREE.Vector3(kathmanduPos.x, kathmanduPos.y, 0.05),
+          new THREE.Vector3(cityPos.x, cityPos.y, 0.05),
         ];
-        beamGeometry.setFromPoints(points);
+        baseGeometry.setFromPoints(basePoints);
         
-        const beamMaterial = new THREE.LineBasicMaterial({
+        const baseMaterial = new THREE.LineBasicMaterial({
           color: '#DC2626',
           transparent: true,
-          opacity: 0.6,
+          opacity: 0.15,
         });
         
-        const beam = new THREE.Line(beamGeometry, beamMaterial);
-        beam.userData = { 
-          delay: index * 0.5,
-          speed: 2,
-          material: beamMaterial
+        const baseLine = new THREE.Line(baseGeometry, baseMaterial);
+        beamsGroup.add(baseLine);
+        
+        // Create animated flowing segment - from Kathmandu to city
+        const segmentGeometry = new THREE.BufferGeometry();
+        segmentGeometry.setFromPoints(basePoints);
+        
+        const segmentMaterial = new THREE.LineBasicMaterial({
+          color: '#FF3344',
+          transparent: true,
+          opacity: 0,
+        });
+        
+        const segment = new THREE.Line(segmentGeometry, segmentMaterial);
+        segment.userData = {
+          delay: index * 0.25,
+          speed: 0.25, 
+          material: segmentMaterial,
+          cityPos: cityPos,
+          kathmanduPos: kathmanduPos,
         };
-        beamsGroup.add(beam);
+        beamsGroup.add(segment);
       });
     }
     
@@ -325,11 +341,28 @@ export function FlatMapAuthBackground({ variant = 'login' }: FlatMapAuthBackgrou
       // Animate beams if in signup mode
       if (globalSceneInstance?.isSignup) {
         beamsGroup.children.forEach((beam) => {
-          if (beam instanceof THREE.Line) {
+          if (beam instanceof THREE.Line && beam.userData.cityPos) {
+            // This is an animated segment
+            const userData = beam.userData;
+            const material = userData.material;
+            const delay = userData.delay;
+            const speed = userData.speed;
+            
+            const cycle = (time * speed + delay) % 3; 
+            
+            if (cycle < 1) {
+              const progress = cycle;
+              const fadeIn = Math.min(progress * 3, 1);
+              const fadeOut = Math.max(1 - (progress - 0.7) * 3, 0);
+              material.opacity = 0.7 * fadeIn * fadeOut;
+            } else {
+              // Waiting for next pulse
+              material.opacity = 0;
+            }
+          } else if (beam instanceof THREE.Line) {
+            // This is a base line - gentle pulse
             const material = beam.material as THREE.LineBasicMaterial;
-            const delay = beam.userData.delay;
-            const wave = Math.sin((time + delay) * beam.userData.speed);
-            material.opacity = 0.2 + (wave + 1) * 0.3;
+            material.opacity = 0.12 + Math.sin(time * 0.8) * 0.03;
           }
         });
       }
@@ -450,7 +483,7 @@ export function FlatMapAuthBackground({ variant = 'login' }: FlatMapAuthBackgrou
           className="text-[10px] tracking-[0.3em] text-right transition-colors duration-700"
           style={{ color: isSignup ? 'rgba(255, 255, 255, 0.6)' : 'rgba(139, 111, 71, 0.5)' }}
         >
-          <div className="font-semibold">CONSTITUTIONAL NETWORK</div>
+          <div className="font-semibold">AGENTIC NETWORK</div>
           <div 
             className="mt-1 text-[9px] tracking-[0.2em] flex items-center justify-end gap-2 transition-colors duration-700" 
             style={{ color: isSignup ? 'rgba(255, 255, 255, 0.4)' : 'rgba(139, 111, 71, 0.35)' }}
