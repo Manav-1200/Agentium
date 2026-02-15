@@ -321,11 +321,12 @@ TIER_CAPABILITIES = {
 
 **Pending Implementation:**
 
-- [ ] Runtime capability check (`can_agent_X_do_action_Y()`)
-- [ ] Capability revocation on liquidation
-- [ ] Capability inheritance (Lead inherits some Council powers)
-- [ ] Audit trail of capability usage
-- [ ] Dynamic capability granting via Council vote
+- [x] Runtime capability check (`can_agent_X_do_action_Y()`)
+- [x] Capability revocation on liquidation
+- [x] Capability inheritance (Lead inherits some Council powers)
+- [x] Audit trail of capability usage
+- [x] Dynamic capability granting via Council vote
+- [ ] Testing
 
 ---
 

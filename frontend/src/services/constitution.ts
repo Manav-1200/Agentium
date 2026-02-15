@@ -3,7 +3,7 @@ import { Constitution } from '../types';
 
 export const constitutionService = {
     getCurrentConstitution: async (): Promise<Constitution> => {
-        const response = await api.get<Constitution>('/api/v1/constitution/current');
+        const response = await api.get<Constitution>('/api/v1/constitution');
         return response.data;
     },
 

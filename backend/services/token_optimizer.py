@@ -44,6 +44,11 @@ class TokenOptimizer:
         # Singleton pattern
         self.initialized = False
     
+    @property
+    def active_budget(self):
+        """Return the budget manager (for compatibility with main.py)."""
+        return idle_budget
+    
     def initialize(self, db: Session, agents: List[Agent] = None):
         """Initialize with database session and agent list."""
         if self.initialized:
@@ -397,6 +402,7 @@ class TokenOptimizer:
             "is_single_api_mode": api_manager_module.api_manager.single_api_mode()
         }
 
+
 # Enhanced Budget Manager with cost tracking
 class IdleBudgetManager:
     """
@@ -414,13 +420,37 @@ class IdleBudgetManager:
         
         # Cost multiplier for idle vs active (idle is cheaper)
         self.idle_cost_multiplier = 0.0  # Local models are free
+        
+        # Initialize tracking for main.py compatibility
+        self._total_tokens_saved = 0
+        self._total_cost_saved = 0.0
+    
+    @property
+    def daily_idle_budget_usd(self):
+        """Daily budget for idle mode operations (compatibility with main.py)."""
+        return self.daily_cost_limit
+    
+    @property
+    def daily_cost_limit_usd(self):
+        """Daily cost limit in USD (compatibility with main.py)."""
+        return self.daily_cost_limit
+    
+    @property
+    def total_tokens_saved(self):
+        """Total tokens saved (compatibility with main.py)."""
+        return self._total_tokens_saved
+    
+    @property
+    def total_cost_saved_usd(self):
+        """Total cost saved in USD (compatibility with main.py)."""
+        return self._total_cost_saved
     
     def check_budget(self, estimated_cost: float) -> bool:
         """Check if operation fits within daily budget."""
         self._check_reset()
         return (self.cost_used_today + estimated_cost) <= self.daily_cost_limit
     
-    def record_usage(self, tokens: int, model_cost_per_1k: float, is_idle: bool = False):
+    def record_usage(self, tokens: int, model_cost_per_1k: float = 0.0, is_idle: bool = False):
         """Record token usage and calculate cost."""
         self._check_reset()
         
@@ -443,8 +473,8 @@ class IdleBudgetManager:
             "daily_cost_limit_usd": self.daily_cost_limit,
             "cost_used_today_usd": round(self.cost_used_today, 4),
             "cost_remaining_usd": round(self.daily_cost_limit - self.cost_used_today, 4),
-            "cost_percentage_used": round((self.cost_used_today / self.daily_cost_limit) * 100, 2),
-            "cost_percentage_tokens": round((self.tokens_used_today / self.daily_token_limit) * 100, 2)
+            "cost_percentage_used": round((self.cost_used_today / self.daily_cost_limit) * 100, 2) if self.daily_cost_limit > 0 else 0,
+            "cost_percentage_tokens": round((self.tokens_used_today / self.daily_token_limit) * 100, 2) if self.daily_token_limit > 0 else 0
         }
     
     def _check_reset(self):
@@ -454,6 +484,7 @@ class IdleBudgetManager:
             self.tokens_used_today = 0
             self.cost_used_today = 0.0
             self.last_reset = now
+
 
 # Singleton instances
 token_optimizer = TokenOptimizer()

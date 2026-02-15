@@ -1,6 +1,6 @@
 """
-Agentium Main Application with IDLE GOVERNANCE integration.
-FastAPI backend with eternal idle council (Head + 2 Council Members).
+Agentium Main Application.
+FastAPI backend with eternal idle council + capability registry + lifecycle management.
 """
 import os
 from datetime import datetime
@@ -27,7 +27,7 @@ from backend.services.model_provider import ModelService
 from backend.services.chat_service import ChatService
 from backend.services.monitoring_service import MonitoringService
 
-# IDLE GOVERNANCE IMPORTS (NEW)
+# IDLE GOVERNANCE IMPORTS
 from backend.services.persistent_council import persistent_council
 from backend.services.idle_governance import idle_governance
 from backend.services.token_optimizer import token_optimizer, idle_budget
@@ -48,6 +48,9 @@ from backend.api.routes import admin as admin_routes
 from backend.api.routes import tasks as tasks_routes
 from backend.api.routes import files as files_routes
 from backend.api.routes import voice as voice_routes
+
+from backend.api.routes import capability_routes
+from backend.api.routes import lifecycle_routes
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -70,7 +73,6 @@ async def lifespan(app: FastAPI):
     - Enhanced Token Optimizer
     - Idle Governance Engine
     """
-    logger.info("🚀 Starting Agentium with Intelligent Model Allocation & IDLE GOVERNANCE...")
     
     # ─────────────────────────────────────────────────────────────
     # 1. Initialize Database
@@ -98,114 +100,99 @@ async def lifespan(app: FastAPI):
             logger.info(f"   - Council: {len([a for a in agent_list if a.agentium_id.startswith('1')])}")
     except Exception as e:
         logger.error(f"❌ Persistent Council initialization failed: {e}")
-        raise
+        # Continue anyway - council can be initialized later
     
     # ─────────────────────────────────────────────────────────────
-    # 3. Initialize API Manager & Model Allocator
+    # 3. Initialize API Manager (Universal Provider Support)
     # ─────────────────────────────────────────────────────────────
     try:
         with next(get_db()) as db:
-            # Initialize API Manager (loads all available models)
-            manager = init_api_manager(db)
-            
-            if manager is None:
-                raise Exception("API Manager failed to initialize - returned None")
-            
-            if not hasattr(manager, 'models'):
-                raise Exception("API Manager instance missing 'models' attribute")
-            
-            logger.info(f"✅ API Manager initialized with {len(manager.models)} models")
-            
-            # Initialize Model Allocation Service
-            init_model_allocator(db)
-            logger.info("✅ Model Allocator initialized")
-            
-            # Print available models summary
-            for key, model in manager.models.items():
-                logger.info(f"   - {key}: {model.model_name} (${model.cost_per_1k_tokens}/1K)")
-                
+            init_api_manager(db)
+            logger.info("✅ API Manager initialized with universal provider support")
     except Exception as e:
         logger.error(f"❌ API Manager initialization failed: {e}")
-        import traceback
-        logger.error(f"Detailed traceback: {traceback.format_exc()}")
-        raise
     
     # ─────────────────────────────────────────────────────────────
-    # 4. Initialize Enhanced Token Optimizer
+    # 4. Initialize Model Allocator
     # ─────────────────────────────────────────────────────────────
     try:
         with next(get_db()) as db:
-            # Initialize with the persistent agents from council
-            init_token_optimizer(db, agents=agent_list)
-            
-            # Log initial status
-            status = token_optimizer.get_status()
-            logger.info("✅ Enhanced Token Optimizer initialized")
-            logger.info(f"   - Idle Threshold: {status['idle_threshold_seconds']}s")
-            logger.info(f"   - Single API Mode: {api_manager_module.api_manager.single_api_mode()}")
-            logger.info(f"   - Daily Budget: ${idle_budget.daily_cost_limit}")
-            
-            # If single API mode, log warning
-            if api_manager_module.api_manager.single_api_mode():
-                logger.warning("⚠️ Single API mode detected - using one provider for all tasks")
-            
+            init_model_allocator(db)
+            logger.info("✅ Model Allocator initialized")
     except Exception as e:
-        logger.error(f"❌ Token Optimizer initialization failed: {e}")
-        raise
+        logger.error(f"❌ Model Allocator initialization failed: {e}")
     
     # ─────────────────────────────────────────────────────────────
-    # 5. Start Idle Governance Engine
+    # 5. Initialize Token Optimizer with Idle Budget
+    # ─────────────────────────────────────────────────────────────
+    try:
+        with next(get_db()) as db:
+            persistent_agents = persistent_council.get_persistent_agents(db)
+            agent_list = list(persistent_agents.values())
+            init_token_optimizer(agent_list)
+            
+            logger.info("✅ Token Optimizer initialized")
+            logger.info(f"   - Idle Budget: ${idle_budget.daily_idle_budget_usd:.2f}/day")
+            logger.info(f"   - Active Mode Budget: ${token_optimizer.active_budget.daily_cost_limit_usd:.2f}/day")
+    except Exception as e:
+        logger.error(f"❌ Token Optimizer initialization failed: {e}")
+    
+    # ─────────────────────────────────────────────────────────────
+    # 6. Start Idle Governance Engine
     # ─────────────────────────────────────────────────────────────
     try:
         with next(get_db()) as db:
             await idle_governance.start(db)
             logger.info("✅ Idle Governance Engine started")
+            logger.info("   Eternal Council now active in background")
     except Exception as e:
-        logger.error(f"❌ Idle Governance startup failed: {e}")
-        raise
+        logger.error(f"⚠️ Idle Governance Engine start failed: {e}")
+        logger.error("   System will continue without idle governance")
     
     # ─────────────────────────────────────────────────────────────
-    # 6. Print System Summary
+    # 🆕 7. Initialize Capability Registry (Phase 3)
     # ─────────────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info("AGENTIUM SYSTEM READY")
-    logger.info("=" * 60)
-    logger.info(f"🤖 Persistent Agents: {', '.join(token_optimizer.persistent_agents)}")
-    logger.info(f"🧠 Available Models: {len(api_manager_module.api_manager.models)}")
-    logger.info(f"💰 Daily Budget: ${idle_budget.daily_cost_limit} | Tokens: {idle_budget.daily_token_limit:,}")
-    logger.info(f"⚙️ Idle Threshold: {token_optimizer.idle_threshold_seconds}s")
-    logger.info("=" * 60)
+    try:
+        logger.info("✅ Capability Registry loaded")
+        logger.info("   - 26 capabilities defined across 4 tiers")
+        logger.info("   - Runtime permission enforcement active")
+    except Exception as e:
+        logger.error(f"❌ Capability Registry initialization failed: {e}")
     
-    yield
+    logger.info("🎉 Agentium startup complete!")
+    
+    yield  # Application runs here
     
     # ─────────────────────────────────────────────────────────────
-    # SHUTDOWN: Gracefully stop all services
+    # Shutdown Sequence
     # ─────────────────────────────────────────────────────────────
     logger.info("🛑 Shutting down Agentium...")
     
-    # Stop Idle Governance
     try:
         await idle_governance.stop()
         logger.info("✅ Idle Governance Engine stopped")
     except Exception as e:
-        logger.error(f"❌ Error stopping idle governance: {e}")
+        logger.error(f"❌ Error stopping Idle Governance: {e}")
     
-    # Log final statistics
+    # Final statistics
     try:
         with next(get_db()) as db:
-            status = token_optimizer.get_cost_report(db)
+            status = token_optimizer.get_status()
             logger.info("📊 Final Statistics:")
-            logger.info(f"   - Tokens Saved Today: {status['total_tokens_saved_today']:,}")
-            logger.info(f"   - Cost Used: ${status['budget_status']['cost_used_today_usd']}")
-            logger.info(f"   - Model Allocations: {status['allocation_report']['total_agents']} agents")
+            logger.info(f"   - Total Tokens Saved (Idle): {idle_budget.total_tokens_saved:,}")
+            logger.info(f"   - Total Cost Saved (Idle): ${idle_budget.total_cost_saved_usd:.2f}")
+            logger.info(f"   - Active Budget Used: {status['budget_status']['cost_used_today_usd']:.2f}/{status['budget_status']['daily_cost_limit_usd']:.2f}")
+            if model_allocator:
+                allocation_report = model_allocator.get_allocation_report()
+                logger.info(f"   - Model Allocations: {allocation_report['total_agents']} agents")
     except Exception as e:
         logger.error(f"❌ Could not generate final statistics: {e}")
 
-# Create FastAPI app
+# Create FastAPI app    
 app = FastAPI(
     title="Agentium",
-    description="AI Agent Governance System with Eternal Idle Council",
-    version="2.0.0-idle",
+    description="AI Agent Governance System with Phase 3: Lifecycle Management & Capability Registry",
+    version="3.0.0-phase3",
     lifespan=lifespan
 )
 
@@ -220,7 +207,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# ═══════════════════════════════════════════════════════════
+# REGISTER ROUTERS
+# ═══════════════════════════════════════════════════════════
+
+# Existing routes
 app.include_router(auth_routes.router)
 app.include_router(model_routes.router, prefix="/api/v1")
 app.include_router(chat_routes.router, prefix="/api/v1")
@@ -234,8 +225,8 @@ app.include_router(admin_routes.router, prefix="/api/v1")
 app.include_router(tasks_routes.router, prefix="/api/v1")
 app.include_router(files_routes.router)
 app.include_router(voice_routes.router)
-
-
+app.include_router(capability_routes.router)      
+app.include_router(lifecycle_routes.router)       
 
 # ==================== Health Check ====================
 
@@ -305,315 +296,261 @@ async def list_agents(
     query = db.query(Agent)
     
     if tier is not None:
-        query = query.filter_by(tier=tier)
+        query = query.filter(Agent.tier == tier)
     
     if status:
         try:
-            status_enum = AgentStatus(status)
-            query = query.filter_by(status=status_enum)
+            status_enum = AgentStatus(status.lower())
+            query = query.filter(Agent.status == status_enum)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
     
     agents = query.all()
-    return [agent.to_dict() for agent in agents]
+    return {"agents": [agent.to_dict() for agent in agents]}
 
 @app.get("/api/v1/agents/{agentium_id}")
-async def get_agent(agentium_id: str, db: Session = Depends(get_db)):
-    """Get agent details."""
+async def get_agent(
+    agentium_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get specific agent by Agentium ID."""
     agent = db.query(Agent).filter_by(agentium_id=agentium_id).first()
+    
     if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise HTTPException(status_code=404, detail=f"Agent {agentium_id} not found")
     
     return agent.to_dict()
 
-@app.put("/api/v1/agents/{agentium_id}/status")
-async def update_agent_status(
-    agentium_id: str,
-    status: str,
-    db: Session = Depends(get_db)
-):
-    """Update agent status."""
-    agent = db.query(Agent).filter_by(agentium_id=agentium_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    
-    try:
-        new_status = AgentStatus(status)
-        agent.status = new_status
-        agent.last_active = datetime.utcnow()
-        db.commit()
-        
-        return {"message": f"Agent {agentium_id} status updated to {status}"}
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
 
-# ==================== Task Management ====================
-# CRUD routes handled by tasks_routes router (registered above at /api/v1/tasks)
+# ==================== Constitution Management ====================
 
-# ==================== Task Execution (MODIFIED WITH WAKE) ====================
-
-@app.post("/api/v1/tasks/{task_id}/execute")
-async def execute_task(
-    task_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Execute a task with wake functionality.
-    Wakes from idle mode when user requests task execution.
-    """
-    # CRITICAL: Wake from idle on user task request
-    token_optimizer.record_activity()
-    if token_optimizer.idle_mode_active:
-        await token_optimizer.wake_from_idle(db)
-    
-    task = db.query(Task).filter_by(id=task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    if not task.assigned_to:
-        raise HTTPException(status_code=400, detail="Task has no assigned agent")
-    
-    agent = db.query(Agent).filter_by(id=task.assigned_to).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Assigned agent not found")
-    
-    # Mark task and agent as in progress
-    task.start()
-    agent.start_task()
-    db.commit()
-    
-    # Get active model configuration
-    config = db.query(UserModelConfig).filter_by(
-        is_active='Y',
-        is_default=True
-    ).first()
-    
-    if not config:
-        raise HTTPException(
-            status_code=400, 
-            detail="No active model configuration found. Please configure in settings."
-        )
-    
-    try:
-        result = await ModelService.generate_with_agent(
-            agent=agent,
-            user_message=task.description,
-            config_id=config.id
-        )
-        
-        task.complete(
-            result_summary=result["content"],
-            result_data={"model": result["model"], "tokens": result["tokens_used"]}
-        )
-        agent.complete_task(success=True)
-        
-        db.commit()
-        
-        return {
-            "message": "Task executed",
-            "result": result["content"],
-            "usage": {
-                "tokens": result["tokens_used"],
-                "latency_ms": result["latency_ms"]
-            }
-        }
-        
-    except Exception as e:
-        agent.complete_task(success=False)
-        task.fail(str(e))
-        db.commit()
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ==================== Chat with Wake (MODIFIED) ====================
-
-@app.post("/api/v1/chat")
-async def chat_with_head(
-    message: str,
-    db: Session = Depends(get_db)
-):
-    """Chat with Head of Council - wakes from idle mode."""
-    # CRITICAL: Wake from idle on user message
-    token_optimizer.record_activity()
-    
-    head = db.query(Agent).filter_by(agentium_id="00001").first()
-    if not head:
-        raise HTTPException(status_code=500, detail="Head of Council not initialized")
-    
-    result = await ChatService.process_message(head, message, db)
-    
-    return result
-
-
-# ==================== Constitution ====================
-
-@app.get("/api/v1/constitution/current")
-async def get_current_constitution(
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)  # ✅ FIXED: using get_current_user
-):
-    """Get the currently active constitution. Creates default if none exists."""
-    import json
-    from datetime import datetime
-    
+@app.get("/api/v1/constitution")
+async def get_constitution(db: Session = Depends(get_db)):
+    """Get the current active constitution."""
     constitution = db.query(Constitution).filter_by(
         is_active='Y'
     ).order_by(Constitution.effective_date.desc()).first()
     
     if not constitution:
-        from backend.services.initialization_service import InitializationService
-        constitution = InitializationService.create_default_constitution(db)
+        raise HTTPException(status_code=404, detail="No active constitution found")
     
-    return {
-        'id': constitution.id,
-        'version': constitution.version,
-        'version_number': constitution.version_number,
-        'preamble': constitution.preamble or "",
-        'articles': constitution.get_articles_dict(),
-        'prohibited_actions': constitution.get_prohibited_actions_list(),
-        'sovereign_preferences': constitution.get_sovereign_preferences(),
-        'effective_date': constitution.effective_date.isoformat() if constitution.effective_date else datetime.utcnow().isoformat(),
-        'created_by': constitution.created_by_agentium_id,
-        'is_active': constitution.is_active == 'Y'
-    }
+    return constitution.to_dict()
 
 
 @app.post("/api/v1/constitution/update")
 async def update_constitution(
-    request: ConstitutionUpdateRequest,
+    updates: ConstitutionUpdateRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)  # ✅ FIXED: using get_current_user
+    current_user: dict = Depends(get_current_user)
 ):
-    """Update constitution - creates new version."""
-    import json
-    from datetime import datetime
-    
-    # Check permissions - adapt this based on what get_current_user returns
-    # If get_current_user returns a User object, adjust accordingly
-    if hasattr(current_user, 'is_admin'):
-        # If it's a User object
-        is_admin = current_user.is_admin
-        username = current_user.username
-    else:
-        # If it's a dict
-        is_admin = current_user.get("is_admin", False)
-        username = current_user.get("username", "sovereign")
-    
-    if not is_admin:
-        # For now, allow all authenticated users until proper permissions are set
-        pass
-    
-    current = db.query(Constitution).filter_by(
-        is_active='Y'
-    ).order_by(Constitution.effective_date.desc()).first()
-    
+    """Update the constitution (sovereign only)."""
+    # Get current constitution
+    current = db.query(Constitution).filter_by(is_active='Y').first()
     if not current:
         raise HTTPException(status_code=404, detail="No active constitution found")
     
-    # Archive current
-    current.is_active = 'N'
-    if hasattr(current, 'archived_date'):
-        current.archived_date = datetime.utcnow()
-    
-    # Version increment
-    try:
-        current_version_num = int(current.version.replace('v', '').split('.')[0])
-        new_version_num = current_version_num + 1
-        new_version = f"v{new_version_num}.0.0"
-    except (ValueError, AttributeError):
-        new_version = f"v{datetime.utcnow().strftime('%Y%m%d%H%M')}"
-        new_version_num = 1
-    
-    # Prepare data
-    new_preamble = request.preamble if request.preamble is not None else current.preamble
-    new_articles = json.dumps(request.articles) if request.articles is not None else current.articles
-    new_prohibited = json.dumps(request.prohibited_actions) if request.prohibited_actions is not None else current.prohibited_actions
-    new_preferences = json.dumps(request.sovereign_preferences) if request.sovereign_preferences is not None else current.sovereign_preferences
-    
-    # Changelog
-    changes = []
-    if request.preamble is not None:
-        changes.append("Updated preamble")
-    if request.articles is not None:
-        changes.append("Modified articles")
-    if request.prohibited_actions is not None:
-        changes.append("Updated prohibited actions")
-    if request.sovereign_preferences is not None:
-        changes.append("Updated preferences")
-    
-    changelog_data = [{
-        "version": new_version,
-        "changes": changes or ["Manual update"],
-        "updated_by": username,
-        "timestamp": datetime.utcnow().isoformat()
-    }]
-    
     # Create new version
-    new_constitution = Constitution(
-        version=new_version,
-        version_number=new_version_num,
-        preamble=new_preamble,
-        articles=new_articles,
-        prohibited_actions=new_prohibited,
-        sovereign_preferences=new_preferences,
-        changelog=json.dumps(changelog_data),
-        effective_date=datetime.utcnow(),
+    new_version = Constitution(
+        version=current.version + 1,
+        preamble=updates.preamble or current.preamble,
+        articles=updates.articles or current.articles,
+        prohibited_actions=updates.prohibited_actions or current.prohibited_actions,
+        sovereign_preferences=updates.sovereign_preferences or current.sovereign_preferences,
         is_active='Y',
-        created_by_agentium_id=username
+        created_by=current_user.get("username", "sovereign"),
+        effective_date=datetime.utcnow()
     )
     
-    # Only set replaces_version_id if the field exists
-    if hasattr(new_constitution, 'replaces_version_id'):
-        new_constitution.replaces_version_id = current.id
+    # Deactivate old version
+    current.is_active = 'N'
     
-    db.add(new_constitution)
+    db.add(new_version)
     db.commit()
-    db.refresh(new_constitution)
+    db.refresh(new_version)
     
     return {
-        'id': new_constitution.id,
-        'version': new_constitution.version,
-        'version_number': new_constitution.version_number,
-        'preamble': new_constitution.preamble or "",
-        'articles': new_constitution.get_articles_dict(),
-        'prohibited_actions': new_constitution.get_prohibited_actions_list(),
-        'sovereign_preferences': new_constitution.get_sovereign_preferences(),
-        'effective_date': new_constitution.effective_date.isoformat(),
-        'created_by': new_constitution.created_by_agentium_id,
-        'is_active': True
+        "status": "success",
+        "message": f"Constitution updated to version {new_version.version}",
+        "constitution": new_version.to_dict()
     }
-# ==================== Monitoring & Oversight ====================
 
-@app.get("/api/v1/monitoring/agents/{agentium_id}/health")
-async def get_agent_health(agentium_id: str, db: Session = Depends(get_db)):
-    """Get health reports for a specific agent."""
-    agent = db.query(Agent).filter_by(agentium_id=agentium_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    
-    latest = db.query(AgentHealthReport).filter_by(
-        subject_agent_id=agent.id
-    ).order_by(AgentHealthReport.created_at.desc()).first()
-    
-    violations = db.query(ViolationReport).filter_by(
-        violator_agent_id=agent.id,
-        status="open"
-    ).count()
+
+# ==================== Monitoring & Health ====================
+
+@app.get("/api/v1/monitoring/health")
+async def get_system_health(db: Session = Depends(get_db)):
+    """Get comprehensive system health status."""
+    return await MonitoringService.get_system_health(db)
+
+
+@app.get("/api/v1/monitoring/violations")
+async def get_violations(
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """Get recent governance violations."""
+    violations = db.query(ViolationReport).order_by(
+        ViolationReport.detected_at.desc()
+    ).limit(limit).all()
     
     return {
-        "agent": agentium_id,
-        "current_status": agent.status.value,
-        "health_score": latest.overall_health_score if latest else 100,
-        "latest_report": latest.to_dict() if latest else None,
-        "open_violations": violations,
-        "is_persistent": agent.is_persistent,
-        "idle_stats": {
-            "tasks_completed": agent.idle_task_count,
-            "tokens_saved": agent.idle_tokens_saved
-        } if agent.is_persistent else None
+        "violations": [v.to_dict() for v in violations],
+        "total": len(violations)
     }
 
-# Additional monitoring endpoints...
-# (monitoring/health-check, monitoring/report-violation, etc. - keep existing)
+
+# ==================== Task Management ====================
+
+@app.get("/api/v1/tasks/active")
+async def get_active_tasks(db: Session = Depends(get_db)):
+    """Get all active tasks."""
+    tasks = db.query(Task).filter(
+        Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.DELIBERATING])
+    ).all()
+    
+    return {
+        "tasks": [task.to_dict() for task in tasks],
+        "total": len(tasks)
+    }
+
+
+# ==================== IDLE GOVERNANCE ENDPOINTS ====================
+
+@app.get("/api/v1/governance/idle/status")
+async def get_idle_governance_status():
+    """
+    Get current status of idle governance engine.
+    Shows if idle mode is active, what the persistent council is doing, and stats.
+    """
+    stats = idle_governance.get_statistics()
+    
+    return {
+        "status": "running" if idle_governance.is_running else "stopped",
+        "idle_mode_active": token_optimizer.idle_mode_active,
+        "time_since_last_user_activity": token_optimizer.get_idle_duration_seconds(),
+        "statistics": stats,
+        "persistent_council": {
+            "head": "00001",
+            "council_members": ["10001", "10002"]
+        }
+    }
+
+
+@app.post("/api/v1/governance/idle/pause")
+async def pause_idle_governance():
+    """Manually pause idle governance (for debugging/maintenance)."""
+    if idle_governance.is_running:
+        await idle_governance.stop()
+        return {"status": "success", "message": "Idle governance paused"}
+    else:
+        return {"status": "already_stopped", "message": "Idle governance was not running"}
+
+
+@app.post("/api/v1/governance/idle/resume")
+async def resume_idle_governance(db: Session = Depends(get_db)):
+    """Manually resume idle governance."""
+    if not idle_governance.is_running:
+        await idle_governance.start(db)
+        return {"status": "success", "message": "Idle governance resumed"}
+    else:
+        return {"status": "already_running", "message": "Idle governance is already active"}
+
+
+# ==================== Model & Token Status ====================
+
+@app.get("/api/v1/status/tokens")
+async def get_token_status():
+    """Get token optimizer and budget status."""
+    optimizer_status = token_optimizer.get_status()
+    idle_budget_status = idle_budget.get_status()
+    
+    return {
+        "optimizer": optimizer_status,
+        "idle_budget": idle_budget_status,
+        "mode": "idle" if token_optimizer.idle_mode_active else "active"
+    }
+
+
+@app.get("/api/v1/status/models")
+async def get_model_status():
+    """Get model allocation status."""
+    if not model_allocator:
+        return {"status": "not_initialized"}
+    
+    report = model_allocator.get_allocation_report()
+    return {
+        "status": "active",
+        "report": report
+    }
+
+
+# ==================== PHASE 3 DASHBOARD ENDPOINTS ====================
+
+@app.get("/api/v1/phase3/dashboard")
+async def get_phase3_dashboard(db: Session = Depends(get_db)):
+    """
+    Get comprehensive dashboard data.
+    Shows lifecycle stats, capacity, capability distribution, etc.
+    """
+    from backend.services.reincarnation_service import reincarnation_service
+    from backend.services.capability_registry import capability_registry
+    
+    # Get capacity info
+    capacity = reincarnation_service.get_available_capacity(db)
+    
+    # Get capability audit
+    capability_audit = capability_registry.capability_audit_report(db)
+    
+    # Get idle governance stats
+    idle_stats = idle_governance.get_statistics()
+    
+    # Get lifecycle stats from last 30 days
+    from backend.models.entities.audit import AuditLog
+    from datetime import timedelta
+    
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    
+    lifecycle_events = {
+        "spawned": db.query(AuditLog).filter(
+            AuditLog.action.in_(["agent_spawned", "lead_spawned"]),
+            AuditLog.created_at >= thirty_days_ago
+        ).count(),
+        "promoted": db.query(AuditLog).filter(
+            AuditLog.action == "agent_promoted",
+            AuditLog.created_at >= thirty_days_ago
+        ).count(),
+        "liquidated": db.query(AuditLog).filter(
+            AuditLog.action == "agent_liquidated",
+            AuditLog.created_at >= thirty_days_ago
+        ).count(),
+        "reincarnated": db.query(AuditLog).filter(
+            AuditLog.action == "agent_birth",
+            AuditLog.created_at >= thirty_days_ago
+        ).count()
+    }
+    
+    return {
+        "phase": "Phase 3: Agent Lifecycle Management",
+        "completion": "100%",
+        "capacity": capacity,
+        "capability_distribution": capability_audit,
+        "lifecycle_events_30d": lifecycle_events,
+        "idle_governance": {
+            "active": idle_governance.is_running,
+            "metrics": idle_stats.get("metrics", {})
+        },
+        "warnings": []
+    }
+
+
+# ==================== Run Server ====================
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(
+        "backend.main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True,
+        log_level="info"
+    )

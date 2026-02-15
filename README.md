@@ -290,7 +290,6 @@ Results aggregated back to Head → You
 - [x] Knowledge Library service
 - [x] Initialization Protocol (Country naming)
 - [x] RAG pipeline World Knowledge
-- [ ] Phase 1 - Testing
 
 ### Phase 2: Governance Core ✅
 
@@ -303,10 +302,11 @@ Results aggregated back to Head → You
 
 ### Phase 3: Lifecycle Management
 
-- [ ] Agent Factory (spawn/liquidate)
-- [ ] Auto-scaling algorithms
-- [ ] Capability Registry
-- [ ] Automated termination (idle detection)
+- [x] Agent Factory (spawn/liquidate)
+- [x] Auto-scaling algorithms
+- [x] Capability Registry
+- [x] Automated termination (idle detection)
+- [ ] Phase 3 - Testing
 
 ### Phase 4: Intelligence
 
