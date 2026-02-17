@@ -230,6 +230,7 @@ def start_imap_receivers():
     Called periodically to recover from crashes.
     """
     from backend.services.channel_manager import imap_receiver
+    from datetime import datetime, timedelta
     
     db = SessionLocal()
     try:

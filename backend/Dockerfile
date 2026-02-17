@@ -7,17 +7,34 @@ FROM python:3.11-slim as builder
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    g++ \
     libpq-dev \
+    python3-dev \
+    build-essential \
+    libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python dependencies
+# Upgrade pip
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Install numpy FIRST (required by torch and others)
+RUN pip install --no-cache-dir numpy==1.26.4
+
+# Install PyTorch with CPU support (SEPARATE - heavy package)
+RUN pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+
+# Install heavy ML packages next (better layer caching)
+RUN pip install --no-cache-dir sentence-transformers==3.3.1
+RUN pip install --no-cache-dir chromadb==0.5.23
+RUN pip install --no-cache-dir tiktoken==0.8.0
+
+# Copy and install remaining requirements
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --default-timeout=600 --retries=5 -r requirements.txt
+RUN pip install --no-cache-dir --default-timeout=300 -r requirements.txt
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Production Stage
@@ -25,26 +42,29 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 FROM python:3.11-slim
 
-# Install runtime dependencies only
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    libffi8 \
+    libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONPATH="/app"
 
 # Set working directory
 WORKDIR /app
 
-# Create temp upload directories with proper permissions BEFORE switching to non-root user
+# Create temp directories
 RUN mkdir -p /tmp/agentium_uploads/files /tmp/agentium_uploads/voice && \
     chmod -R 777 /tmp/agentium_uploads
 
 # Copy application code
 COPY . .
 
-# Create non-root user for security
+# Create non-root user
 RUN useradd -m -u 1000 agentium && \
     chown -R agentium:agentium /app
 USER agentium
@@ -53,8 +73,8 @@ USER agentium
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
+    CMD python -c "import http.client; conn = http.client.HTTPConnection('localhost', 8000); conn.request('GET', '/api/health'); resp = conn.getresponse(); exit(0 if resp.status == 200 else 1)" || exit 1
 
 # Run application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: agentium
       POSTGRES_PASSWORD: agentium
     volumes:
-      - postgres_data:/var/lib/postgresql/data # ⬅️ Added missing data mount
+      - postgres_data:/var/lib/postgresql/data 
     ports:
       - "5432:5432"
     healthcheck:
@@ -142,7 +142,6 @@ services:
     command: celery -A backend.main.celery worker --loglevel=info --concurrency=4
     restart: unless-stopped
     networks:
-      # ⬅️ ADDED
       - agentium-network
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

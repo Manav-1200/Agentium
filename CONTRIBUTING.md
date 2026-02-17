@@ -1,6 +1,6 @@
 # Contributing to Agentium
 
-> *"The price of freedom is eternal vigilance. The price of AI sovereignty is democratic architecture."*
+> _"The price of freedom is eternal vigilance. The price of AI sovereignty is democratic architecture."_
 
 Thank you for your interest in contributing to **Agentium** — a sovereign AI governance platform. This document outlines the principles, processes, and technical guidelines for participating in our ecosystem.
 
@@ -102,9 +102,6 @@ CHROMA_PORT=8001
 REDIS_URL=redis://localhost:6379/0
 SECRET_KEY=your-secret-key-here
 
-# Optional: AI Provider Keys
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-...
 ```
 
 ### Development Mode (Hot Reload)
@@ -127,12 +124,12 @@ npm run dev
 
 When contributing features, respect the agent hierarchy:
 
-| Tier | ID Range | Scope | Contribution Type |
-|------|----------|-------|-------------------|
-| **Head** | 0xxxx | Constitutional changes, veto logic | Architectural RFCs |
-| **Council** | 1xxxx | Voting systems, knowledge moderation | Feature development |
-| **Lead** | 2xxxx | Resource allocation, task orchestration | API enhancements |
-| **Task** | 3xxxx | Execution, data processing | Bug fixes, utilities |
+| Tier        | ID Range | Scope                                   | Contribution Type    |
+| ----------- | -------- | --------------------------------------- | -------------------- |
+| **Head**    | 0xxxx    | Constitutional changes, veto logic      | Architectural RFCs   |
+| **Council** | 1xxxx    | Voting systems, knowledge moderation    | Feature development  |
+| **Lead**    | 2xxxx    | Resource allocation, task orchestration | API enhancements     |
+| **Task**    | 3xxxx    | Execution, data processing              | Bug fixes, utilities |
 
 ### Dual-Storage Principle
 
@@ -142,6 +139,7 @@ All knowledge contributions must respect the dual-storage architecture:
 - **ChromaDB**: Semantic meaning (embeddings, RAG context)
 
 Example:
+
 ```python
 # Good: Dual-write pattern
 async def submit_knowledge(content: str, agent_id: str):
@@ -193,6 +191,7 @@ security/vote-tally-verification
 ```
 
 Prefix indicates:
+
 - `feature/`: New capabilities
 - `bugfix/`: Error corrections
 - `docs/`: Documentation only
@@ -241,6 +240,7 @@ TASK_PATTERN = r"^3\d{4}$"
 ```
 
 **Testing**:
+
 ```bash
 # Run the constitutional test suite
 pytest tests/ -v --cov=backend
@@ -252,6 +252,7 @@ pytest tests/test_council_voting.py -v
 ### TypeScript/React (Frontend)
 
 **Component Structure**:
+
 ```typescript
 // AgentsPage.tsx example
 interface AgentsPageProps {
@@ -275,6 +276,7 @@ export const AgentsPage: React.FC<AgentsPageProps> = () => {
 ```
 
 **State Management**:
+
 - Use `zustand` for global state
 - Keep WebSocket connections in dedicated hooks (`useWebSocket`)
 - Never bypass the API layer to directly interact with storage
@@ -305,6 +307,7 @@ We use **Conventional Commits** with a democratic twist:
 ```
 
 **Types**:
+
 - `feat`: New feature (requires Council approval)
 - `fix`: Bug fix (Task tier)
 - `docs`: Documentation (all tiers)
@@ -314,6 +317,7 @@ We use **Conventional Commits** with a democratic twist:
 - `chore`: Maintenance
 
 **Scopes**:
+
 - `constitution`: Constitutional changes
 - `council`: Voting/governance logic
 - `agent`: Agent lifecycle
@@ -322,6 +326,7 @@ We use **Conventional Commits** with a democratic twist:
 - `api`: REST endpoints
 
 **Examples**:
+
 ```
 feat(council): implement quadratic voting for amendments
 
@@ -411,6 +416,7 @@ Long-term contributors may be nominated to the Council (maintainer team):
 Email: security@agentium.dev
 
 Include:
+
 - Description of vulnerability
 - Steps to reproduce
 - Potential impact on agent sovereignty
@@ -421,6 +427,7 @@ Response within 48 hours guaranteed.
 ### Security Principles
 
 Contributions must never:
+
 - Allow Task agents (3xxxx) to spawn other agents
 - Bypass the Constitutional Guard
 - Expose private keys or model provider credentials
@@ -430,24 +437,24 @@ Contributions must never:
 
 ### Documentation
 
-- [Architecture Guide](docs/architecture.md)
-- [Constitutional Framework](backend/docs_ministry/templates/constitution_sample.md)
-- [API Reference](http://localhost:8000/docs) (local)
-- [Agent Ethos Guide](backend/docs_ministry/templates/agent_ethos_sample.md)
+- [TODO LIST](docs/todo.md)
 
 ### Learning Path
 
 **New to Democratic AI?**
+
 1. Read `constitution_sample.md`
 2. Study the voting logic in `backend/models/entities/voting.py`
 3. Review closed PRs tagged `good first issue`
 
 **Backend Focus**:
+
 1. Understand the dual-storage architecture
 2. Learn the hierarchical ID system
 3. Study the Constitutional Guard implementation
 
 **Frontend Focus**:
+
 1. Review the Agent Tree visualization
 2. Understand the voting interface flow
 3. Study Zustand store organization
@@ -481,7 +488,7 @@ Agentium is more than software — it's an experiment in digital democracy. Ever
 
 ---
 
-*This Constitution (CONTRIBUTING.md) may be amended through Pull Request with 60% Council approval and Head ratification.*
+_This Constitution (CONTRIBUTING.md) may be amended through Pull Request with 60% Council approval and Head ratification._
 
 **License**: Apache 2.0 (see LICENSE)
 
