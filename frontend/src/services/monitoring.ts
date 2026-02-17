@@ -3,7 +3,7 @@ import { MonitoringDashboard, ViolationReport } from '../types';
 
 export const monitoringService = {
     getDashboard: async (monitorId: string): Promise<MonitoringDashboard> => {
-        const response = await api.get<MonitoringDashboard>(`/monitoring/dashboard/${monitorId}`);
+        const response = await api.get<MonitoringDashboard>(`/api/v1/monitoring/dashboard/${monitorId}`);
         return response.data;
     },
 

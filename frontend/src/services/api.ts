@@ -31,7 +31,11 @@ api.interceptors.response.use(
             if (!window.location.pathname.includes('/login')) {
                 localStorage.removeItem('access_token');
                 delete api.defaults.headers.common['Authorization'];
-                window.location.href = '/login';
+                // Use React Router navigation instead of hard redirect
+                // to preserve the SPA state and avoid full page reload
+                import('@/store/authStore').then(({ useAuthStore }) => {
+                    useAuthStore.getState().logout();
+                });
             }
         } else if (status === 403) {
             toast.error(`Permission Denied: ${message}`);

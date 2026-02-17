@@ -1,29 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { monitoringService} from '../services/monitoring';
+import { MonitoringDashboard, ViolationReport, AgentHealthReport} from '../types';
 import { Activity, ShieldCheck, AlertTriangle, Loader2, TrendingUp } from 'lucide-react';
-
-interface HealthReport {
-    id: string;
-    subject: string;
-    health_score: number;
-    status: string;
-    metrics: {
-        success_rate: number;
-    };
-}
-
-interface Violation {
-    id: string;
-    severity: string;
-    description: string;
-    timestamp: string;
-}
-
-interface MonitoringDashboard {
-    system_health: number;
-    active_alerts: number;
-    latest_health_reports: HealthReport[];
-    recent_violations: Violation[];
-}
 
 export const MonitoringPage: React.FC = () => {
     const [dashboard, setDashboard] = useState<MonitoringDashboard | null>(null);
@@ -39,23 +17,18 @@ export const MonitoringPage: React.FC = () => {
             setIsLoading(true);
             setError(null);
             
-            // Try to fetch monitoring data
-            const response = await fetch('/monitoring/dashboard/00001');
-            
-            if (!response.ok) {
-                throw new Error('Monitoring endpoint not available');
-            }
-            
-            const data = await response.json();
+            // Use the monitoring service
+            const data = await monitoringService.getDashboard('00001');
             setDashboard(data);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Monitoring error:', err);
-            setError('Monitoring system not configured');
+            setError(err.response?.data?.detail || 'Monitoring endpoint not available');
             
             // Set mock data for development
             setDashboard({
                 system_health: 100,
                 active_alerts: 0,
+                agent_health_breakdown: {},
                 latest_health_reports: [],
                 recent_violations: []
             });
@@ -63,7 +36,6 @@ export const MonitoringPage: React.FC = () => {
             setIsLoading(false);
         }
     };
-
     if (isLoading) {
         return (
             <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -76,7 +48,7 @@ export const MonitoringPage: React.FC = () => {
     }
 
     // Fallback if no data
-    const systemHealth = dashboard?.system_health || 100;
+    const systemHealth = dashboard?.system_health ?? 100;
     const activeAlerts = dashboard?.active_alerts || 0;
     const healthReports = dashboard?.latest_health_reports || [];
     const violations = dashboard?.recent_violations || [];
@@ -191,7 +163,7 @@ export const MonitoringPage: React.FC = () => {
                         <div className="p-6">
                             {violations.length > 0 ? (
                                 <div className="space-y-4">
-                                    {violations.map(v => (
+                                    {violations.map((v: ViolationReport) => (
                                         <div 
                                             key={v.id} 
                                             className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600"
@@ -200,7 +172,7 @@ export const MonitoringPage: React.FC = () => {
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                                            v.severity === 'high' 
+                                                            v.severity === 'critical' || v.severity === 'major'
                                                                 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                                                                 : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
                                                         }`}>
@@ -211,7 +183,7 @@ export const MonitoringPage: React.FC = () => {
                                                         {v.description}
                                                     </p>
                                                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                                        {new Date(v.timestamp).toLocaleString()}
+                                                        {v.created_at ? new Date(v.created_at).toLocaleString() : '—'}
                                                     </p>
                                                 </div>
                                             </div>
@@ -245,7 +217,7 @@ export const MonitoringPage: React.FC = () => {
                         <div className="p-6">
                             {healthReports.length > 0 ? (
                                 <div className="space-y-3">
-                                    {healthReports.map(report => (
+                                    {healthReports.map((report: AgentHealthReport) => (
                                         <div 
                                             key={report.id} 
                                             className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600"

@@ -45,7 +45,7 @@ async def get_monitoring_dashboard(
     
     # Get recent health reports (last 24 hours)
     recent_reports = db.query(AgentHealthReport).filter(
-        AgentHealthReport.monitor == monitor_id,
+        AgentHealthReport.monitor_agentium_id == monitor_id,
         AgentHealthReport.created_at >= datetime.utcnow() - timedelta(hours=24)
     ).order_by(AgentHealthReport.created_at.desc()).limit(10).all()
     
@@ -56,7 +56,7 @@ async def get_monitoring_dashboard(
     
     # Calculate system health (average of recent health scores)
     if recent_reports:
-        avg_health = sum(r.health_score for r in recent_reports) / len(recent_reports)
+        avg_health = sum(r.overall_health_score for r in recent_reports) / len(recent_reports)
         system_health = round(avg_health, 1)
     else:
         system_health = 100.0
@@ -71,13 +71,13 @@ async def get_monitoring_dashboard(
     health_reports = [
         {
             "id": str(report.id),
-            "subject": report.subject,
-            "health_score": report.health_score,
+            "subject": report.subject_agentium_id,
+            "health_score": report.overall_health_score,
             "status": report.status,
             "metrics": {
-                "success_rate": report.metrics.get("success_rate", 0) if report.metrics else 0,
-                "tasks_completed": report.metrics.get("tasks_completed", 0) if report.metrics else 0,
-                "avg_response_time": report.metrics.get("avg_response_time", 0) if report.metrics else 0
+                "success_rate": report.task_success_rate or 0,
+                "tasks_completed": 0,
+                "avg_response_time": report.last_response_time_ms or 0
             },
             "created_at": report.created_at.isoformat() if report.created_at else None
         }
@@ -88,14 +88,14 @@ async def get_monitoring_dashboard(
     violations = [
         {
             "id": str(v.id),
-            "type": v.type,
+            "type": v.violation_type,
             "severity": v.severity,
-            "violator": v.violator,
-            "reporter": v.reporter,
+            "violator": v.violator_agentium_id,
+            "reporter": v.reporter_agentium_id,
             "description": v.description,
             "status": v.status,
             "created_at": v.created_at.isoformat() if v.created_at else None,
-            "resolved_at": v.resolved_at.isoformat() if v.resolved_at else None
+            "resolved_at": None  # ViolationReport has no resolved_at column
         }
         for v in recent_violations
     ]
@@ -127,22 +127,22 @@ async def get_agent_health(
     
     # Get health reports for this agent
     reports = db.query(AgentHealthReport).filter(
-        AgentHealthReport.subject == agent_id,
+        AgentHealthReport.subject_agentium_id == agent_id,
         AgentHealthReport.created_at >= datetime.utcnow() - timedelta(days=days)
     ).order_by(AgentHealthReport.created_at.desc()).all()
     
     # Calculate statistics
     if reports:
-        avg_health = sum(r.health_score for r in reports) / len(reports)
-        min_health = min(r.health_score for r in reports)
-        max_health = max(r.health_score for r in reports)
+        avg_health = sum(r.overall_health_score for r in reports) / len(reports)
+        min_health = min(r.overall_health_score for r in reports)
+        max_health = max(r.overall_health_score for r in reports)
     else:
         avg_health = min_health = max_health = 100.0
     
     return {
         "agent_id": agent_id,
         "agent_name": agent.name,
-        "current_health": reports[0].health_score if reports else 100.0,
+        "current_health": reports[0].overall_health_score if reports else 100.0,
         "avg_health": round(avg_health, 1),
         "min_health": min_health,
         "max_health": max_health,
@@ -151,12 +151,16 @@ async def get_agent_health(
         "reports": [
             {
                 "id": str(r.id),
-                "health_score": r.health_score,
+                "health_score": r.overall_health_score,
                 "status": r.status,
-                "metrics": r.metrics,
+                "metrics": {
+                    "success_rate": r.task_success_rate or 0,
+                    "avg_response_time": r.last_response_time_ms or 0,
+                    "violations": r.constitution_violations_count or 0
+                },
                 "created_at": r.created_at.isoformat() if r.created_at else None
             }
-            for r in reports[:50]  # Limit to 50 most recent
+            for r in reports[:50]
         ]
     }
 
@@ -194,10 +198,12 @@ async def report_violation(
     
     # Create violation report
     violation = ViolationReport(
-        reporter=reporter_id,
-        violator=violator_id,
+        reporter_agentium_id=reporter_id,
+        violator_agentium_id=violator_id,
+        reporter_agent_id=reporter.id,
+        violator_agent_id=violator.id,
         severity=severity,
-        type=violation_type,
+        violation_type=violation_type,
         description=description,
         status='open',
         created_at=datetime.utcnow()
@@ -211,10 +217,10 @@ async def report_violation(
         "success": True,
         "report": {
             "id": str(violation.id),
-            "reporter": violation.reporter,
-            "violator": violation.violator,
+            "reporter": violation.reporter_agentium_id,
+            "violator": violation.violator_agentium_id,
             "severity": violation.severity,
-            "type": violation.type,
+            "type": violation.violation_type,
             "description": violation.description,
             "status": violation.status,
             "created_at": violation.created_at.isoformat()
@@ -247,8 +253,8 @@ async def get_violations(
     
     if agent_id:
         query = query.filter(
-            (ViolationReport.reporter == agent_id) | 
-            (ViolationReport.violator == agent_id)
+            (ViolationReport.reporter_agentium_id == agent_id) | 
+            (ViolationReport.violator_agentium_id == agent_id)
         )
     
     violations = query.order_by(ViolationReport.created_at.desc()).limit(limit).all()
@@ -257,14 +263,14 @@ async def get_violations(
         "violations": [
             {
                 "id": str(v.id),
-                "reporter": v.reporter,
-                "violator": v.violator,
+                "reporter": v.reporter_agentium_id,
+                "violator": v.violator_agentium_id,
                 "severity": v.severity,
-                "type": v.type,
+                "type": v.violation_type,
                 "description": v.description,
                 "status": v.status,
                 "created_at": v.created_at.isoformat() if v.created_at else None,
-                "resolved_at": v.resolved_at.isoformat() if v.resolved_at else None
+                "resolved_at": None  # No resolved_at column on ViolationReport
             }
             for v in violations
         ],
@@ -297,8 +303,7 @@ async def resolve_violation(
         raise HTTPException(status_code=400, detail="Violation already resolved")
     
     violation.status = 'resolved'
-    violation.resolved_at = datetime.utcnow()
-    violation.resolution_notes = resolution_notes
+    violation.resolution = resolution_notes  # actual column is 'resolution'
     
     db.commit()
     db.refresh(violation)
@@ -308,8 +313,7 @@ async def resolve_violation(
         "violation": {
             "id": str(violation.id),
             "status": violation.status,
-            "resolved_at": violation.resolved_at.isoformat(),
-            "resolution_notes": violation.resolution_notes
+            "resolution": violation.resolution
         }
     }
 
@@ -344,7 +348,7 @@ async def get_monitoring_stats(
         violations_by_status[status] = count
     
     # Get agent health average
-    avg_health_result = db.query(func.avg(AgentHealthReport.health_score)).filter(
+    avg_health_result = db.query(func.avg(AgentHealthReport.overall_health_score)).filter(
         AgentHealthReport.created_at >= start_date
     ).scalar()
     

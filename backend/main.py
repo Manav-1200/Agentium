@@ -265,7 +265,7 @@ app.include_router(files_routes.router)
 app.include_router(voice_routes.router, prefix="/api/v1")
 app.include_router(capability_routes.router)      
 app.include_router(lifecycle_routes.router) 
-app.include_router(monitoring_router.router)      
+app.include_router(monitoring_router.router, prefix="/api/v1")   
 
 # ==================== Health Check ====================
 
@@ -420,22 +420,6 @@ async def update_constitution(
 async def get_system_health(db: Session = Depends(get_db)):
     """Get comprehensive system health status."""
     return await MonitoringService.get_system_health(db)
-
-
-@app.get("/api/v1/monitoring/violations")
-async def get_violations(
-    limit: int = 50,
-    db: Session = Depends(get_db)
-):
-    """Get recent governance violations."""
-    violations = db.query(ViolationReport).order_by(
-        ViolationReport.detected_at.desc()
-    ).limit(limit).all()
-    
-    return {
-        "violations": [v.to_dict() for v in violations],
-        "total": len(violations)
-    }
 
 
 # ==================== Task Management ====================

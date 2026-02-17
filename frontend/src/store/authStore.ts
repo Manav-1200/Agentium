@@ -139,47 +139,56 @@ export const useAuthStore = create<AuthState>()(
                 const token = localStorage.getItem('access_token');
 
                 if (!token) {
+                    // No token — clear user without touching isLoading
                     set({ user: null });
                     return false;
                 }
 
+                // If we already have a persisted user from zustand-persist,
+                // don't show a loading spinner — just verify silently in background.
+                // This prevents the flash-to-login on refresh.
+                const currentUser = get().user;
+                const hasPersistedUser = currentUser?.isAuthenticated === true;
+
+                if (!hasPersistedUser) {
+                    // No persisted user — we must wait for verify before showing app
+                    set({ isLoading: true });
+                }
+
                 try {
-                    // FIXED: Backend expects token as a string parameter in the body
                     const response = await api.post('/api/v1/auth/verify', token, {
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
+                        headers: { 'Content-Type': 'application/json' }
                     });
 
                     if (response.data.valid) {
                         const userData = response.data.user;
-
-                        // FIXED: Use only fields that verify endpoint returns
                         set({
                             user: {
                                 id: userData.user_id,
                                 username: userData.username,
                                 is_admin: userData.is_admin || false,
                                 isAuthenticated: true,
-                                role: userData.role || (userData.is_admin ? "admin" : "user"),
+                                role: userData.role || (userData.is_admin ? 'admin' : 'user'),
                                 isSovereign: userData.is_admin || false,
                             },
+                            isLoading: false,
                             error: null
                         });
                         return true;
                     } else {
+                        // Token invalid — clear everything and redirect
                         localStorage.removeItem('access_token');
-                        set({ user: null });
+                        set({ user: null, isLoading: false });
                         return false;
                     }
                 } catch (error) {
                     console.error('Token verification failed:', error);
 
-                    // If verify fails, try to decode token locally as fallback
+                    // Fallback: decode token locally so we don't kick user out
+                    // just because the verify endpoint is temporarily down
                     try {
                         const decoded = extractUserFromToken(token);
                         if (decoded && decoded.username) {
-                            console.log('Using local token decode as fallback');
                             set({
                                 user: {
                                     ...decoded,
@@ -188,6 +197,7 @@ export const useAuthStore = create<AuthState>()(
                                     isAuthenticated: true,
                                     isSovereign: decoded.is_admin || false,
                                 } as User,
+                                isLoading: false,
                                 error: null
                             });
                             return true;
@@ -196,9 +206,15 @@ export const useAuthStore = create<AuthState>()(
                         console.error('Token decode failed:', decodeError);
                     }
 
-                    localStorage.removeItem('access_token');
-                    set({ user: null });
-                    return false;
+                    // Only clear user if we had no persisted session to fall back on
+                    if (!hasPersistedUser) {
+                        localStorage.removeItem('access_token');
+                        set({ user: null, isLoading: false });
+                    } else {
+                        // Keep the persisted user — verify might be temporarily down
+                        set({ isLoading: false });
+                    }
+                    return hasPersistedUser;
                 }
             }
         }),

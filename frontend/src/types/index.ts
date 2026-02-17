@@ -143,9 +143,9 @@ export interface AgentHealthReport {
     health_score: number;
     metrics: {
         success_rate: number;
-        avg_duration: number;
+        tasks_completed: number;
+        avg_response_time: number;
         violations: number;
-        response_time: number;
     };
     created_at: string;
 }

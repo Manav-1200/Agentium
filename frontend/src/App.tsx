@@ -20,7 +20,7 @@ import { ConstitutionPage } from '@/pages/ConstitutionPage';
 import { SovereignDashboard } from '@/pages/SovereignDashboard';
 import { SovereignRoute } from '@/components/SovereignRoute';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Shield } from 'lucide-react';
+import { Shield, Loader2 } from 'lucide-react';
 
 // Auth layout that keeps background and header persistent
 function AuthLayout() {
@@ -67,7 +67,7 @@ function AuthLayout() {
 }
 
 export default function App() {
-  const { user, checkAuth } = useAuthStore();
+  const { user, checkAuth, isLoading } = useAuthStore();
   const { startPolling, stopPolling } = useBackendStore();
 
   useEffect(() => {
@@ -98,11 +98,11 @@ export default function App() {
         <Route element={<AuthLayout />}>
           <Route
             path="/login"
-            element={!user?.isAuthenticated ? <LoginPage /> : <Navigate to="/" replace />}
+            element={isLoading ? null : (!user?.isAuthenticated ? <LoginPage /> : <Navigate to="/" replace />)}
           />
           <Route
             path="/signup"
-            element={!user?.isAuthenticated ? <SignupPage /> : <Navigate to="/" replace />}
+            element={isLoading ? null : (!user?.isAuthenticated ? <SignupPage /> : <Navigate to="/" replace />)}
           />
         </Route>
 
@@ -110,7 +110,16 @@ export default function App() {
         <Route
           path="/"
           element={
-            user?.isAuthenticated ? (
+            isLoading ? (
+              <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center">
+                    <Shield className="w-6 h-6 text-white" />
+                  </div>
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
+                </div>
+              </div>
+            ) : user?.isAuthenticated ? (
               <MainLayout />
             ) : (
               <Navigate to="/login" replace />

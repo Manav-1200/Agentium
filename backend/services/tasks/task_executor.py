@@ -7,6 +7,7 @@ import logging
 import asyncio
 from typing import Optional, Dict, Any
 from dataclasses import asdict
+from datetime import datetime
 
 from backend.celery_app import celery_app
 from backend.models.database import SessionLocal
