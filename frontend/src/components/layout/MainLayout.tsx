@@ -66,7 +66,7 @@ export function MainLayout() {
     ];
 
     return (
-        <div className="h-screen bg-gray-50 dark:bg-[#0f1117] flex overflow-hidden">
+        <div className="h-screen bg-gray-50 dark:bg-[#0f1117] flex">
             <aside className="w-64 bg-white dark:bg-[#161b27] border-r border-gray-200 dark:border-[#1e2535] flex flex-col">
                 {/* Header */}
                 <div className="p-6 border-b border-gray-200 dark:border-[#1e2535] flex-shrink-0">
@@ -148,7 +148,7 @@ export function MainLayout() {
             </aside>
 
             {/* Main content */}
-            <main className="flex-1 overflow-hidden">
+            <main className="flex-1 min-h-0 overflow-y-auto">
                 <Outlet />
             </main>
         </div>

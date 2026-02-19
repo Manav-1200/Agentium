@@ -22,6 +22,7 @@ import { SovereignDashboard } from '@/pages/SovereignDashboard';
 import { SovereignRoute } from '@/components/SovereignRoute';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Shield, Loader2 } from 'lucide-react';
+import { useState } from 'react';
 
 // Full-screen spinner shown while checkAuth() is in-flight on page load
 function AppLoader() {
@@ -42,6 +43,25 @@ function AuthLayout() {
   const location = useLocation();
   const outlet = useOutlet(); // snapshot of current route content — doesn't update mid-animation
   const isSignup = location.pathname === '/signup';
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return document.documentElement.classList.contains('dark');
+    }
+    return false;
+  });
+
+  const toggleTheme = () => {
+    const newDark = !isDark;
+    setIsDark(newDark);
+        
+    if (newDark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+        }
+  };
 
   return (
     <div className="min-h-screen relative flex flex-col items-center justify-center p-4">
@@ -49,7 +69,74 @@ function AuthLayout() {
 
       <div className="text-center mb-8 relative z-10">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-600 text-white mb-4 transition-transform duration-500 hover:scale-110">
-          <Shield className="w-8 h-8" />
+          <button
+            onClick={toggleTheme}
+            className="
+            group relative p-2 rounded-xl
+            transition-all duration-300 ease-out
+            overflow-hidden
+
+            /* LIGHT MODE BASE */
+            bg-blue-600 text-white shadow-sm
+
+            /* LIGHT MODE HOVER → PREVIEW DARK */
+            hover:bg-zinc-900 hover:text-zinc-100 hover:shadow-lg
+
+            /* DARK MODE BASE */
+            dark:bg-blue-600 dark:text-zinc-900 dark:shadow-none
+
+            /* DARK MODE HOVER → PREVIEW LIGHT */
+            dark:hover:bg-white dark:hover:text-zinc-800 dark:hover:shadow-lg
+
+            focus:outline-none focus:ring-2 focus:ring-blue-500/40
+            "
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+
+            {/* Light icon */}
+            <Shield
+              className="
+              w-8 h-8
+              transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)]
+
+              rotate-0 scale-100 opacity-100
+
+              group-hover:rotate-0 group-hover:scale-0 group-hover:opacity-0
+
+              dark:rotate-0 dark:scale-0 dark:opacity-0
+              dark:group-hover:rotate-0 dark:group-hover:scale-100 dark:group-hover:opacity-100
+              "
+            />
+
+            {/* Dark icon */}
+            <Shield
+              className="
+              w-8 h-8 absolute inset-0 m-auto
+              transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)]
+
+              rotate-0 scale-0 opacity-0
+
+              group-hover:rotate-0 group-hover:scale-100 group-hover:opacity-100
+
+              dark:rotate-0 dark:scale-100 dark:opacity-100
+              dark:group-hover:rotate-0 dark:group-hover:scale-0 dark:group-hover:opacity-0
+              "
+            />
+
+            {/* ambient glow layer */}
+            <span
+              className="
+              pointer-events-none absolute inset-0 rounded-xl opacity-0 transition-opacity duration-300
+
+              /* glow when previewing dark */
+              group-hover:opacity-100 group-hover:bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.15),transparent_70%)]
+
+              /* glow when previewing light */
+              dark:group-hover:bg-[radial-gradient(circle_at_center,rgba(0,0,0,0.15),transparent_70%)]
+              "
+            />
+          </button>
         </div>
         <h1 className="text-3xl font-bold text-white mb-2">Agentium</h1>
         <p className="text-white">AI Agent Governance System</p>
