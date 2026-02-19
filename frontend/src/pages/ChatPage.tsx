@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
-import { useWebSocketChat } from '@/hooks/useWebSocket';
+import { useWebSocketStore } from '@/store/websocketStore';
 import {
     Send,
     Crown,
@@ -85,29 +85,23 @@ export function ChatPage() {
     const user = useAuthStore(state => state.user);
     const isAuthenticated = user?.isAuthenticated ?? false;
 
+    // Use global WebSocket store instead of local hook
     const {
         isConnected,
         isConnecting,
         error,
         sendMessage: sendWsMessage,
         reconnect,
-        connectionStats
-    } = useWebSocketChat((data) => {
-        if (data.type === 'message' || data.type === 'system' || data.type === 'error') {
-            const newMessage: Message = {
-                id: crypto.randomUUID(),
-                role: data.role || (data.type === 'error' ? 'system' : 'head_of_council'),
-                content: data.content,
-                timestamp: new Date(),
-                metadata: data.metadata
-            };
-            setMessages(prev => [...prev, newMessage]);
+        connectionStats,
+        unreadCount,
+        markAsRead,
+        messageHistory,
+    } = useWebSocketStore();
 
-            if (data.metadata?.task_created) {
-                toast.success(`Task ${data.metadata.task_id} created`);
-            }
-        }
-    });
+    // Mark messages as read when entering chat page
+    useEffect(() => {
+        markAsRead();
+    }, [markAsRead]);
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -142,6 +136,29 @@ export function ChatPage() {
             console.error('Failed to load chat history:', error);
         }
     };
+
+    // Listen for new messages from global store
+    useEffect(() => {
+        const unsubscribe = useWebSocketStore.subscribe((state) => {
+            if (state.lastMessage && state.lastMessage.type === 'message') {
+                const msg = state.lastMessage;
+                const newMessage: Message = {
+                    id: crypto.randomUUID(),
+                    role: msg.role || 'head_of_council',
+                    content: msg.content,
+                    timestamp: new Date(),
+                    metadata: msg.metadata
+                };
+                setMessages(prev => [...prev, newMessage]);
+
+                if (msg.metadata?.task_created) {
+                    toast.success(`Task ${msg.metadata.task_id} created`);
+                }
+            }
+        });
+        
+        return () => unsubscribe();
+    }, []);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -467,6 +484,9 @@ export function ChatPage() {
         );
     }
 
+    // Show unread badge in UI
+    const showUnreadBadge = unreadCount > 0;
+
     return (
         <div className="h-full bg-gray-50 dark:bg-[#0f1117] flex flex-col overflow-hidden transition-colors duration-200">
             <div className="w-full h-full flex flex-col">
@@ -484,6 +504,13 @@ export function ChatPage() {
                                     <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-[#161b27] transition-colors duration-300 ${
                                         isConnected ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'
                                     }`} />
+                                    
+                                    {/* Unread badge */}
+                                    {showUnreadBadge && (
+                                        <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                            {unreadCount > 9 ? '9+' : unreadCount}
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <h1 className="text-base font-semibold text-gray-900 dark:text-white leading-tight">

@@ -8,13 +8,35 @@ import asyncio
 from typing import Optional, Dict, Any
 from dataclasses import asdict
 from datetime import datetime
+from contextlib import contextmanager
 
 from backend.celery_app import celery_app
-from backend.models.database import SessionLocal
+from backend.models.database import SessionLocal, engine
 from backend.models.entities.channels import ExternalMessage, ExternalChannel, ChannelStatus
 from backend.models.entities.task import Task, TaskStatus
 
 logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════
+# Database Session Context Manager (FIXED)
+# ═══════════════════════════════════════════════════════════
+
+@contextmanager
+def get_task_db():
+    """
+    Context manager for database sessions in Celery tasks.
+    Ensures proper session lifecycle and error handling.
+    """
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()  # Auto-commit on success
+    except Exception:
+        db.rollback()  # Rollback on error
+        raise
+    finally:
+        db.close()  # Always close
 
 
 # ═══════════════════════════════════════════════════════════
@@ -56,87 +78,84 @@ def retry_channel_message(self, message_id: str, agent_id: str, content: str, ri
     Retry sending a failed channel message.
     Called by circuit breaker when initial send fails.
     """
-    db = SessionLocal()
-    try:
-        # Import here to avoid circular imports
-        from backend.services.channel_manager import ChannelManager, circuit_breaker, RichMediaContent
-        
-        # Get message
-        message = db.query(ExternalMessage).filter_by(id=message_id).first()
-        if not message:
-            logger.error(f"Message {message_id} not found for retry")
-            return {"success": False, "error": "Message not found"}
-        
-        # Check if channel is still active
-        channel = db.query(ExternalChannel).filter_by(id=message.channel_id).first()
-        if not channel or channel.status != ChannelStatus.ACTIVE:
-            logger.warning(f"Channel {message.channel_id} not active, aborting retry")
-            return {"success": False, "error": "Channel not active"}
-        
-        # Check circuit breaker
-        if not circuit_breaker.can_execute(channel.id):
-            # Reschedule for later
-            logger.info(f"Circuit breaker open for channel {channel.id}, rescheduling retry")
-            raise self.retry(countdown=600)  # 10 minutes
-        
-        # Reconstruct rich media if provided
-        rich_media = None
-        if rich_media_dict:
-            rich_media = RichMediaContent(**rich_media_dict)
-        
-        # Attempt to send
-        success = ChannelManager.send_response(
-            message_id=message_id,
-            response_content=content,
-            agent_id=agent_id,
-            rich_media=rich_media,
-            db=db
-        )
-        
-        if not success:
-            raise Exception("Send returned False")
-        
-        # Record success
-        circuit_breaker.record_success(channel.id)
-        logger.info(f"Successfully retried message {message_id}")
-        
-        return {
-            "success": True, 
-            "message_id": message_id, 
-            "retries": self.request.retries
-        }
-        
-    except Exception as exc:
-        retry_count = self.request.retries
-        
-        if retry_count < 3:
-            # Exponential backoff: 5min, 10min, 20min
-            countdown = 300 * (2 ** retry_count)
-            logger.warning(f"Retry {retry_count + 1}/3 for message {message_id} in {countdown}s: {exc}")
-            raise self.retry(exc=exc, countdown=countdown)
-        
-        # Max retries exceeded
-        logger.error(f"Max retries exceeded for message {message_id}: {exc}")
-        
-        # Mark as permanently failed
-        message = db.query(ExternalMessage).filter_by(id=message_id).first()
-        if message:
-            message.status = "failed"
-            message.last_error = f"Max retries exceeded: {str(exc)}"
-            db.commit()
-        
-        # Open circuit breaker
-        if message:
-            circuit_breaker.record_failure(message.channel_id)
-        
-        return {
-            "success": False, 
-            "error": str(exc), 
-            "max_retries_exceeded": True
-        }
-        
-    finally:
-        db.close()
+    with get_task_db() as db:
+        try:
+            # Import here to avoid circular imports
+            from backend.services.channel_manager import ChannelManager, circuit_breaker, RichMediaContent
+            
+            # Get message
+            message = db.query(ExternalMessage).filter_by(id=message_id).first()
+            if not message:
+                logger.error(f"Message {message_id} not found for retry")
+                return {"success": False, "error": "Message not found"}
+            
+            # Check if channel is still active
+            channel = db.query(ExternalChannel).filter_by(id=message.channel_id).first()
+            if not channel or channel.status != ChannelStatus.ACTIVE:
+                logger.warning(f"Channel {message.channel_id} not active, aborting retry")
+                return {"success": False, "error": "Channel not active"}
+            
+            # Check circuit breaker
+            if not circuit_breaker.can_execute(channel.id):
+                # Reschedule for later
+                logger.info(f"Circuit breaker open for channel {channel.id}, rescheduling retry")
+                raise self.retry(countdown=600)  # 10 minutes
+            
+            # Reconstruct rich media if provided
+            rich_media = None
+            if rich_media_dict:
+                rich_media = RichMediaContent(**rich_media_dict)
+            
+            # Attempt to send
+            success = ChannelManager.send_response(
+                message_id=message_id,
+                response_content=content,
+                agent_id=agent_id,
+                rich_media=rich_media,
+                db=db
+            )
+            
+            if not success:
+                raise Exception("Send returned False")
+            
+            # Record success
+            circuit_breaker.record_success(channel.id)
+            logger.info(f"Successfully retried message {message_id}")
+            
+            return {
+                "success": True, 
+                "message_id": message_id, 
+                "retries": self.request.retries
+            }
+            
+        except Exception as exc:
+            retry_count = self.request.retries
+            
+            if retry_count < 3:
+                # Exponential backoff: 5min, 10min, 20min
+                countdown = 300 * (2 ** retry_count)
+                logger.warning(f"Retry {retry_count + 1}/3 for message {message_id} in {countdown}s: {exc}")
+                raise self.retry(exc=exc, countdown=countdown)
+            
+            # Max retries exceeded
+            logger.error(f"Max retries exceeded for message {message_id}: {exc}")
+            
+            # Mark as permanently failed
+            message = db.query(ExternalMessage).filter_by(id=message_id).first()
+            if message:
+                message.status = "failed"
+                message.last_error = f"Max retries exceeded: {str(exc)}"
+                db.commit()
+            
+            # Open circuit breaker
+            if message:
+                circuit_breaker.record_failure(message.channel_id)
+            
+            return {
+                "success": False, 
+                "error": str(exc), 
+                "max_retries_exceeded": True
+            }
 
 
 @celery_app.task
@@ -145,12 +164,9 @@ def cleanup_old_channel_messages(days: int = 30):
     Archive old channel messages.
     Keeps recent messages for context, archives old ones.
     """
-    from datetime import datetime, timedelta
-    
     cutoff = datetime.utcnow() - timedelta(days=days)
     
-    db = SessionLocal()
-    try:
+    with get_task_db() as db:
         old_messages = db.query(ExternalMessage).filter(
             ExternalMessage.created_at < cutoff,
             ExternalMessage.status.in_(['responded', 'failed'])
@@ -161,11 +177,8 @@ def cleanup_old_channel_messages(days: int = 30):
             msg.status = "archived"
             count += 1
         
-        db.commit()
         logger.info(f"Archived {count} old channel messages")
         return {"archived": count, "cutoff_days": days}
-    finally:
-        db.close()
 
 
 @celery_app.task
@@ -176,8 +189,7 @@ def check_channel_health():
     """
     from backend.services.channel_manager import ChannelManager, CircuitState
     
-    db = SessionLocal()
-    try:
+    with get_task_db() as db:
         channels = db.query(ExternalChannel).filter(
             ExternalChannel.status == ChannelStatus.ACTIVE
         ).all()
@@ -220,8 +232,6 @@ def check_channel_health():
             "actions": results,
             "timestamp": datetime.utcnow().isoformat()
         }
-    finally:
-        db.close()
 
 
 @celery_app.task
@@ -229,37 +239,48 @@ def start_imap_receivers():
     """
     Ensure IMAP receivers are running for all email channels.
     Called periodically to recover from crashes.
+    FIXED: Proper session handling with eager loading
     """
     from backend.services.channel_manager import imap_receiver
-    from datetime import datetime, timedelta
     
-    db = SessionLocal()
-    try:
-        email_channels = db.query(ExternalChannel).filter(
+    with get_task_db() as db:
+        # FIXED: Use eager loading to prevent detached object issues
+        from sqlalchemy.orm import joinedload
+        
+        email_channels = db.query(ExternalChannel).options(
+            joinedload(ExternalChannel.config)  # Eager load config if it's a relationship
+        ).filter(
             ExternalChannel.channel_type == 'email',
             ExternalChannel.status == ChannelStatus.ACTIVE
         ).all()
         
-        started = 0
+        # Convert to dict before session closes to avoid detached object issues
+        channel_configs = []
         for channel in email_channels:
-            if channel.config.get('enable_imap') or channel.config.get('imap_host'):
+            channel_configs.append({
+                'id': channel.id,
+                'config': channel.config if isinstance(channel.config, dict) else {}
+            })
+        
+        # Process outside of session if asyncio needed
+        started = 0
+        for channel_data in channel_configs:
+            if channel_data['config'].get('enable_imap') or channel_data['config'].get('imap_host'):
                 try:
                     # Use asyncio to start IMAP
                     asyncio.run(
-                        imap_receiver.start_channel(channel.id, channel.config)
+                        imap_receiver.start_channel(channel_data['id'], channel_data['config'])
                     )
                     started += 1
-                    logger.info(f"Started/verified IMAP for channel {channel.id}")
+                    logger.info(f"Started/verified IMAP for channel {channel_data['id']}")
                 except Exception as e:
-                    logger.error(f"Failed to start IMAP for channel {channel.id}: {e}")
+                    logger.error(f"Failed to start IMAP for channel {channel_data['id']}: {e}")
         
         return {
             "email_channels": len(email_channels),
             "imap_started": started,
             "timestamp": datetime.utcnow().isoformat()
         }
-    finally:
-        db.close()
 
 
 @celery_app.task
@@ -267,28 +288,37 @@ def send_channel_heartbeat():
     """
     Send periodic heartbeat to all active channels.
     Useful for detecting stale connections.
+    FIXED: Proper query execution with immediate consumption
     """
-    db = SessionLocal()
-    try:
-        # Get channels with recent activity
-        from datetime import datetime, timedelta
+    from datetime import datetime, timedelta
+    
+    with get_task_db() as db:
+        # FIXED: Execute query and consume results immediately before any other operations
+        cutoff_time = datetime.utcnow() - timedelta(hours=24)
         
+        # Use .all() to fully consume the query immediately
         active_channels = db.query(ExternalChannel).filter(
             ExternalChannel.status == ChannelStatus.ACTIVE,
-            ExternalChannel.last_message_at > datetime.utcnow() - timedelta(hours=24)
+            ExternalChannel.last_message_at > cutoff_time
         ).all()
         
+        # Convert to list of IDs to avoid keeping ORM objects attached
+        channel_ids = [ch.id for ch in active_channels]
+        
         heartbeats_sent = 0
-        for channel in active_channels:
-            # Update last_message_at to show we're monitoring
-            channel.updated_at = datetime.utcnow()
-            heartbeats_sent += 1
+        for channel_id in channel_ids:
+            # Update each channel in separate transaction to avoid long-running transaction
+            try:
+                channel = db.query(ExternalChannel).filter_by(id=channel_id).first()
+                if channel:
+                    channel.updated_at = datetime.utcnow()
+                    heartbeats_sent += 1
+            except Exception as e:
+                logger.error(f"Failed to update channel {channel_id}: {e}")
         
         db.commit()
         logger.info(f"Heartbeat sent to {heartbeats_sent} channels")
         return {"channels": heartbeats_sent}
-    finally:
-        db.close()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -303,10 +333,9 @@ def broadcast_to_channels(channel_ids: list, message: str, agent_id: str):
     """
     from backend.services.channel_manager import ChannelManager
     
-    db = SessionLocal()
     results = []
     
-    try:
+    with get_task_db() as db:
         for channel_id in channel_ids:
             try:
                 # Create a test message record
@@ -319,7 +348,7 @@ def broadcast_to_channels(channel_ids: list, message: str, agent_id: str):
                     status="pending"
                 )
                 db.add(test_msg)
-                db.commit()
+                db.commit()  # Commit immediately to get ID
                 
                 success = ChannelManager.send_response(
                     message_id=test_msg.id,
@@ -348,6 +377,3 @@ def broadcast_to_channels(channel_ids: list, message: str, agent_id: str):
             "failed": sum(1 for r in results if not r.get('success')),
             "details": results
         }
-    finally:
-        db.close()
-        

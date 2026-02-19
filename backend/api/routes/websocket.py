@@ -447,3 +447,77 @@ async def get_websocket_stats(current_user: User = Depends(get_current_active_us
         "active_connections": manager.get_connection_count(),
         "connected_users":    list(manager.user_connections.keys()),
     }
+
+@router.websocket("/sovereign")
+async def websocket_sovereign_endpoint(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    WebSocket endpoint for Sovereign real-time system updates.
+    Requires admin authentication.
+    """
+    if not token:
+        await websocket.close(code=4001, reason="Token required")
+        return
+
+    user_info = await manager.connect(websocket, token, db)
+    if not user_info:
+        return
+    
+    # Verify admin privileges
+    if not user_info.get("is_admin"):
+        await websocket.close(code=4003, reason="Admin privileges required")
+        return
+
+    try:
+        # Send welcome message
+        await websocket.send_json({
+            "type": "system",
+            "role": "system",
+            "content": f"Sovereign console connected. Welcome, {user_info['username']}.",
+            "timestamp": datetime.utcnow().isoformat(),
+            "metadata": {
+                "connection_id": id(websocket),
+                "user": user_info.get("username")
+            }
+        })
+
+        while True:
+            data = await websocket.receive_text()
+            
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type", "ping")
+
+                if msg_type == "ping":
+                    await websocket.send_json({
+                        "type": "pong",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+                
+                elif msg_type == "subscribe":
+                    channel = message.get("channel", "all")
+                    await websocket.send_json({
+                        "type": "subscribed",
+                        "channel": channel,
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+
+            except json.JSONDecodeError:
+                await websocket.send_json({
+                    "type": "error",
+                    "content": "Invalid JSON format",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        print(f"[WebSocket Sovereign] Error: {e}")
+        manager.disconnect(websocket)
+        try:
+            await websocket.close(code=1011, reason=f"Server error: {str(e)}")
+        except:
+            pass

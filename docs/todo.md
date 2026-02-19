@@ -3,7 +3,7 @@
 ## From Democratic AI Governance to Production-Ready System
 
 **Project:** Agentium - Personal AI Agent Nation  
-**Current Status:** Phase 2 Active Development (Governance Core)  
+**Current Status:** Phase 5 Active Development (AI Model Integration)  
 **Architecture:** Dual-Storage (PostgreSQL + ChromaDB) with hierarchical agent orchestration  
 **Strategy:** Bottom-up implementation, one file at a time
 
@@ -462,6 +462,75 @@ TIER_CAPABILITIES = {
 - Custom fine-tuned models
 - Third-party aggregators
 
+### 5.4 API Key Resilience & Notification System 🆕 (PENDING)
+
+**File:** `backend/services/api_key_manager.py` (new)
+
+**Goal:** Ensure zero-downtime model access with intelligent failover and user notification when all keys fail.
+
+**Inspired by:** Rowboat's API key fallback pattern — formalized into Agentium's governance model.
+
+**Failover Architecture:**
+
+```
+Request → Primary Key (OpenAI)
+    ↓ FAIL
+    → Secondary Key (Anthropic)
+    ↓ FAIL
+    → Tertiary Key (Groq)
+    ↓ FAIL
+    → Local Fallback (Ollama)
+    ↓ FAIL
+    → ALERT: Notify all channels + frontend
+```
+
+**Features:**
+
+- [ ] `get_active_key()` - Returns next healthy key in priority order
+- [ ] `mark_key_failed(key_id, error)` - Temporarily disables a key with backoff
+- [ ] `recover_key(key_id)` - Auto-retry failed keys after cooldown period
+- [ ] `notify_all_keys_down()` - Broadcasts to frontend WebSocket + all active channels
+- [ ] `get_key_health_report()` - Provider status dashboard data
+- [ ] Cost budget enforcement per key (prevent overspend)
+- [ ] API key rotation without service downtime
+
+**Notification Targets When All Keys Fail:**
+
+- [ ] Frontend dashboard: Red alert banner with affected providers
+- [ ] WebSocket broadcast to all connected clients
+- [ ] All active channels (Telegram, Discord, Slack, WhatsApp) get fallback message
+- [ ] Email alert to Sovereign (if configured)
+
+**Database Model:**
+
+```python
+class APIKeyRecord(BaseEntity):
+    provider: str           # "openai", "anthropic", "groq"
+    key_hash: str           # Hashed for security
+    priority: int           # 1=primary, 2=secondary, etc.
+    status: str             # "active", "failed", "rate_limited", "exhausted"
+    failure_count: int
+    last_failure_at: Optional[datetime]
+    cooldown_until: Optional[datetime]
+    monthly_budget_usd: Optional[float]
+    current_spend_usd: float = 0.0
+```
+
+**Acceptance Criteria:**
+
+- [ ] Failover completes in <500ms (no user-visible delay)
+- [ ] Failed keys auto-recover after cooldown without manual intervention
+- [ ] Frontend shows real-time provider health status
+- [ ] All channel bots send fallback message if no keys available
+- [ ] Budget enforcement prevents overspend per key
+- [ ] Rotation of keys requires zero downtime
+
+**Files:**
+
+- `backend/services/api_key_manager.py` - Core failover logic
+- `backend/api/routes/api_keys.py` - CRUD for key management
+- `frontend/src/components/settings/APIKeyHealth.tsx` - Health dashboard widget
+
 ---
 
 ## Phase 6: Advanced Features 🚀 (NEW - HIGH PRIORITY)
@@ -697,6 +766,91 @@ class RemoteCodeExecutor:
 - [ ] Separate network isolation
 - [ ] Limited resource allocation
 - [ ] Auto-restart on failure
+
+### 6.7 MCP Server Integration with Constitutional Governance 🆕 (PENDING)
+
+**File:** `backend/services/mcp_governance.py` (new)
+
+**Goal:** Extend the existing Tool Creation Service (6.1) to support MCP servers as a tool source, with constitutional tier-based approval and audit logging on every invocation.
+
+**Inspired by:** Rowboat's native MCP support — adapted into Agentium's democratic approval model.
+
+**Philosophy:** Rowboat connects MCP tools directly. Agentium connects them through the Constitution.
+
+**Tool Tier System:**
+
+```
+┌──────────────────────────────────────────────────────┐
+│                 MCP TOOL REGISTRY                    │
+├──────────────────────────────────────────────────────┤
+│  Tier 1: Pre-Approved (Council vote to USE)          │
+│  ├─ Safe read-only APIs (weather, public data)       │
+│  └─ Non-destructive queries                          │
+│                                                      │
+│  Tier 2: Restricted (Head approval per use)          │
+│  ├─ Email sending                                    │
+│  ├─ File system writes                               │
+│  └─ External webhooks                                │
+│                                                      │
+│  Tier 3: Forbidden (Constitutionally banned)         │
+│  ├─ Financial transactions                           │
+│  ├─ Credential/password access                       │
+│  └─ Raw shell execution (use Remote Executor 6.6)   │
+└──────────────────────────────────────────────────────┘
+```
+
+**Integration with Existing 6.1 Tool Creation Service:**
+
+MCP tools enter the same approval pipeline as agent-created tools. The only difference is the source — MCP server vs agent-generated code. Constitutional Guard (2.3) audits every invocation.
+
+**Database Model:**
+
+```python
+class MCPTool(BaseEntity):
+    name: str
+    description: str
+    server_url: str
+    tier: str                          # "pre_approved", "restricted", "forbidden"
+    capabilities: List[str]
+    constitutional_article: Optional[str]  # Which article governs this
+    approved_by_council: bool = False
+    approval_vote_id: Optional[str]
+    usage_count: int = 0
+    last_used_at: Optional[datetime]
+    audit_log: List[Dict]              # Every invocation logged
+```
+
+**Implementation:**
+
+- [ ] `backend/services/mcp_governance.py` - Core MCP client + constitutional wrapper
+- [ ] `propose_mcp_server(url, description)` - Council member proposes new MCP server
+- [ ] `audit_tool_invocation(tool_id, agent_id, action)` - Constitutional Guard hook
+- [ ] `get_approved_tools(agent_tier)` - Returns tools accessible to agent's tier
+- [ ] `revoke_mcp_tool(tool_id, reason)` - Emergency revocation without vote
+- [ ] MCP tool wrapper auto-generates constitutional compliance layer
+
+**Frontend:**
+
+- [ ] `frontend/src/components/mcp/ToolRegistry.tsx` - Browse available MCP tools
+- [ ] Filter by tier, approval status, usage stats
+- [ ] "Propose new MCP server" modal → triggers Council vote
+- [ ] Per-tool invocation audit log viewer
+
+**Acceptance Criteria:**
+
+- [ ] Every MCP tool invocation logged in audit trail with agent_id, timestamp, input hash
+- [ ] Tier 3 tools blocked at Constitutional Guard before reaching MCP client
+- [ ] Tier 2 tools require Head approval token in request
+- [ ] Council vote required to add any new MCP server (same flow as 6.1)
+- [ ] Tool registry shows real-time usage stats per tool
+- [ ] Revoked tools immediately unavailable (cache invalidation <1s)
+- [ ] MCP server health monitored (auto-disable on repeated failures)
+
+**Python Dependencies to Add:**
+
+```
+mcp==1.0.0    # Official MCP Python SDK
+```
 
 ---
 
@@ -1110,6 +1264,144 @@ class RemoteCodeExecutor:
 
 ---
 
+---
+
+## Phase 12: Agentium SDK & External Interface 🔌 (FUTURE)
+
+**Goal:** Allow external systems and developers to interact with Agentium programmatically, with all governance and constitutional constraints preserved in every external call.
+
+**Inspired by:** Rowboat's Python SDK pattern — rebuilt with Agentium's constitutional context baked in.
+
+**Philosophy:** External callers get the power of Agentium, but never bypass its Constitution.
+
+### 12.1 Python SDK
+
+**Package:** `sdk/python/agentium/`
+
+**Core Interface:**
+
+```python
+from agentium import SovereignClient, StatefulSession
+
+client = SovereignClient(
+    host="http://localhost:8000",
+    api_key="<SOVEREIGN_API_KEY>",
+    constitution_version="v1.2.4"   # Pinned — breaks if constitution changes
+)
+
+# Start a governed session
+session = StatefulSession(client)
+
+# Submit a task — routes through full hierarchy
+response = session.delegate(
+    task="Analyze Q3 reports and summarize findings",
+    constraints={
+        "max_cost_usd": 5.00,
+        "privacy_level": "internal",
+        "allowed_tiers": ["2xxxx", "3xxxx"]
+    },
+    acceptance_criteria={
+        "format": "markdown",
+        "max_length_words": 1000,
+        "critic_validation": True
+    }
+)
+
+# Response includes full governance trail
+print(response.result)
+print(response.constitutional_checks_passed)
+print(response.critic_reviews)
+print(response.audit_trail)
+print(response.cost_usd)
+```
+
+**Features:**
+
+- [ ] `SovereignClient` - Authenticated connection with constitution version pinning
+- [ ] `StatefulSession` - Maintains conversation context across multiple calls
+- [ ] `delegate(task, constraints, acceptance_criteria)` - Full governed task submission
+- [ ] `get_audit_trail(session_id)` - Retrieve complete decision log
+- [ ] `get_constitution(version)` - Fetch active or historical constitution
+- [ ] `propose_amendment(diff)` - Trigger amendment workflow from SDK
+- [ ] `list_agents(tier)` - Browse agent hierarchy
+- [ ] Streaming support for long-running tasks
+- [ ] Async/await support
+
+**Files:**
+
+- [ ] `sdk/python/agentium/__init__.py`
+- [ ] `sdk/python/agentium/client.py`
+- [ ] `sdk/python/agentium/session.py`
+- [ ] `sdk/python/agentium/models.py`
+- [ ] `sdk/python/agentium/exceptions.py`
+- [ ] `sdk/python/README.md`
+- [ ] `sdk/python/setup.py`
+
+### 12.2 TypeScript SDK
+
+**Package:** `sdk/typescript/`
+
+**Core Interface:**
+
+```typescript
+import { AgentiumClient, StatefulSession } from "@agentium/sdk";
+
+const client = new AgentiumClient({
+  host: "http://localhost:8000",
+  apiKey: process.env.AGENTIUM_KEY,
+});
+
+const session = new StatefulSession(client);
+const response = await session.delegate({
+  task: "Draft a response to this customer complaint",
+  constraints: { privacyLevel: "internal" },
+});
+```
+
+**Files:**
+
+- [ ] `sdk/typescript/src/client.ts`
+- [ ] `sdk/typescript/src/session.ts`
+- [ ] `sdk/typescript/src/types.ts`
+- [ ] `sdk/typescript/package.json`
+- [ ] `sdk/typescript/README.md`
+
+### 12.3 SDK Governance Rules
+
+**What SDK callers CAN do:**
+
+- [ ] Submit tasks (routed through full hierarchy)
+- [ ] Query agent status and audit trail
+- [ ] Propose amendments (triggers vote, doesn't bypass it)
+- [ ] Read constitution and knowledge base
+- [ ] Stream task progress events
+
+**What SDK callers CANNOT do:**
+
+- [ ] Bypass Constitutional Guard
+- [ ] Skip critic validation
+- [ ] Access Tier 3 MCP tools directly
+- [ ] Impersonate an agent tier above their API key's authorization level
+- [ ] Suppress audit logging
+
+**Authentication:**
+
+- [ ] SDK API keys issued per external system (not per user)
+- [ ] Keys scoped to specific tiers and capabilities
+- [ ] Key usage logged in audit trail like any other agent action
+- [ ] Keys revocable via Council vote
+
+### 12.4 Acceptance Criteria
+
+- [ ] Python SDK installable via `pip install agentium-sdk`
+- [ ] TypeScript SDK installable via `npm install @agentium/sdk`
+- [ ] All SDK calls produce identical audit trails to direct API calls
+- [ ] Constitution version pinning raises error if version mismatch
+- [ ] SDK documentation with working examples for all major use cases
+- [ ] SDK integration tests against live Agentium instance
+
+---
+
 ## Success Metrics 📊
 
 ### Technical Metrics
@@ -1168,18 +1460,25 @@ class RemoteCodeExecutor:
 4. **Context Ray Tracing** - Role-based context visibility in Message Bus
 5. **Remote Code Executor** - Docker service for sandboxed execution
 6. **Checkpoint Service** - Time-travel recovery system
+7. **API Key Resilience** (Phase 5.4) - Failover + all-keys-down notification
 
 ### 📅 Medium Term (Next Month)
 
-7. **Amendment Service** - Complete constitutional amendment pipeline
-8. **Voting UI** - Rich frontend for democratic deliberation
-9. **Constitution Editor** - Full Markdown editor with semantic search
+8. **Amendment Service** - Complete constitutional amendment pipeline
+9. **MCP Server Integration** (Phase 6.7) - Constitutional tool tier governance
+10. **Voting UI** - Rich frontend for democratic deliberation
+11. **Constitution Editor** - Full Markdown editor with semantic search
 
 ### 🔄 Ongoing
 
-10. **Multi-Channel Integration** - Discord, Slack, Signal, Teams
-11. **Testing & Benchmarking** - Load tests, reliability metrics
-12. **Memory Management** - Automated cleanup and archiving
+12. **Multi-Channel Integration** - Discord, Slack, Signal, Teams
+13. **Testing & Benchmarking** - Load tests, reliability metrics
+14. **Memory Management** - Automated cleanup and archiving
+
+### 🔮 Future (After Core Stable)
+
+15. **Agentium SDK** (Phase 12) - Python + TypeScript client libraries
+16. **Federation** (Phase 11.2) - Inter-Agentium communication
 
 ---
 
@@ -1225,6 +1524,7 @@ pydantic-settings==2.1.0  # For structured handoffs (Phase 6)
 docker==7.0.0             # For remote executor client (Phase 6)
 RestrictedPython==7.0     # For sandboxed code execution (Phase 6)
 playwright==1.40.0        # For browser automation (Phase 10)
+mcp==1.0.0                # MCP Python SDK (Phase 6.7)
 ```
 
 ---
@@ -1337,6 +1637,7 @@ playwright==1.40.0        # For browser automation (Phase 10)
 - [ ] Critic agents not implemented
 - [ ] Remote executor not deployed
 - [ ] Checkpoint service missing
+- [ ] API Key Resilience service not formalized (Phase 5.4)
 
 ### Medium Priority
 
@@ -1344,6 +1645,7 @@ playwright==1.40.0        # For browser automation (Phase 10)
 - [ ] Message Bus rate limiting not fully tested
 - [ ] Vector DB index optimization needed
 - [ ] Frontend error boundaries incomplete
+- [ ] MCP Tool Registry UI not built (Phase 6.7)
 
 ### Low Priority
 
@@ -1351,6 +1653,7 @@ playwright==1.40.0        # For browser automation (Phase 10)
 - [ ] Dark mode consistency
 - [ ] Mobile responsiveness
 - [ ] Accessibility (ARIA labels, keyboard navigation)
+- [ ] SDK documentation (Phase 12 - future)
 
 ---
 
@@ -1381,20 +1684,21 @@ playwright==1.40.0        # For browser automation (Phase 10)
 
 ## Next Review Date
 
-**Scheduled:** After Phase 6.2 (Critic Agents) completion
+**Scheduled:** After Phase 6.3 (Acceptance Criteria) + Phase 5.4 (API Key Resilience) completion
 
 **Focus Areas:**
 
-1. Verify critic veto authority working
+1. Verify critic veto authority working end-to-end
 2. Measure error catch rate (target 87.8%)
 3. Test context isolation effectiveness
-4. Benchmark performance under load
+4. Benchmark API key failover latency (<500ms target)
+5. Verify MCP tool tier enforcement (Phase 6.7 prerequisite check)
 
 ---
 
-_Last Updated: 2026-02-12_  
+_Last Updated: 2026-02-19_  
 _Maintainer: Ashmin Dhungana_  
-_Status: Active Development - Phase 2 & 6 In Progress_
+_Status: Active Development - Phase 5 In Progress | Phase 6 Critic Agents Done_
 
 ---
 

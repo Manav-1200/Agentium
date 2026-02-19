@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 import { useBackendStore } from '@/store/backendStore';
+import { GlobalWebSocketProvider } from '@/components/GlobalWebSocketProvider';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { FlatMapAuthBackground } from '@/components/FlatMapAuthBackground';
 import { LoginPage } from '@/pages/LoginPage';
@@ -77,19 +78,12 @@ export default function App() {
   const { user, isInitialized, isLoading } = useAuthStore();
   const { startPolling, stopPolling } = useBackendStore();
 
-  // NOTE: We no longer call checkAuth() here.
-  // It is now triggered automatically inside authStore via onRehydrateStorage,
-  // which fires before any React component renders — eliminating the race condition.
-
   useEffect(() => {
     startPolling();
     return () => stopPolling();
   }, [startPolling, stopPolling]);
 
   // Block the entire app until checkAuth() has finished at least once.
-  // This prevents ANY routing decision from being made before we know
-  // whether the user's token is valid, which was the root cause of the
-  // "refresh → redirect to login" bug.
   if (!isInitialized) {
     return <AppLoader />;
   }
@@ -106,55 +100,57 @@ export default function App() {
           style: { background: '#1f2937', color: '#fff' },
         }}
       />
+      
+      {/* WRAP EVERYTHING WITH GLOBAL WEBSOCKET PROVIDER */}
+      <GlobalWebSocketProvider>
+        <Routes>
+          {/* Auth Routes */}
+          <Route element={<AuthLayout />}>
+            <Route
+              path="/login"
+              element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
+            />
+            <Route
+              path="/signup"
+              element={isAuthenticated ? <Navigate to="/" replace /> : <SignupPage />}
+            />
+          </Route>
 
-      <Routes>
-        {/* Auth Routes */}
-        <Route element={<AuthLayout />}>
+          {/* Protected Routes */}
           <Route
-            path="/login"
-            element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
-          />
-          <Route
-            path="/signup"
-            element={isAuthenticated ? <Navigate to="/" replace /> : <SignupPage />}
-          />
-        </Route>
-
-        {/* Protected Routes */}
-        <Route
-          path="/"
-          element={
-            isLoading ? (
-              // isLoading covers background re-verification (e.g. after login form submit)
-              <AppLoader />
-            ) : isAuthenticated ? (
-              <MainLayout />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="chat" element={<ChatPage />} />
-          <Route path="agents" element={<AgentsPage />} />
-          <Route path="tasks" element={<TasksPage />} />
-          <Route path="monitoring" element={<MonitoringPage />} />
-          <Route path="constitution" element={<ConstitutionPage />} />
-          <Route path="models" element={<ModelsPage />} />
-          <Route path="channels" element={<ChannelsPage />} />
-          <Route
-            path="sovereign"
+            path="/"
             element={
-              <SovereignRoute>
-                <SovereignDashboard />
-              </SovereignRoute>
+              isLoading ? (
+                <AppLoader />
+              ) : isAuthenticated ? (
+                <MainLayout />
+              ) : (
+                <Navigate to="/login" replace />
+              )
             }
-          />
-          <Route path="settings" element={<SettingsPage />} />
-        </Route>
+          >
+            <Route index element={<Dashboard />} />
+            <Route path="chat" element={<ChatPage />} />
+            <Route path="agents" element={<AgentsPage />} />
+            <Route path="tasks" element={<TasksPage />} />
+            <Route path="monitoring" element={<MonitoringPage />} />
+            <Route path="constitution" element={<ConstitutionPage />} />
+            <Route path="models" element={<ModelsPage />} />
+            <Route path="channels" element={<ChannelsPage />} />
+            <Route
+              path="sovereign"
+              element={
+                <SovereignRoute>
+                  <SovereignDashboard />
+                </SovereignRoute>
+              }
+            />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </GlobalWebSocketProvider>
     </Router>
   );
 }
