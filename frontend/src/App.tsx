@@ -116,7 +116,6 @@ function AuthLayout() {
               transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)]
 
               rotate-0 scale-0 opacity-0
-
               group-hover:rotate-0 group-hover:scale-100 group-hover:opacity-100
 
               dark:rotate-0 dark:scale-100 dark:opacity-100
