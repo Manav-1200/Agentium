@@ -416,6 +416,17 @@ export function FlatMapAuthBackground({ variant = 'login' }: FlatMapAuthBackgrou
       camera.bottom = -newViewHeight / 2;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+
+      // Rescale the map plane to fill the new view
+      const newMapWidth = newViewWidth;
+      const newMapHeight = newMapWidth / 2;
+
+      // Scale map plane so it always fills the camera frustum
+      mapPlane.scale.set(newMapWidth / mapWidth, newMapHeight / mapHeight, 1);
+
+      // Update stored dimensions so beam/city positions scale correctly
+      globalSceneInstance.mapWidth = newMapWidth;
+      globalSceneInstance.mapHeight = newMapHeight;
     };
 
     window.addEventListener('resize', handleResize);

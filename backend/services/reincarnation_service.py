@@ -912,5 +912,57 @@ Provide a concise summary (max 300 words) that the successor agent will inherit.
         return new_agent
 
 
+    @staticmethod
+    def get_predecessor_context(agent: Agent, db: Session) -> Dict[str, Any]:
+        """
+        Retrieve accumulated wisdom/context from a predecessor agent.
+        Called by ChatService when building the prompt for an active agent.
+        Returns a dict with has_predecessor flag and context details.
+        """
+        if not agent.ethos_id:
+            return {"has_predecessor": False}
+
+        ethos = db.query(Ethos).filter_by(id=agent.ethos_id).first()
+        if not ethos:
+            return {"has_predecessor": False}
+
+        # Check if this agent has inherited wisdom (set during reincarnation)
+        has_predecessor = (
+            ethos.mission_statement and "PREDECESSOR" in ethos.mission_statement
+        ) or (
+            ethos.behavioral_rules and "LIFE_" in ethos.behavioral_rules
+        )
+
+        if not has_predecessor:
+            return {"has_predecessor": False}
+
+        # Extract wisdom entries from behavioral rules
+        wisdom_entries = []
+        if ethos.behavioral_rules:
+            try:
+                rules = json.loads(ethos.behavioral_rules)
+                wisdom_entries = [r for r in rules if r.startswith("[LIFE_")]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Extract predecessor ID from mission statement if present
+        predecessor_id = None
+        if ethos.mission_statement and "PREDECESSOR:" in ethos.mission_statement:
+            try:
+                line = [l for l in ethos.mission_statement.splitlines() if "PREDECESSOR:" in l][0]
+                predecessor_id = line.split("PREDECESSOR:")[1].split("-")[0].strip()
+            except (IndexError, ValueError):
+                pass
+
+        return {
+            "has_predecessor": True,
+            "predecessor_id": predecessor_id,
+            "incarnation_number": agent.incarnation_number or 1,
+            "wisdom_count": len(wisdom_entries),
+            "wisdom_summary": wisdom_entries[-1] if wisdom_entries else None,
+            "context": ethos.mission_statement[:500] if ethos.mission_statement else None,
+        }
+
+
 # Singleton
 reincarnation_service = ReincarnationService()

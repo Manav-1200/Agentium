@@ -12,7 +12,7 @@ from contextlib import contextmanager
 
 from backend.celery_app import celery_app
 from backend.models.database import SessionLocal, engine
-from backend.models.entities.channels import ExternalMessage, ExternalChannel, ChannelStatus
+from backend.models.entities.channels import ExternalMessage, ExternalChannel, ChannelStatus, ChannelType
 from backend.models.entities.task import Task, TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -247,10 +247,8 @@ def start_imap_receivers():
         # FIXED: Use eager loading to prevent detached object issues
         from sqlalchemy.orm import joinedload
         
-        email_channels = db.query(ExternalChannel).options(
-            joinedload(ExternalChannel.config)  # Eager load config if it's a relationship
-        ).filter(
-            ExternalChannel.channel_type == 'email',
+        email_channels = db.query(ExternalChannel).filter(
+            ExternalChannel.channel_type == ChannelType.EMAIL,
             ExternalChannel.status == ChannelStatus.ACTIVE
         ).all()
         

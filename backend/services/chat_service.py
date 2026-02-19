@@ -7,15 +7,17 @@ from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from backend.models.entities import Agent, HeadOfCouncil, Task, TaskPriority, TaskType
+from backend.models.entities.agents import AgentType
 from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
 from backend.services.context_manager import context_manager
 from backend.services.reincarnation_service import reincarnation_service
 from backend.services.clarification_service import clarification_service
 from backend.services.model_provider import ModelService
 
+
 class ChatService:
     """Service for handling Sovereign ↔ Head of Council chat with reincarnation support."""
-    
+
     @staticmethod
     async def process_message(head: HeadOfCouncil, message: str, db: Session):
         """
@@ -25,51 +27,74 @@ class ChatService:
         # Register context tracking if not exists
         config = head.get_model_config(db)
         model_name = config.default_model if config else "default"
-        
+
         context_manager.register_agent(
-            head.agentium_id, 
+            head.agentium_id,
             model_name
         )
-        
+
         # Get provider
         config = head.get_model_config(db)
         provider = await ModelService.get_provider("sovereign", config.id if config else None)
         if not provider:
             raise ValueError("No model provider available")
-        
+
         # Get predecessor context if this agent recently reincarnated
+        # FIX 1: get_predecessor_context now exists on ReincarnationService and returns a dict
         predecessor_context = reincarnation_service.get_predecessor_context(head, db)
-        
+
         # Get system prompt and context
         system_prompt = head.get_system_prompt()
         context = await ChatService.get_system_context(db)
-        
+
+        # FIX 2: Actually build consultation note from predecessor context for reincarnated agents.
+        # If this agent has a predecessor, consult supervisor to orient it — avoids the
+        # dead `consultation_result = None` that was always producing an empty note.
         consultation_result = None
-        
-        # If confused about task, consult parent (for reincarnated agents)
+        if predecessor_context.get("has_predecessor"):
+            try:
+                consultation_result = clarification_service.consult_supervisor(
+                    agent=head,
+                    db=db,
+                    question="What is my current assignment and status after reincarnation?",
+                    context=f"Reincarnated agent. Predecessor: {predecessor_context.get('predecessor_id')}. "
+                            f"Incarnation #{predecessor_context.get('incarnation_number', 1)}."
+                )
+            except Exception as e:
+                print(f"⚠️ Consultation failed for {head.agentium_id}: {e}")
+                consultation_result = None
+
         consultation_note = (
             f"\nRecent consultation with parent: {consultation_result['guidance']}"
             if consultation_result
             else ""
         )
 
-        full_prompt = f"""{system_prompt}
+        # Inject predecessor wisdom into prompt when available
+        predecessor_note = ""
+        if predecessor_context.get("has_predecessor") and predecessor_context.get("wisdom_summary"):
+            predecessor_note = (
+                f"\n\n[Inherited Wisdom from Predecessor {predecessor_context['predecessor_id']}]: "
+                f"{predecessor_context['wisdom_summary']}"
+            )
 
-        Current System State:
-        {context}{consultation_note}
+        full_prompt = f"""{system_prompt}{predecessor_note}
 
-        Address the Sovereign respectfully. If they issue a command that requires execution, indicate that you will create a task."""
+Current System State:
+{context}{consultation_note}
+
+Address the Sovereign respectfully. If they issue a command that requires execution, indicate that you will create a task."""
 
         # Generate response
         result = await provider.generate(full_prompt, message)
-        
+
         # Update context usage
         tokens_used = result.get("tokens_used", 0)
         context_status = context_manager.update_usage(head.agentium_id, tokens_used)
-        
+
         # Analyze if we should create a task
         task_info = await ChatService.analyze_for_task(head, message, result["content"], db)
-        
+
         # Get current task ID if any (for preservation during reincarnation)
         current_task_id = head.current_task_id
         task_progress = None
@@ -77,11 +102,11 @@ class ChatService:
             current_task = db.query(Task).filter_by(id=current_task_id).first()
             if current_task:
                 task_progress = current_task.completion_percentage
-        
+
         # Check if reincarnation needed (context critical)
         if context_status and context_status.is_critical:
             print(f"🔄 Context critical for {head.agentium_id}, triggering reincarnation...")
-            
+
             # Get conversation context for summarization
             conversation_context = f"""User: {message}
 Agent: {result['content']}
@@ -89,7 +114,7 @@ System Context: {context}
 Task Created: {task_info.get('created', False)}
 Current Task: {current_task_id or 'None'}
 Progress: {task_progress or 'N/A'}%"""
-            
+
             # Execute reincarnation WITH task preservation
             reincarnation_result = await reincarnation_service.check_and_trigger_reincarnation(
                 agent=head,
@@ -98,16 +123,16 @@ Progress: {task_progress or 'N/A'}%"""
                 current_task_id=current_task_id,
                 task_progress=str(task_progress) if task_progress else None
             )
-            
+
             if reincarnation_result and reincarnation_result["successor_spawned"]:
                 # Continue with successor
                 new_head_id = reincarnation_result["successor_id"]
                 new_head = db.query(HeadOfCouncil).filter_by(agentium_id=new_head_id).first()
-                
+
                 if new_head:
                     # Get lineage for the new agent
                     lineage_info = clarification_service.get_lineage(new_head, db)
-                    
+
                     response_text = f"""{result["content"]}
 
 [System Notice: I have evolved from {head.agentium_id} to {new_head_id} to serve you with renewed clarity. My context window has been refreshed through reincarnation.]
@@ -115,7 +140,7 @@ Progress: {task_progress or 'N/A'}%"""
 [Agent Reference: This is incarnation #{reincarnation_result.get('incarnation_number', 1) + 1}. {f"Task {reincarnation_result.get('task_transferred')} transferred to successor." if reincarnation_result.get('task_transferred') else "No active task transferred."}]
 
 [If confused: New agent can consult parent {new_head.parent.agentium_id if new_head.parent else 'None'} or check inherited ethos for predecessor wisdom.]"""
-                    
+
                     return {
                         "content": response_text,
                         "model": result["model"],
@@ -129,7 +154,7 @@ Progress: {task_progress or 'N/A'}%"""
                         "task_created": task_info.get("created"),
                         "task_id": task_info.get("task_id")
                     }
-        
+
         return {
             "content": result["content"],
             "model": result["model"],
@@ -140,7 +165,7 @@ Progress: {task_progress or 'N/A'}%"""
             "reincarnated": False,
             "consultation": consultation_result if consultation_result else None
         }
-    
+
     @staticmethod
     async def process_confused_agent_query(
         agent: Agent,
@@ -158,10 +183,10 @@ Progress: {task_progress or 'N/A'}%"""
             question=query,
             context="Post-reincarnation confusion"
         )
-        
+
         # Also get predecessor context
         predecessor = reincarnation_service.get_predecessor_context(agent, db)
-        
+
         return {
             "consultation": consultation,
             "predecessor_info": predecessor,
@@ -169,21 +194,21 @@ Progress: {task_progress or 'N/A'}%"""
             "can_escalate": consultation.get("escalation_available"),
             "advice": "Follow parent's guidance or review inherited ethos behavioral rules for [LIFE_X_WISDOM] entries."
         }
-        
+
     @staticmethod
     async def get_system_context(db: Session) -> str:
         """Get current system state for context."""
         # Count agents by type
         agents = db.query(Agent).all()
-        
+
         head_count = sum(1 for a in agents if a.agent_type.value == "head_of_council" and a.is_active == 'Y')
         council_count = sum(1 for a in agents if a.agent_type.value == "council_member" and a.is_active == 'Y')
         lead_count = sum(1 for a in agents if a.agent_type.value == "lead_agent" and a.is_active == 'Y')
         task_count = sum(1 for a in agents if a.agent_type.value == "task_agent" and a.is_active == 'Y')
-        
+
         # Get active tasks
         pending_tasks = db.query(Task).filter(Task.status.in_(["pending", "deliberating", "in_progress"])).count()
-        
+
         # Get reincarnation stats
         reincarnation_info = ""
         for agent in agents:
@@ -191,13 +216,13 @@ Progress: {task_progress or 'N/A'}%"""
                 stats = context_manager.get_stats(agent.agentium_id)
                 if stats and stats.get('incarnation', 1) > 1:
                     reincarnation_info += f"\n  {agent.agentium_id}: Incarnation {stats['incarnation']}"
-        
+
         return f"""- Head of Council: {'Active' if head_count > 0 else 'Inactive'}
 - Council Members: {council_count} active
-- Lead Agents: {lead_count} active  
+- Lead Agents: {lead_count} active
 - Task Agents: {task_count} active
 - Pending Tasks: {pending_tasks}{reincarnation_info if reincarnation_info else ""}"""
-    
+
     @staticmethod
     async def analyze_for_task(
         head: HeadOfCouncil,
@@ -214,16 +239,16 @@ Progress: {task_progress or 'N/A'}%"""
             "write", "code", "research", "investigate", "calculate",
             "deploy", "build", "test", "validate"
         ]
-        
+
         # Check if it seems like a command
         is_command = any(keyword in prompt.lower() for keyword in execution_keywords)
-        
+
         # Check if Head acknowledged it as a task
         task_acknowledged = any(phrase in response.lower() for phrase in [
             "i shall", "i will", "creating task", "delegating", "assigning",
             "the council will", "lead agents will"
         ])
-        
+
         if is_command and task_acknowledged:
             # Create a task
             task = Task(
@@ -235,23 +260,28 @@ Progress: {task_progress or 'N/A'}%"""
                 head_of_council_id=head.id,
                 requires_deliberation=True
             )
-            
+
             db.add(task)
             db.commit()
-            
-            # Start deliberation
-            council = db.query(Agent).filter_by(agent_type="council_member", is_active='Y').all()
+
+            # FIX 3: Use enum comparison instead of string — string filter silently returned
+            # an empty list, so deliberation was never actually started on any task.
+            council = db.query(Agent).filter(
+                Agent.agent_type == AgentType.COUNCIL_MEMBER,
+                Agent.is_active == 'Y'
+            ).all()
+
             if council:
                 task.start_deliberation([c.agentium_id for c in council])
                 db.commit()
-            
+
             return {
                 "created": True,
                 "task_id": task.agentium_id
             }
-        
+
         return {"created": False}
-    
+
     @staticmethod
     async def log_interaction(
         head_agentium_id: str,
@@ -269,7 +299,7 @@ Progress: {task_progress or 'N/A'}%"""
             action="chat_response",
             target_type="conversation",
             target_id=None,
-            description=f"Head of Council responded to Sovereign",
+            description="Head of Council responded to Sovereign",
             before_state={"prompt": prompt[:500]},
             after_state={"response": response[:1000]},
             metadata={

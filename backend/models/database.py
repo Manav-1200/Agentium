@@ -1,32 +1,60 @@
 """
-Task execution handlers for Celery.
-Includes: task execution, constitution review, idle processing, 
-and channel message retry with circuit breaker support.
+Database configuration and session management for Agentium.
+PostgreSQL-backed with connection pooling and async support.
 """
-import logging
-import asyncio
-from typing import Optional, Dict, Any
-from dataclasses import asdict
-from datetime import datetime, timedelta
+
+import os
+from typing import Generator, Optional
 from contextlib import contextmanager
+from datetime import datetime
 
-from backend.celery_app import celery_app
-from backend.models.database import SessionLocal
-from backend.models.entities.channels import ExternalMessage, ExternalChannel, ChannelStatus
-from backend.models.entities.task import Task, TaskStatus
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import sessionmaker, Session, scoped_session
+from sqlalchemy.pool import QueuePool
 
-logger = logging.getLogger(__name__)
+from backend.models.entities.base import Base
+
+# Configuration
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://agentium:agentium@localhost:5432/agentium"
+)
+
+# Engine configuration with pooling
+engine = create_engine(
+    DATABASE_URL,
+    poolclass=QueuePool,
+    pool_size=20,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true"
+)
+
+# Session factory
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
+
+# Thread-local sessions
+db_session = scoped_session(SessionLocal)
 
 
-# ═══════════════════════════════════════════════════════════
-# Database Session Context Manager (CRITICAL FIX)
-# ═══════════════════════════════════════════════════════════
+@event.listens_for(Engine, "connect")
+def set_timezone(dbapi_conn, connection_record):
+    """Set UTC timezone for all connections."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("SET timezone TO 'UTC'")
+    cursor.close()
 
-@contextmanager
-def get_task_session():
+
+def get_db() -> Generator[Session, None, None]:
     """
-    Context manager for database sessions in Celery tasks.
-    Ensures proper session lifecycle: auto-commit on success, rollback on error.
+    Dependency for FastAPI endpoints.
+    Yields a database session and ensures cleanup.
     """
     db = SessionLocal()
     try:
@@ -39,335 +67,174 @@ def get_task_session():
         db.close()
 
 
-# ═══════════════════════════════════════════════════════════
-# Core Task Execution
-# ═══════════════════════════════════════════════════════════
-
-@celery_app.task(bind=True, max_retries=3)
-def execute_task_async(self, task_id: str, agent_id: str):
-    """Execute a task asynchronously."""
+@contextmanager
+def get_db_context():
+    """Context manager for database sessions in non-request contexts."""
+    db = SessionLocal()
     try:
-        logger.info(f"Executing task {task_id} with agent {agent_id}")
-        return {"status": "completed", "task_id": task_id}
-    except Exception as exc:
-        logger.error(f"Task execution failed: {exc}")
-        raise self.retry(exc=exc, countdown=60)
-
-
-@celery_app.task
-def daily_constitution_review():
-    """Daily review of constitution by persistent council."""
-    logger.info("Running daily constitution review")
-    return {"status": "completed"}
-
-
-@celery_app.task
-def process_idle_tasks():
-    """Process tasks when system is idle."""
-    logger.info("Processing idle tasks")
-    return {"status": "completed"}
-
-
-# ═══════════════════════════════════════════════════════════
-# Channel Message Retry & Recovery (FIXED)
-# ═══════════════════════════════════════════════════════════
-
-@celery_app.task(bind=True, max_retries=3)
-def retry_channel_message(self, message_id: str, agent_id: str, content: str, rich_media_dict: Dict[str, Any] = None):
-    """
-    Retry sending a failed channel message.
-    Called by circuit breaker when initial send fails.
-    """
-    with get_task_session() as db:
-        try:
-            # Import here to avoid circular imports
-            from backend.services.channel_manager import ChannelManager, circuit_breaker, RichMediaContent
-            
-            # Get message
-            message = db.query(ExternalMessage).filter_by(id=message_id).first()
-            if not message:
-                logger.error(f"Message {message_id} not found for retry")
-                return {"success": False, "error": "Message not found"}
-            
-            # Check if channel is still active
-            channel = db.query(ExternalChannel).filter_by(id=message.channel_id).first()
-            if not channel or channel.status != ChannelStatus.ACTIVE:
-                logger.warning(f"Channel {message.channel_id} not active, aborting retry")
-                return {"success": False, "error": "Channel not active"}
-            
-            # Check circuit breaker
-            if not circuit_breaker.can_execute(channel.id):
-                # Reschedule for later
-                logger.info(f"Circuit breaker open for channel {channel.id}, rescheduling retry")
-                raise self.retry(countdown=600)  # 10 minutes
-            
-            # Reconstruct rich media if provided
-            rich_media = None
-            if rich_media_dict:
-                rich_media = RichMediaContent(**rich_media_dict)
-            
-            # Attempt to send
-            success = ChannelManager.send_response(
-                message_id=message_id,
-                response_content=content,
-                agent_id=agent_id,
-                rich_media=rich_media,
-                db=db
-            )
-            
-            if not success:
-                raise Exception("Send returned False")
-            
-            # Record success
-            circuit_breaker.record_success(channel.id)
-            logger.info(f"Successfully retried message {message_id}")
-            
-            return {
-                "success": True, 
-                "message_id": message_id, 
-                "retries": self.request.retries
-            }
-            
-        except Exception as exc:
-            retry_count = self.request.retries
-            
-            if retry_count < 3:
-                # Exponential backoff: 5min, 10min, 20min
-                countdown = 300 * (2 ** retry_count)
-                logger.warning(f"Retry {retry_count + 1}/3 for message {message_id} in {countdown}s: {exc}")
-                raise self.retry(exc=exc, countdown=countdown)
-            
-            # Max retries exceeded
-            logger.error(f"Max retries exceeded for message {message_id}: {exc}")
-            
-            # Mark as permanently failed
-            message = db.query(ExternalMessage).filter_by(id=message_id).first()
-            if message:
-                message.status = "failed"
-                message.last_error = f"Max retries exceeded: {str(exc)}"
-                db.commit()
-            
-            # Open circuit breaker
-            if message:
-                circuit_breaker.record_failure(message.channel_id)
-            
-            return {
-                "success": False, 
-                "error": str(exc), 
-                "max_retries_exceeded": True
-            }
-
-
-@celery_app.task
-def cleanup_old_channel_messages(days: int = 30):
-    """
-    Archive old channel messages.
-    Keeps recent messages for context, archives old ones.
-    """
-    cutoff = datetime.utcnow() - timedelta(days=days)
-    
-    with get_task_session() as db:
-        old_messages = db.query(ExternalMessage).filter(
-            ExternalMessage.created_at < cutoff,
-            ExternalMessage.status.in_(['responded', 'failed'])
-        ).all()
-        
-        count = 0
-        for msg in old_messages:
-            msg.status = "archived"
-            count += 1
-        
-        logger.info(f"Archived {count} old channel messages")
-        return {"archived": count, "cutoff_days": days}
-
-
-@celery_app.task
-def check_channel_health():
-    """
-    Periodic health check for all channels.
-    Auto-disables channels with low success rates.
-    """
-    from backend.services.channel_manager import ChannelManager, CircuitState
-    
-    with get_task_session() as db:
-        channels = db.query(ExternalChannel).filter(
-            ExternalChannel.status == ChannelStatus.ACTIVE
-        ).all()
-        
-        results = []
-        for channel in channels:
-            health = ChannelManager.get_channel_health(channel.id)
-            
-            # Auto-disable unhealthy channels
-            if (health['overall_status'] == 'degraded' and 
-                health['circuit_breaker']['success_rate'] < 0.5):
-                
-                channel.status = ChannelStatus.ERROR
-                channel.error_message = "Auto-disabled due to low success rate"
-                db.commit()
-                
-                results.append({
-                    "channel_id": channel.id,
-                    "action": "auto_disabled",
-                    "reason": "low_success_rate",
-                    "success_rate": health['circuit_breaker']['success_rate']
-                })
-                logger.warning(
-                    f"Auto-disabled channel {channel.id} "
-                    f"(success rate: {health['circuit_breaker']['success_rate']:.2%})"
-                )
-            
-            # Log circuit breaker state changes
-            elif health['circuit_breaker']['circuit_state'] != 'closed':
-                results.append({
-                    "channel_id": channel.id,
-                    "action": "circuit_state",
-                    "state": health['circuit_breaker']['circuit_state'],
-                    "consecutive_failures": health['circuit_breaker']['consecutive_failures']
-                })
-        
-        logger.info(f"Health check completed for {len(channels)} channels, {len(results)} actions taken")
-        return {
-            "checked": len(channels), 
-            "actions": results,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-
-
-@celery_app.task
-def start_imap_receivers():
-    """
-    Ensure IMAP receivers are running for all email channels.
-    Called periodically to recover from crashes.
-    FIXED: Proper session handling with eager loading
-    """
-    from backend.services.channel_manager import imap_receiver
-    
-    with get_task_session() as db:
-        # FIXED: Execute query and consume results immediately
-        email_channels = db.query(ExternalChannel).filter(
-            ExternalChannel.channel_type == 'email',
-            ExternalChannel.status == ChannelStatus.ACTIVE
-        ).all()
-        
-        # Extract data while session is still active
-        channel_data_list = []
-        for channel in email_channels:
-            channel_data_list.append({
-                'id': channel.id,
-                'config': channel.config if isinstance(channel.config, dict) else {}
-            })
-        
-        # Process outside of session if asyncio needed
-        started = 0
-        for channel_data in channel_data_list:
-            if channel_data['config'].get('enable_imap') or channel_data['config'].get('imap_host'):
-                try:
-                    # Use asyncio to start IMAP
-                    asyncio.run(
-                        imap_receiver.start_channel(channel_data['id'], channel_data['config'])
-                    )
-                    started += 1
-                    logger.info(f"Started/verified IMAP for channel {channel_data['id']}")
-                except Exception as e:
-                    logger.error(f"Failed to start IMAP for channel {channel_data['id']}: {e}")
-        
-        return {
-            "email_channels": len(email_channels),
-            "imap_started": started,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-
-
-@celery_app.task
-def send_channel_heartbeat():
-    """
-    Send periodic heartbeat to all active channels.
-    Useful for detecting stale connections.
-    FIXED: Proper query execution with immediate consumption
-    """
-    with get_task_session() as db:
-        # FIXED: Execute query and consume results immediately before any other operations
-        cutoff_time = datetime.utcnow() - timedelta(hours=24)
-        
-        # Use .all() to fully consume the query immediately
-        active_channels = db.query(ExternalChannel).filter(
-            ExternalChannel.status == ChannelStatus.ACTIVE,
-            ExternalChannel.last_message_at > cutoff_time
-        ).all()
-        
-        # Convert to list of IDs to avoid keeping ORM objects attached
-        channel_ids = [ch.id for ch in active_channels]
-        
-        heartbeats_sent = 0
-        for channel_id in channel_ids:
-            # Update each channel in separate transaction to avoid long-running transaction
-            try:
-                channel = db.query(ExternalChannel).filter_by(id=channel_id).first()
-                if channel:
-                    channel.updated_at = datetime.utcnow()
-                    heartbeats_sent += 1
-            except Exception as e:
-                logger.error(f"Failed to update channel {channel_id}: {e}")
-        
+        yield db
         db.commit()
-        logger.info(f"Heartbeat sent to {heartbeats_sent} channels")
-        return {"channels": heartbeats_sent}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
-# ═══════════════════════════════════════════════════════════
-# Bulk Operations
-# ═══════════════════════════════════════════════════════════
-
-@celery_app.task
-def broadcast_to_channels(channel_ids: list, message: str, agent_id: str):
+def get_next_agentium_id(db: Session, prefix: str) -> str:
     """
-    Broadcast a message to multiple channels.
-    Used for announcements or alerts.
+    Generate next available ID for a given prefix.
+    Thread-safe sequence generation using SELECT FOR UPDATE.
     """
-    from backend.services.channel_manager import ChannelManager
-    
-    results = []
-    
-    with get_task_session() as db:
-        for channel_id in channel_ids:
-            try:
-                # Create a test message record
-                test_msg = ExternalMessage(
-                    channel_id=channel_id,
-                    sender_id="system",
-                    sender_name="Agentium",
-                    content=message,
-                    message_type="announcement",
-                    status="pending"
-                )
-                db.add(test_msg)
-                db.commit()  # Commit immediately to get ID
-                
-                success = ChannelManager.send_response(
-                    message_id=test_msg.id,
-                    response_content=message,
-                    agent_id=agent_id,
-                    db=db
-                )
-                
-                results.append({
-                    "channel_id": channel_id,
-                    "success": success,
-                    "message_id": test_msg.id
-                })
-                
-            except Exception as e:
-                logger.error(f"Failed to broadcast to channel {channel_id}: {e}")
-                results.append({
-                    "channel_id": channel_id,
-                    "success": False,
-                    "error": str(e)
-                })
-        
+    from backend.models.entities.agents import Agent
+
+    result = db.execute(
+        text("""
+            SELECT agentium_id FROM agents
+            WHERE agentium_id LIKE :pattern
+            ORDER BY agentium_id DESC
+            FOR UPDATE
+        """),
+        {"pattern": f"{prefix}%"}
+    ).fetchone()
+
+    if result:
+        last_num = int(result[0][1:])
+        new_num = last_num + 1
+    else:
+        new_num = 1
+
+    return f"{prefix}{new_num:04d}"
+
+
+def check_health() -> dict:
+    """Check database connectivity and performance."""
+    try:
+        start = datetime.utcnow()
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        latency = (datetime.utcnow() - start).total_seconds() * 1000
         return {
-            "total": len(channel_ids),
-            "successful": sum(1 for r in results if r.get('success')),
-            "failed": sum(1 for r in results if not r.get('success')),
-            "details": results
+            "status": "healthy",
+            "latency_ms": round(latency, 2),
+            "database": "connected"
         }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "database": "disconnected"
+        }
+
+
+def _ensure_system_settings(db: Session):
+    """
+    Create the system_settings table if it doesn't exist and seed
+    default budget values. Uses raw SQL so it works before Alembic
+    has run the dedicated migration.
+    """
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key         VARCHAR(128) PRIMARY KEY,
+            value       TEXT         NOT NULL,
+            description TEXT,
+            updated_at  TIMESTAMP    NOT NULL DEFAULT NOW()
+        )
+    """))
+
+    # Seed defaults only if rows don't exist yet
+    db.execute(text("""
+        INSERT INTO system_settings (key, value, description, updated_at)
+        VALUES
+            ('daily_token_limit', '100000',
+             'Maximum tokens per day across all API providers', NOW()),
+            ('daily_cost_limit',  '5.0',
+             'Maximum USD cost per day across all API providers', NOW())
+        ON CONFLICT (key) DO NOTHING
+    """))
+    db.commit()
+
+
+def create_initial_data(db: Session):
+    """
+    Minimal seeding after tables are created.
+    Constitution and Head of Council are created by PersistentCouncilService.
+    """
+    _ensure_system_settings(db)
+
+
+def init_db():
+    """
+    Initialize database — create all tables via SQLAlchemy metadata.
+    Imports every entity so their mappers register with Base.metadata
+    before create_all() runs.
+    """
+    # ── Core / Base ──────────────────────────────────────────────────────────
+    from backend.models.entities.base import Base  # noqa: F401
+
+    # ── User & Auth ──────────────────────────────────────────────────────────
+    from backend.models.entities.user import User  # noqa: F401
+    from backend.models.entities.user_config import (  # noqa: F401
+        UserModelConfig, ModelUsageLog, ProviderType, ConnectionStatus
+    )
+
+    # ── Chat ─────────────────────────────────────────────────────────────────
+    from backend.models.entities.chat_message import (  # noqa: F401
+        ChatMessage, Conversation
+    )
+
+    # ── Constitution & Ethos ─────────────────────────────────────────────────
+    from backend.models.entities.constitution import (  # noqa: F401
+        Constitution, Ethos, DocumentType
+    )
+
+    # ── Agents ───────────────────────────────────────────────────────────────
+    from backend.models.entities.agents import (  # noqa: F401
+        Agent, HeadOfCouncil, CouncilMember, LeadAgent, TaskAgent,
+        AgentType, AgentStatus
+    )
+
+    # ── Tasks ────────────────────────────────────────────────────────────────
+    from backend.models.entities.task import (  # noqa: F401
+        Task, SubTask, TaskAuditLog, TaskStatus, TaskPriority, TaskType
+    )
+
+    # ── Voting ───────────────────────────────────────────────────────────────
+    from backend.models.entities.voting import (  # noqa: F401
+        TaskDeliberation, IndividualVote, VotingRecord,
+        AmendmentVoting, AmendmentStatus
+    )
+
+    # ── Audit ────────────────────────────────────────────────────────────────
+    from backend.models.entities.audit import (  # noqa: F401
+        AuditLog, ConstitutionViolation, SessionLog, HealthCheck,
+        AuditLevel, AuditCategory
+    )
+
+    # ── Monitoring ───────────────────────────────────────────────────────────
+    from backend.models.entities.monitoring import (  # noqa: F401
+        AgentHealthReport, ViolationReport, ViolationSeverity,
+        TaskVerification, PerformanceMetric, MonitoringAlert, MonitoringStatus
+    )
+
+    # ── Critics ──────────────────────────────────────────────────────────────
+    from backend.models.entities.critics import (  # noqa: F401
+        CriticAgent, CritiqueReview, CriticType, CriticVerdict
+    )
+
+    # ── Channels ─────────────────────────────────────────────────────────────
+    from backend.models.entities.channels import (  # noqa: F401
+        ExternalChannel, ExternalMessage, ChannelType, ChannelStatus
+    )
+
+    # ── Scheduled Tasks ──────────────────────────────────────────────────────
+    from backend.models.entities.scheduled_task import (  # noqa: F401
+        ScheduledTask, ScheduledTaskExecution
+    )
+
+    # Create all tables that don't exist yet
+    Base.metadata.create_all(bind=engine)
+
+    # Seed initial/system data
+    with get_db_context() as db:
+        create_initial_data(db)
