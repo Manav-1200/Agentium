@@ -80,6 +80,29 @@ def get_db_context():
     finally:
         db.close()
 
+def _ensure_api_key_resilience_columns(db: Session):
+    """Add Phase 5.4 columns to user_model_configs table if they don't exist."""
+    # Check if columns exist by trying to select them
+    try:
+        db.execute(text("""
+            SELECT priority, failure_count, last_failure_at, cooldown_until, 
+                   monthly_budget_usd, current_spend_usd, last_spend_reset
+            FROM user_model_configs LIMIT 1
+        """))
+    except Exception:
+        # Columns don't exist, add them
+        db.execute(text("""
+            ALTER TABLE user_model_configs 
+            ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 999 NOT NULL,
+            ADD COLUMN IF NOT EXISTS failure_count INTEGER DEFAULT 0 NOT NULL,
+            ADD COLUMN IF NOT EXISTS last_failure_at TIMESTAMP NULL,
+            ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMP NULL,
+            ADD COLUMN IF NOT EXISTS monthly_budget_usd FLOAT DEFAULT 0.0 NOT NULL,
+            ADD COLUMN IF NOT EXISTS current_spend_usd FLOAT DEFAULT 0.0 NOT NULL,
+            ADD COLUMN IF NOT EXISTS last_spend_reset TIMESTAMP DEFAULT NOW() NOT NULL
+        """))
+        db.commit()
+        print("✅ Added API Key Resilience columns to user_model_configs")
 
 def get_next_agentium_id(db: Session, prefix: str) -> str:
     """
@@ -161,6 +184,7 @@ def create_initial_data(db: Session):
     Constitution and Head of Council are created by PersistentCouncilService.
     """
     _ensure_system_settings(db)
+    _ensure_api_key_resilience_columns(db)
 
 
 def init_db():

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useBackendStore } from '@/store/backendStore';
 import { useAuthStore } from '@/store/authStore';
+import APIKeyHealth from '@/components/monitoring/APIKeyHealth';
 import {
     Users,
     CheckCircle,
@@ -173,6 +174,9 @@ export function Dashboard() {
             {/* ── Budget Control Panel ───────────────────────────────────── */}
             <div className="mb-8">
                 <BudgetControl />
+            </div>
+            <div className="mb-8">
+            <APIKeyHealth />
             </div>
 
             {/* ── Bottom Panels ──────────────────────────────────────────── */}

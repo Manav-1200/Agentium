@@ -118,6 +118,20 @@ class UserModelConfig(BaseEntity):
     
     # Relationships
     usage_logs = relationship("ModelUsageLog", back_populates="config", lazy="dynamic")
+    priority = Column(Integer, default=999, nullable=False, 
+                     comment="Priority order: 1=primary, 2=secondary, etc. Lower = higher priority")
+    failure_count = Column(Integer, default=0, nullable=False,
+                          comment="Consecutive failures since last success")
+    last_failure_at = Column(DateTime, nullable=True,
+                            comment="Timestamp of last failure")
+    cooldown_until = Column(DateTime, nullable=True,
+                           comment="Do not use this key until this timestamp")
+    monthly_budget_usd = Column(Float, default=0.0, nullable=False,
+                               comment="Maximum monthly spend for this key (0=unlimited)")
+    current_spend_usd = Column(Float, default=0.0, nullable=False,
+                              comment="Current month spend tracking")
+    last_spend_reset = Column(DateTime, default=datetime.utcnow, nullable=False,
+                             comment="When current_spend_usd was last reset")
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -126,6 +140,46 @@ class UserModelConfig(BaseEntity):
             random_part = f"{random.randint(0, 999):03d}"  # 3 chars
             self.agentium_id = f"C{date_part}{random_part}"  # 1+6+3 = 10 chars
     
+    def is_key_healthy(self) -> bool:
+        """Check if key is available for use (not in cooldown, not exhausted)."""
+        from datetime import datetime
+        if self.cooldown_until and datetime.utcnow() < self.cooldown_until:
+            return False
+        if self.status == ConnectionStatus.ERROR:
+            return False
+        # Check monthly budget
+        if self.monthly_budget_usd > 0 and self.current_spend_usd >= self.monthly_budget_usd:
+            return False
+        return True
+    
+    def record_failure(self):
+        """Increment failure count and potentially trigger cooldown."""
+        from datetime import datetime, timedelta
+        self.failure_count += 1
+        self.last_failure_at = datetime.utcnow()
+        
+        # After 3 failures, enter 5-minute cooldown
+        if self.failure_count >= 3:
+            self.cooldown_until = datetime.utcnow() + timedelta(minutes=5)
+            self.status = ConnectionStatus.ERROR
+    
+    def record_success(self):
+        """Reset failure count on success."""
+        self.failure_count = 0
+        self.last_failure_at = None
+        self.status = ConnectionStatus.ACTIVE
+        self.cooldown_until = None
+    
+    def record_spend(self, cost_usd: float):
+        """Add to current spend and check for monthly reset."""
+        from datetime import datetime
+        now = datetime.utcnow()
+        # Reset if new month
+        if self.last_spend_reset.month != now.month or self.last_spend_reset.year != now.year:
+            self.current_spend_usd = 0.0
+            self.last_spend_reset = now
+        self.current_spend_usd += cost_usd
+
     @validates('api_key_encrypted')
     def mask_api_key(self, key, value):
         """Store masked version for display."""

@@ -97,6 +97,11 @@ class AgentOrchestrator:
             model_key=model_key
         )
         
+        # Workflow §3: Compress ethos after sub-step execution to prevent
+        # cognitive bloat.  Completed steps are pruned from progress markers.
+        completed_steps = result.get("completed_steps", [])
+        agent.compress_ethos(db, completed_steps=completed_steps)
+        
         return result
 
     async def initialize(self):

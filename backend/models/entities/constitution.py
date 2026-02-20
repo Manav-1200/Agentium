@@ -199,8 +199,18 @@ class Constitution(BaseEntity):
 
 class Ethos(BaseEntity):
     """
-    Individual Agent Ethos - behavioral rules for specific agents.
-    Created by higher authority, updated by agent itself, verified by lead.
+    Individual Agent Ethos — the agent's working memory.
+
+    A dynamic, minimal, continuously updated internal state containing:
+      - Core identity (mission, values, rules, restrictions, capabilities)
+      - Current objective and active plan
+      - Relevant constitutional references
+      - Temporary reasoning artifacts
+      - Task progress markers
+      - Outcome summaries and lessons learned
+
+    Created by higher authority, updated by the agent itself, verified by lead.
+    Ethos is short-term working cognition; ChromaDB is long-term institutional memory.
     """
     
     __tablename__ = 'ethos'
@@ -209,12 +219,21 @@ class Ethos(BaseEntity):
     agent_type = Column(String(20), nullable=False)  # head_of_council, council_member, lead_agent, task_agent
     # agentium_id inherited from BaseEntity (NOT NULL). Format: E0xxxx, E1xxxx for ethos
     
-    # Content
+    # Core Identity Content
     mission_statement = Column(Text, nullable=False)
     core_values = Column(Text, nullable=False)  # JSON array
     behavioral_rules = Column(Text, nullable=False)  # JSON array of do's
     restrictions = Column(Text, nullable=False)  # JSON array of don'ts
     capabilities = Column(Text, nullable=False)  # JSON array of what this agent can do
+    
+    # Working Memory Fields (Workflow §1-§5)
+    current_objective = Column(Text, nullable=True)               # Active task objective
+    active_plan = Column(Text, nullable=True)                     # JSON: structured execution plan
+    constitutional_references = Column(Text, nullable=True)       # JSON: relevant constitutional sections/summary
+    task_progress_markers = Column(Text, nullable=True)           # JSON: sub-step progress tracking
+    reasoning_artifacts = Column(Text, nullable=True)             # JSON: temporary reasoning notes
+    outcome_summary = Column(Text, nullable=True)                 # Last task outcome summary
+    lessons_learned = Column(Text, nullable=True)                 # JSON: accumulated lessons
     
     # Authority & versioning
     created_by_agentium_id = Column(String(10), nullable=False)  # Higher authority
@@ -268,6 +287,118 @@ class Ethos(BaseEntity):
         self.version += 1
         self.last_updated_by_agent = True
     
+    # --- Working Memory Accessors (Workflow §1-§5) ---
+    
+    def get_active_plan(self) -> Optional[Dict[str, Any]]:
+        """Get the current structured execution plan."""
+        import json
+        try:
+            return json.loads(self.active_plan) if self.active_plan else None
+        except json.JSONDecodeError:
+            return None
+    
+    def set_active_plan(self, plan: Dict[str, Any]):
+        """Write a structured execution plan into the Ethos."""
+        import json
+        self.active_plan = json.dumps(plan)
+        self.increment_version()
+    
+    def get_constitutional_references(self) -> List[Dict[str, Any]]:
+        """Get relevant constitutional section references."""
+        import json
+        try:
+            return json.loads(self.constitutional_references) if self.constitutional_references else []
+        except json.JSONDecodeError:
+            return []
+    
+    def set_constitutional_references(self, references: List[Dict[str, Any]]):
+        """Update constitutional references in the Ethos."""
+        import json
+        self.constitutional_references = json.dumps(references)
+    
+    def get_task_progress(self) -> Dict[str, Any]:
+        """Get task progress markers."""
+        import json
+        try:
+            return json.loads(self.task_progress_markers) if self.task_progress_markers else {}
+        except json.JSONDecodeError:
+            return {}
+    
+    def set_task_progress(self, progress: Dict[str, Any]):
+        """Update task progress markers."""
+        import json
+        self.task_progress_markers = json.dumps(progress)
+    
+    def get_reasoning_artifacts(self) -> List[str]:
+        """Get temporary reasoning artifacts."""
+        import json
+        try:
+            return json.loads(self.reasoning_artifacts) if self.reasoning_artifacts else []
+        except json.JSONDecodeError:
+            return []
+    
+    def get_lessons_learned(self) -> List[Dict[str, Any]]:
+        """Get accumulated lessons learned."""
+        import json
+        try:
+            return json.loads(self.lessons_learned) if self.lessons_learned else []
+        except json.JSONDecodeError:
+            return []
+    
+    def add_lesson_learned(self, lesson: Dict[str, Any]):
+        """Append a lesson learned entry."""
+        import json
+        lessons = self.get_lessons_learned()
+        lessons.append(lesson)
+        # Keep only the last 20 lessons to prevent unbounded growth
+        self.lessons_learned = json.dumps(lessons[-20:])
+    
+    def compress(self):
+        """
+        Compress the Ethos by removing obsolete working state.
+        Retains core identity (mission, values, rules, restrictions, capabilities)
+        and outcome/lessons. Clears transient execution artifacts.
+        Called after task completion (Workflow §5).
+        """
+        self.active_plan = None
+        self.task_progress_markers = None
+        self.reasoning_artifacts = None
+        self.current_objective = None
+        self.increment_version()
+    
+    def clear_working_state(self):
+        """
+        Fully reset the working state for a fresh task cycle.
+        Preserves: mission, values, rules, restrictions, capabilities,
+                   constitutional_references, lessons_learned, outcome_summary.
+        Clears: objective, plan, progress, reasoning artifacts.
+        Called during post-task recalibration (Workflow §5.4).
+        """
+        self.current_objective = None
+        self.active_plan = None
+        self.task_progress_markers = None
+        self.reasoning_artifacts = None
+    
+    def prune_obsolete_content(self, completed_steps: List[str] = None):
+        """
+        Remove irrelevant or obsolete content during task execution.
+        Called after each sub-step to prevent cognitive bloat (Workflow §3).
+        """
+        import json
+        
+        # Prune completed steps from progress markers
+        if completed_steps and self.task_progress_markers:
+            progress = self.get_task_progress()
+            for step in completed_steps:
+                progress.pop(step, None)
+            self.task_progress_markers = json.dumps(progress) if progress else None
+        
+        # Clear stale reasoning artifacts (keep only the last 5)
+        if self.reasoning_artifacts:
+            artifacts = self.get_reasoning_artifacts()
+            if len(artifacts) > 5:
+                self.reasoning_artifacts = json.dumps(artifacts[-5:])
+    
     def to_dict(self) -> Dict[str, Any]:
         base = super().to_dict()
         base.update({
@@ -278,6 +409,12 @@ class Ethos(BaseEntity):
             'behavioral_rules': self.get_behavioral_rules(),
             'restrictions': self.get_restrictions(),
             'capabilities': self.get_capabilities(),
+            'current_objective': self.current_objective,
+            'active_plan': self.get_active_plan(),
+            'constitutional_references': self.get_constitutional_references(),
+            'task_progress': self.get_task_progress(),
+            'outcome_summary': self.outcome_summary,
+            'lessons_learned': self.get_lessons_learned(),
             'version': self.version,
             'created_by': self.created_by_agentium_id,
             'verified': self.is_verified,

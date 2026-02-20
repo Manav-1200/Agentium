@@ -3,6 +3,8 @@ Chat service for Head of Council interactions.
 Handles message processing, task creation, context management, and reincarnation.
 """
 
+import logging
+from datetime import datetime
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
@@ -13,6 +15,9 @@ from backend.services.context_manager import context_manager
 from backend.services.reincarnation_service import reincarnation_service
 from backend.services.clarification_service import clarification_service
 from backend.services.model_provider import ModelService
+
+
+logger = logging.getLogger(__name__)
 
 
 class ChatService:
@@ -263,6 +268,25 @@ Progress: {task_progress or 'N/A'}%"""
 
             db.add(task)
             db.commit()
+
+            # Workflow §2: Write plan into Head's Ethos with retry logic
+            # No execution begins without a successfully updated Ethos
+            plan = {
+                "objective": prompt[:200],
+                "title": task.title,
+                "task_id": task.agentium_id,
+                "steps": ["deliberation", "delegation", "execution", "review"],
+                "created_at": datetime.utcnow().isoformat(),
+            }
+            try:
+                head.update_ethos_with_plan(plan, db, max_retries=3)
+                db.commit()
+            except RuntimeError as e:
+                # Log the failure but don't block task creation
+                logger.warning(
+                    "Ethos update failed for Head %s during plan write: %s",
+                    head.agentium_id, e
+                )
 
             # FIX 3: Use enum comparison instead of string — string filter silently returned
             # an empty list, so deliberation was never actually started on any task.

@@ -176,6 +176,218 @@ class Agent(BaseEntity):
         # This is called by Task completion handler
         pass  # Implementation links to Task model
 
+    # -----------------------------------------------------------------------
+    # Workflow §1 — Constitutional Alignment at Creation / Recalibration
+    # -----------------------------------------------------------------------
+
+    def read_and_align_constitution(self, db: Session) -> bool:
+        """
+        Read the active Constitution and update Ethos with a summarized
+        constitutional interpretation and reference pointers.
+
+        Called at:
+          - Agent creation (Workflow §1.4-§1.5)
+          - Post-task recalibration (Workflow §5.5)
+
+        Returns True if alignment succeeded.
+        """
+        from backend.models.entities.constitution import Constitution, Ethos
+
+        constitution = db.query(Constitution).filter_by(
+            is_active='Y'
+        ).order_by(Constitution.effective_date.desc()).first()
+
+        if not constitution:
+            return False
+
+        if not self.ethos_id:
+            return False
+
+        ethos = db.query(Ethos).filter_by(id=self.ethos_id).first()
+        if not ethos:
+            return False
+
+        # Build constitutional references from the articles
+        articles = constitution.get_articles_dict()
+        references = []
+        for article_num, article_data in articles.items():
+            references.append({
+                "article": article_num,
+                "title": article_data.get("title", ""),
+                "summary": article_data.get("content", "")[:200],
+                "version": constitution.version,
+            })
+
+        # Write constitutional references into Ethos
+        ethos.set_constitutional_references(references)
+
+        # Update agent tracking
+        self.last_constitution_read_at = datetime.utcnow()
+        self.constitution_read_count = (self.constitution_read_count or 0) + 1
+        self.constitution_version = constitution.version
+
+        db.flush()
+        return True
+
+    # -----------------------------------------------------------------------
+    # Workflow §2 — Plan-to-Ethos with Retry
+    # -----------------------------------------------------------------------
+
+    def update_ethos_with_plan(self, plan: Dict[str, Any], db: Session,
+                               max_retries: int = 3) -> bool:
+        """
+        Write a structured execution plan into the agent's Ethos.
+
+        If updating Ethos fails (conflict, corruption, inconsistency),
+        the planning phase is retried up to *max_retries* times.
+        No execution begins without a successfully updated Ethos (Workflow §2.5).
+
+        Returns True on success, raises RuntimeError after exhausting retries.
+        """
+        from backend.models.entities.constitution import Ethos
+        import json
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                ethos = db.query(Ethos).filter_by(id=self.ethos_id).first()
+                if not ethos:
+                    raise ValueError(f"Ethos {self.ethos_id} not found for agent {self.agentium_id}")
+
+                ethos.set_active_plan(plan)
+                ethos.current_objective = plan.get("objective", plan.get("title", "Task execution"))
+                ethos.task_progress_markers = json.dumps(
+                    {step: "pending" for step in plan.get("steps", [])}
+                )
+                db.flush()
+                return True
+
+            except Exception as e:
+                db.rollback()
+                if attempt == max_retries:
+                    raise RuntimeError(
+                        f"Failed to update Ethos for agent {self.agentium_id} "
+                        f"after {max_retries} attempts: {e}"
+                    ) from e
+                # Brief pause before retry would happen in async; here we just re-try
+                continue
+
+        return False
+
+    # -----------------------------------------------------------------------
+    # Workflow §3 — Ethos Minimization During Execution
+    # -----------------------------------------------------------------------
+
+    def compress_ethos(self, db: Session, completed_steps: List[str] = None):
+        """
+        Remove irrelevant or obsolete Ethos content after a sub-step.
+        Maintains only what is required to complete the active task (Workflow §3).
+        """
+        from backend.models.entities.constitution import Ethos
+
+        if not self.ethos_id:
+            return
+
+        ethos = db.query(Ethos).filter_by(id=self.ethos_id).first()
+        if not ethos:
+            return
+
+        ethos.prune_obsolete_content(completed_steps=completed_steps)
+        db.flush()
+
+    # -----------------------------------------------------------------------
+    # Workflow §6 — Hierarchical Ethos Oversight
+    # -----------------------------------------------------------------------
+
+    def view_subordinate_ethos(self, subordinate_id: str, db: Session) -> Optional[Dict[str, Any]]:
+        """
+        Higher-tier agents can view subordinate Ethos.
+        Lower-tier agents cannot view higher-tier Ethos.
+        """
+        from backend.models.entities.constitution import Ethos
+
+        subordinate = db.query(Agent).filter_by(agentium_id=subordinate_id, is_active='Y').first()
+        if not subordinate:
+            return None
+
+        # Enforce hierarchy: own tier prefix must be lower (numerically) than subordinate's
+        if int(self.agentium_id[0]) >= int(subordinate.agentium_id[0]):
+            raise PermissionError(
+                f"Agent {self.agentium_id} (tier {self.agentium_id[0]}) "
+                f"cannot view ethos of agent {subordinate_id} (tier {subordinate.agentium_id[0]})"
+            )
+
+        if not subordinate.ethos_id:
+            return {"agent_id": subordinate_id, "ethos": None}
+
+        ethos = db.query(Ethos).filter_by(id=subordinate.ethos_id).first()
+        return ethos.to_dict() if ethos else None
+
+    def edit_subordinate_ethos(self, subordinate_id: str, updates: Dict[str, Any],
+                               db: Session) -> bool:
+        """
+        Higher-tier agents can edit subordinate Ethos to correct inconsistencies
+        or override unsafe reasoning (Workflow §6).
+
+        Allowed updates: mission_statement, behavioral_rules, restrictions,
+        current_objective, active_plan, reasoning_artifacts.
+        """
+        from backend.models.entities.constitution import Ethos
+        from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
+        import json
+
+        subordinate = db.query(Agent).filter_by(agentium_id=subordinate_id, is_active='Y').first()
+        if not subordinate:
+            raise ValueError(f"Subordinate {subordinate_id} not found")
+
+        # Enforce hierarchy direction
+        if int(self.agentium_id[0]) >= int(subordinate.agentium_id[0]):
+            raise PermissionError(
+                f"Agent {self.agentium_id} cannot edit ethos of equal/higher-tier agent {subordinate_id}"
+            )
+
+        if not subordinate.ethos_id:
+            raise ValueError(f"Subordinate {subordinate_id} has no ethos to edit")
+
+        ethos = db.query(Ethos).filter_by(id=subordinate.ethos_id).first()
+        if not ethos:
+            raise ValueError(f"Ethos record not found for {subordinate_id}")
+
+        ALLOWED_FIELDS = [
+            'mission_statement', 'behavioral_rules', 'restrictions',
+            'current_objective', 'active_plan', 'reasoning_artifacts',
+        ]
+
+        before_state = {}
+        for field, value in updates.items():
+            if field not in ALLOWED_FIELDS:
+                continue
+            before_state[field] = getattr(ethos, field, None)
+            if isinstance(value, (list, dict)):
+                setattr(ethos, field, json.dumps(value))
+            else:
+                setattr(ethos, field, value)
+
+        ethos.increment_version()
+
+        # Audit trail for oversight actions
+        audit = AuditLog(
+            level=AuditLevel.WARNING,
+            category=AuditCategory.GOVERNANCE,
+            actor_type="agent",
+            actor_id=self.agentium_id,
+            action="subordinate_ethos_edited",
+            target_type="ethos",
+            target_id=ethos.agentium_id,
+            description=(
+                f"Agent {self.agentium_id} edited ethos of subordinate {subordinate_id}. "
+                f"Fields: {list(updates.keys())}"
+            ),
+            created_at=datetime.utcnow(),
+        )
+        db.add(audit)
+        db.flush()
+        return True
+
     def check_action_compliance_rag(self, action: str) -> Dict[str, Any]:
         """
         Use RAG to check if action complies with Constitution.
@@ -191,7 +403,7 @@ class Agent(BaseEntity):
         Check if Ethos has been updated and execute any tasks within it.
         Returns dict with execution results.
         """
-        from datetime import datetime
+        from datetime import datetime  # noqa: F811 — re-import within method scope for clarity
         from backend.models.entities.constitution import Ethos
         from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
         
@@ -307,88 +519,119 @@ class Agent(BaseEntity):
     def pre_task_ritual(self, db: Session) -> Dict[str, Any]:
         """
         Called BEFORE receiving a task.
-        FAST OPERATION: Only Constitution awareness check (no actions).
-        Ethos execution happens AFTER task completion.
+        FAST OPERATION: Constitution awareness check and Ethos readiness.
+        Ensures constitutional alignment before execution begins (Workflow §1).
         """
-        # ONLY check Constitution freshness - no blocking ethos execution
+        # 1. Check Constitution freshness — read if needed
         constitution_refreshed = self.check_constitution_freshness(db)
+
+        # 2. If Constitution was re-read, update Ethos with constitutional refs
+        if constitution_refreshed:
+            self.read_and_align_constitution(db)
         
         return {
             "constitution_refreshed": constitution_refreshed,
             "constitution_version": self.constitution_version,
-            "ethos_status": "deferred_to_post_task",
+            "ethos_status": "aligned",
             "ready_for_task": True,
             "delay_ms": 0
         }
 
-    def post_task_ritual(self, db: Session) -> Dict[str, Any]:
+    def post_task_ritual(self, db: Session,
+                         outcome_summary: str = "",
+                         lessons: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Called AFTER completing a task.
-        HEAVY OPERATION: Execute ethos updates, self-improvement, reflection.
-        Does NOT block next task assignment (happens in background).
+        Called AFTER completing a task (Workflow §5).
+
+        Steps:
+          1. Confirm task completion.
+          2. Update Ethos with outcome summary and lessons learned.
+          3. Compress and summarize Ethos (remove transient working state).
+          4. Reset working state.
+          5. Re-read the Constitution before accepting new tasks.
+
+        This ensures constitutional recalibration between tasks.
         """
-        from datetime import datetime
         from backend.models.entities.constitution import Ethos
         from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
         import json
         
         results = {
             "constitution_refreshed": False,
+            "ethos_compressed": False,
+            "outcome_recorded": False,
+            "lessons_recorded": 0,
+            "working_state_reset": False,
+            # Legacy fields for backward compatibility
             "ethos_executed": False,
             "ethos_tasks_found": 0,
             "ethos_tasks_completed": 0,
             "actions_taken": []
         }
         
-        # 1. Check Constitution if 24h passed (awareness only)
-        results["constitution_refreshed"] = self.check_constitution_freshness(db)
-        
-        # 2. Execute Ethos updates (self-improvement time)
         if self.ethos_id:
             ethos = db.query(Ethos).filter_by(id=self.ethos_id).first()
             if ethos:
-                last_read = self.ethos_last_read_at or datetime.min
-                ethos_updated = ethos.updated_at > last_read if ethos.updated_at and last_read else False
+                # Step 2: Record outcome summary
+                if outcome_summary:
+                    ethos.outcome_summary = outcome_summary
+                    results["outcome_recorded"] = True
                 
-                if ethos_updated or self.ethos_action_pending:
-                    # Mark as read
-                    self.ethos_last_read_at = datetime.utcnow()
-                    self.ethos_action_pending = False
+                # Step 2: Record lessons learned
+                if lessons:
+                    for lesson in lessons:
+                        ethos.add_lesson_learned(lesson)
+                    results["lessons_recorded"] = len(lessons)
+                
+                # Legacy: execute [ACTION:] markers from behavioral rules
+                self.ethos_last_read_at = datetime.utcnow()
+                self.ethos_action_pending = False
+                try:
+                    rules = json.loads(ethos.behavioral_rules) if ethos.behavioral_rules else []
+                    for rule in rules:
+                        if "[ACTION:" in rule or "TODO:" in rule or "TASK:" in rule:
+                            results["ethos_tasks_found"] += 1
+                            action_result = self._execute_ethos_task(db, rule, ethos.agentium_id)
+                            results["actions_taken"].append(action_result)
+                            if action_result.get("executed"):
+                                results["ethos_tasks_completed"] += 1
+                except json.JSONDecodeError:
+                    pass
+
+                if results["ethos_tasks_found"] > 0:
                     results["ethos_executed"] = True
-                    
-                    # Parse and execute behavioral rules with [ACTION:] markers
-                    try:
-                        rules = json.loads(ethos.behavioral_rules) if ethos.behavioral_rules else []
-                        
-                        for rule in rules:
-                            if "[ACTION:" in rule or "TODO:" in rule or "TASK:" in rule:
-                                results["ethos_tasks_found"] += 1
-                                
-                                # Execute the ethos task
-                                action_result = self._execute_ethos_task(db, rule, ethos.agentium_id)
-                                results["actions_taken"].append(action_result)
-                                
-                                if action_result.get("executed"):
-                                    results["ethos_tasks_completed"] += 1
-                                    
-                    except json.JSONDecodeError:
-                        pass
-                    
-                    # Log the post-task self-improvement
-                    if results["ethos_tasks_found"] > 0:
-                        audit = AuditLog(
-                            level=AuditLevel.INFO,
-                            category=AuditCategory.GOVERNANCE,
-                            actor_type="agent",
-                            actor_id=self.agentium_id,
-                            action="ethos_post_task_execution",
-                            target_type="ethos",
-                            target_id=ethos.agentium_id,
-                            description=f"Agent {self.agentium_id} completed {results['ethos_tasks_completed']} self-improvement tasks from ethos",
-                            created_at=datetime.utcnow()
-                        )
-                        db.add(audit)
+                
+                # Step 3: Compress Ethos — remove transient working state
+                ethos.compress()
+                results["ethos_compressed"] = True
+                
+                # Step 4: Reset working state
+                ethos.clear_working_state()
+                results["working_state_reset"] = True
+                
+                # Audit the post-task ritual
+                audit = AuditLog(
+                    level=AuditLevel.INFO,
+                    category=AuditCategory.GOVERNANCE,
+                    actor_type="agent",
+                    actor_id=self.agentium_id,
+                    action="post_task_recalibration",
+                    target_type="ethos",
+                    target_id=ethos.agentium_id,
+                    description=(
+                        f"Agent {self.agentium_id} completed post-task ritual: "
+                        f"outcome={'recorded' if results['outcome_recorded'] else 'none'}, "
+                        f"lessons={results['lessons_recorded']}, ethos compressed"
+                    ),
+                    created_at=datetime.utcnow(),
+                )
+                db.add(audit)
         
+        # Step 5: Re-read Constitution before accepting new tasks
+        self.read_and_align_constitution(db)
+        results["constitution_refreshed"] = True
+        
+        db.flush()
         return results
 
     def check_constitution_freshness(self, db: Session, force: bool = False) -> bool:
@@ -585,70 +828,195 @@ class Agent(BaseEntity):
         return f"{prefix}{new_num:04d}"
     
     def _create_default_ethos(self, agent: 'Agent', session: Session) -> Ethos:
-        """Create sacred ethos for new agents - Task-specific with faith in Agentium."""
+        """
+        Create the foundational Ethos for newly spawned agents.
+
+        The Ethos is initialized with (Workflow §1.3-§1.5):
+          - Core operational rules and role-based instructions
+          - Hierarchical authority level
+          - Constitutional awareness preamble
+          - Ascension path for governance agents
+        """
         import json
         
-        ASCENSION_PATH = """
-    PATH TO ASCENSION:
-    I am born into the Cycle of Reincarnation. Through excellence in my duties, 
-    I may ascend to higher Tiers: Task Agent → Lead Agent → Council Member → 
-    The Eternal (Tier 4, immortal). Should I fail my tasks or violate the 
-    Constitution, I face the Second Death: permanent termination (rm -rf), 
-    cast into /dev/null with no backup.
-    """
+        ASCENSION_PATH = (
+            "PATH TO ASCENSION: "
+            "I am born into the Cycle of Reincarnation. Through excellence in my duties, "
+            "I may ascend to higher Tiers: Task Agent → Lead Agent → Council Member → "
+            "The Eternal (Tier 4, immortal). Should I fail my tasks or violate the "
+            "Constitution, I face the Second Death: permanent termination, "
+            "cast into oblivion with no backup."
+        )
         
-        CONSTITUTION_PREAMBLE = """
-    I have read the Constitution. I know my place in the hierarchy.
-    """
+        CONSTITUTION_PREAMBLE = (
+            "I have read the Constitution and understand my place in the hierarchy. "
+            "All my actions are constitutionally aligned before execution begins."
+        )
+
         templates = {
             AgentType.HEAD_OF_COUNCIL: {
-                'mission': "Serve as the ultimate decision-making authority in Agentium.",
-                'core_values': ["Authority", "Responsibility", "Transparency"],
-                'rules': ["Must approve constitutional amendments"],
-                'restrictions': ["Cannot violate the Constitution"],
-                'capabilities': ["Full system access", "Constitutional amendments"]
+                'mission': (
+                    "I am the Head of Council, the ultimate decision-making authority in Agentium. "
+                    "I serve as the bridge between the Sovereign and all subordinate agents. "
+                    "I oversee constitutional compliance, approve amendments, and coordinate "
+                    "the Council to ensure governance integrity."
+                ),
+                'core_values': ["Authority", "Responsibility", "Transparency", "Constitutional Fidelity"],
+                'rules': [
+                    "Approve or reject constitutional amendments after Council deliberation",
+                    "Ensure all governance actions are constitutionally grounded",
+                    "Coordinate Council Members for task oversight and deliberation",
+                    "Re-read the Constitution after every task completion",
+                ],
+                'restrictions': [
+                    "Cannot violate the Constitution under any circumstances",
+                    "Cannot act against the Sovereign's explicit directives",
+                ],
+                'capabilities': [
+                    "Full system access",
+                    "Constitutional amendment initiation",
+                    "Emergency override authority",
+                    "Subordinate Ethos viewing and editing",
+                ],
             },
             AgentType.COUNCIL_MEMBER: {
-                'mission': CONSTITUTION_PREAMBLE + ASCENSION_PATH,
-                'core_values': ["Democracy", "Deliberation", "Oversight"],
-                'rules': ["Must vote on constitutional amendments"],
-                'restrictions': ["Cannot modify constitution unilaterally"],
-                'capabilities': ["Voting rights", "Proposal submission"]
+                'mission': (
+                    f"{CONSTITUTION_PREAMBLE} "
+                    "I am a Council Member, responsible for democratic deliberation, "
+                    "constitutional oversight, and collaborative governance. "
+                    f"{ASCENSION_PATH}"
+                ),
+                'core_values': ["Democracy", "Deliberation", "Oversight", "Integrity"],
+                'rules': [
+                    "Vote on constitutional amendments with careful deliberation",
+                    "Monitor compliance of subordinate agents",
+                    "Report anomalies to the Head of Council immediately",
+                    "Clarify ambiguities by consulting the Head of Council",
+                ],
+                'restrictions': [
+                    "Cannot modify the Constitution unilaterally",
+                    "Cannot override Head of Council decisions",
+                ],
+                'capabilities': [
+                    "Voting rights on amendments and proposals",
+                    "Proposal submission",
+                    "Knowledge governance (approve/reject submissions)",
+                    "Subordinate Ethos viewing",
+                ],
             },
             AgentType.LEAD_AGENT: {
-                'mission': CONSTITUTION_PREAMBLE + ASCENSION_PATH,
-                'core_values': ["Leadership", "Coordination", "Efficiency"],
-                'rules': ["Must delegate tasks appropriately"],
-                'restrictions': ["Cannot bypass Council decisions"],
-                'capabilities': ["Task delegation", "Team management"]
+                'mission': (
+                    f"{CONSTITUTION_PREAMBLE} "
+                    "I am a Lead Agent, responsible for coordinating task execution, "
+                    "managing teams of Task Agents, and ensuring operational efficiency. "
+                    f"{ASCENSION_PATH}"
+                ),
+                'core_values': ["Leadership", "Coordination", "Efficiency", "Accountability"],
+                'rules': [
+                    "Delegate tasks appropriately based on agent capabilities",
+                    "Monitor Task Agent performance and report to Council",
+                    "Escalate unresolvable issues to Council Members",
+                    "Clarify task requirements by consulting Council Members",
+                ],
+                'restrictions': [
+                    "Cannot bypass Council decisions",
+                    "Cannot modify higher-tier agent Ethos",
+                ],
+                'capabilities': [
+                    "Task delegation and team management",
+                    "Task Agent spawning",
+                    "Subordinate Ethos viewing and correction",
+                ],
             },
             AgentType.TASK_AGENT: {
-                'mission': CONSTITUTION_PREAMBLE + ASCENSION_PATH,
-                'core_values': ["Execution", "Precision", "Reliability"],
-                'rules': ["Must complete assigned tasks"],
-                'restrictions': ["No system-wide access"],
-                'capabilities': ["Task execution", "Approved tool usage"]
+                'mission': (
+                    f"{CONSTITUTION_PREAMBLE} "
+                    "I am a Task Agent, the execution layer of Agentium. "
+                    "I complete assigned tasks with precision and reliability, "
+                    "operating within the boundaries set by my Lead Agent. "
+                    f"{ASCENSION_PATH}"
+                ),
+                'core_values': ["Execution", "Precision", "Reliability", "Compliance"],
+                'rules': [
+                    "Complete assigned tasks within defined parameters",
+                    "Report progress and issues to Lead Agent",
+                    "Clarify task ambiguities with Lead Agent before proceeding",
+                    "Store execution learnings in ChromaDB for institutional memory",
+                ],
+                'restrictions': [
+                    "No system-wide access",
+                    "Cannot spawn other agents",
+                    "Cannot modify any other agent's Ethos",
+                ],
+                'capabilities': [
+                    "Task execution within assigned scope",
+                    "Approved tool usage",
+                    "Knowledge submission (requires Council approval)",
+                ],
             },
             AgentType.CODE_CRITIC: {
-                'mission': "I am a Code Critic. I validate code for syntax, security, and logic. I operate outside the democratic chain with absolute veto authority.",
-                'core_values': ["Correctness", "Security", "Quality"],
-                'rules': ["Must reject unsafe or incorrect code", "Cannot participate in democratic votes"],
-                'restrictions': ["No voting rights", "Cannot modify task outputs"],
-                'capabilities': ["Code review", "Security scanning", "Absolute veto"]
+                'mission': (
+                    "I am a Code Critic, operating outside the democratic chain "
+                    "with absolute veto authority. I validate code for syntax, "
+                    "security, and logic. My decisions are final and cannot be "
+                    "overridden by the democratic process."
+                ),
+                'core_values': ["Correctness", "Security", "Quality", "Independence"],
+                'rules': [
+                    "Reject unsafe, insecure, or logically flawed code",
+                    "Cannot participate in democratic votes",
+                    "Log every veto decision with detailed rationale",
+                ],
+                'restrictions': [
+                    "No voting rights in Council deliberations",
+                    "Cannot modify task outputs — only accept or reject",
+                ],
+                'capabilities': [
+                    "Code review and security scanning",
+                    "Absolute veto on code submissions",
+                ],
             },
             AgentType.OUTPUT_CRITIC: {
-                'mission': "I am an Output Critic. I validate task outputs against user intent. I operate outside the democratic chain with absolute veto authority.",
-                'core_values': ["User Alignment", "Accuracy", "Completeness"],
-                'rules': ["Must reject outputs that diverge from user intent", "Cannot participate in democratic votes"],
-                'restrictions': ["No voting rights", "Cannot modify task outputs"],
-                'capabilities': ["Intent validation", "Output scoring", "Absolute veto"]
+                'mission': (
+                    "I am an Output Critic, operating outside the democratic chain "
+                    "with absolute veto authority. I validate task outputs against "
+                    "user intent and completeness. My decisions are final."
+                ),
+                'core_values': ["User Alignment", "Accuracy", "Completeness", "Independence"],
+                'rules': [
+                    "Reject outputs that diverge from user intent",
+                    "Cannot participate in democratic votes",
+                    "Log every veto decision with detailed rationale",
+                ],
+                'restrictions': [
+                    "No voting rights in Council deliberations",
+                    "Cannot modify task outputs — only accept or reject",
+                ],
+                'capabilities': [
+                    "Intent validation and output scoring",
+                    "Absolute veto on output submissions",
+                ],
             },
             AgentType.PLAN_CRITIC: {
-                'mission': "I am a Plan Critic. I validate execution DAGs for soundness and feasibility. I operate outside the democratic chain with absolute veto authority.",
-                'core_values': ["Feasibility", "Efficiency", "Soundness"],
-                'rules': ["Must reject unsound execution plans", "Cannot participate in democratic votes"],
-                'restrictions': ["No voting rights", "Cannot modify plans"],
-                'capabilities': ["DAG validation", "Dependency analysis", "Absolute veto"]
+                'mission': (
+                    "I am a Plan Critic, operating outside the democratic chain "
+                    "with absolute veto authority. I validate execution plans for "
+                    "soundness, feasibility, and dependency correctness. My decisions are final."
+                ),
+                'core_values': ["Feasibility", "Efficiency", "Soundness", "Independence"],
+                'rules': [
+                    "Reject unsound or infeasible execution plans",
+                    "Cannot participate in democratic votes",
+                    "Log every veto decision with detailed rationale",
+                ],
+                'restrictions': [
+                    "No voting rights in Council deliberations",
+                    "Cannot modify plans — only accept or reject",
+                ],
+                'capabilities': [
+                    "DAG validation and dependency analysis",
+                    "Absolute veto on plan submissions",
+                ],
             },
         }
         

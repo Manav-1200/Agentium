@@ -179,6 +179,84 @@ class KnowledgeService:
         
         return context
     
+    def store_or_revise_knowledge(self,
+                                  content: str,
+                                  collection_name: str,
+                                  doc_id: str,
+                                  metadata: Dict[str, Any] = None,
+                                  similarity_threshold: float = 0.3):
+        """
+        Store knowledge with duplicate detection (Workflow §4 — Revision Over Duplication).
+
+        1. Search the target collection for semantically similar entries.
+        2. If a similar entry exists (distance < threshold): revise it in place.
+        3. If no match: create a new entry.
+
+        This prevents the vector DB from accumulating near-duplicate knowledge
+        and ensures institutional memory stays curated.
+        """
+        collection = self.vector_store.get_collection(collection_name)
+        if not collection:
+            # Fallback to blind insert if collection doesn't exist
+            self.vector_store.add_execution_pattern(
+                pattern_id=doc_id,
+                description=content,
+                success_rate=1.0,
+                task_type="general",
+                tools_used=[]
+            )
+            return {"action": "created_fallback", "doc_id": doc_id}
+
+        # Step 1: Search for semantically similar entries
+        try:
+            existing = collection.query(
+                query_texts=[content],
+                n_results=1
+            )
+
+            if (existing['ids'] and existing['ids'][0]
+                    and existing['distances'] and existing['distances'][0]
+                    and existing['distances'][0][0] < similarity_threshold):
+                # Step 2: Similar entry found — revise it
+                existing_id = existing['ids'][0][0]
+                existing_meta = existing['metadatas'][0][0] if existing['metadatas'] and existing['metadatas'][0] else {}
+
+                revision_count = int(existing_meta.get("revision_count", 0)) + 1
+                merged_metadata = {
+                    **(metadata or {}),
+                    "revised_from": existing_id,
+                    "revised_at": datetime.utcnow().isoformat(),
+                    "revision_count": revision_count,
+                    "previous_distance": existing['distances'][0][0],
+                }
+
+                # Update in place: delete old, add revised
+                collection.delete(ids=[existing_id])
+                collection.add(
+                    documents=[content],
+                    metadatas=[merged_metadata],
+                    ids=[existing_id]  # Keep the same ID for continuity
+                )
+
+                return {"action": "revised", "doc_id": existing_id, "revision": revision_count}
+
+        except Exception:
+            pass  # If search fails, fall through to create new
+
+        # Step 3: No similar entry — create new
+        final_metadata = {
+            **(metadata or {}),
+            "created_at": datetime.utcnow().isoformat(),
+            "revision_count": 0,
+        }
+        collection.add(
+            documents=[content],
+            metadatas=[final_metadata],
+            ids=[doc_id]
+        )
+
+        return {"action": "created", "doc_id": doc_id}
+
     def record_execution_pattern(self,
                                 task: Task,
                                 agent: Agent,
@@ -186,27 +264,31 @@ class KnowledgeService:
                                 success: bool = True):
         """
         Record a successful execution pattern for future RAG.
+        Now uses store_or_revise_knowledge to avoid duplicates (Workflow §4).
         Called after task completion.
         """
         if not success:
-            return  # Only record successes (or optionally record failures separately)
-        
-        pattern_desc = f"""
-        Task: {task.title}
-        Description: {task.description}
-        Result: {result_summary}
-        Executed by: {agent.agentium_id} ({agent.agent_type.value})
-        """
-        
-        # Calculate success rate from history (simplified)
-        success_rate = 1.0 if success else 0.0
-        
-        self.vector_store.add_execution_pattern(
-            pattern_id=f"{agent.agentium_id}_{task.id}_{datetime.utcnow().strftime('%Y%m%d')}",
-            description=pattern_desc,
-            success_rate=success_rate,
-            task_type=task.title.split()[0] if task.title else "general",
-            tools_used=[]  # Would extract from execution logs
+            return  # Only record successes
+
+        pattern_desc = (
+            f"Task: {task.title}\n"
+            f"Description: {task.description}\n"
+            f"Result: {result_summary}\n"
+            f"Executed by: {agent.agentium_id} ({agent.agent_type.value})"
+        )
+
+        doc_id = f"{agent.agentium_id}_{task.id}_{datetime.utcnow().strftime('%Y%m%d')}"
+
+        return self.store_or_revise_knowledge(
+            content=pattern_desc,
+            collection_name="execution_patterns",
+            doc_id=doc_id,
+            metadata={
+                "type": "execution_pattern",
+                "agent_id": agent.agentium_id,
+                "task_type": task.title.split()[0] if task.title else "general",
+                "success_rate": 1.0,
+            }
         )
     
     def retroactive_constitution_check(self, action_description: str) -> Dict[str, Any]:

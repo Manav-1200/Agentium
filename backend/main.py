@@ -51,6 +51,8 @@ from backend.api.routes import tasks as tasks_routes
 from backend.api.routes import files as files_routes
 from backend.api.routes import voice as voice_routes
 from backend.api.routes import monitoring_routes as monitoring_router
+from backend.services.api_key_manager import init_api_key_manager, api_key_manager
+from backend.api.routes import api_keys as api_keys_routes
 
 from backend.api.routes import capability_routes
 from backend.api.routes import lifecycle_routes
@@ -175,6 +177,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Token Optimizer initialization failed: {e}")
     
+    init_api_key_manager(db)
+    logger.info("✅ API Key Manager initialized with resilience")
     # ─────────────────────────────────────────────────────────────
     # 6. Start Idle Governance Engine
     # ─────────────────────────────────────────────────────────────
@@ -266,6 +270,7 @@ app.include_router(voice_routes.router, prefix="/api/v1")
 app.include_router(capability_routes.router)      
 app.include_router(lifecycle_routes.router) 
 app.include_router(monitoring_router.router, prefix="/api/v1")   
+app.include_router(api_keys_routes.router, prefix="/api/v1")
 
 # ==================== Health Check ====================
 

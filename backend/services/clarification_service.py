@@ -1,20 +1,42 @@
 """
 Clarification Service for Agentium.
 Allows agents to query supervisors when confused about inherited state.
+Implements the full clarification hierarchy (Workflow §2.3):
+  Sovereign → Head → Council → Lead → Task → Critics
 """
 
-from typing import Dict, Any, Optional
+import logging
+from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 
 from backend.models.entities import Agent
-from backend.models.entities.agents import AgentStatus
+from backend.models.entities.agents import AgentType, AgentStatus
 from backend.models.entities.constitution import Ethos
+
+logger = logging.getLogger(__name__)
+
+# Full hierarchy chain for clarification (Workflow §2.3)
+# Index 0 = highest authority; higher index = lower tier.
+HIERARCHY_ORDER: List[AgentType] = [
+    AgentType.HEAD_OF_COUNCIL,
+    AgentType.COUNCIL_MEMBER,
+    AgentType.LEAD_AGENT,
+    AgentType.TASK_AGENT,
+    AgentType.CODE_CRITIC,
+    AgentType.OUTPUT_CRITIC,
+    AgentType.PLAN_CRITIC,
+]
 
 
 class ClarificationService:
     """
     Service for agent-to-supervisor clarification queries.
     Used when reincarnated agents are confused about their task.
+
+    The clarification chain follows:
+      Sovereign → Head → Council → Lead → Task → Critics
+    Each agent asks its immediate superior. If the superior cannot clarify,
+    the question escalates up the chain until clarity or the Sovereign is reached.
     """
     
     @staticmethod
@@ -55,6 +77,69 @@ class ClarificationService:
         
         return response
     
+    @staticmethod
+    def escalate_clarification(
+        agent: Agent,
+        question: str,
+        db: Session,
+        max_escalations: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Escalate a clarification up the hierarchy chain (Workflow §2.3).
+
+        Walks up the chain from the agent's immediate supervisor until:
+          - A satisfactory response is obtained, or
+          - The Sovereign level is reached, or
+          - max_escalations is exhausted.
+        """
+        escalation_trail = []
+        current_agent = agent
+
+        for step in range(max_escalations):
+            if not current_agent.parent:
+                escalation_trail.append({
+                    "step": step + 1,
+                    "agent_id": current_agent.agentium_id,
+                    "role": current_agent.agent_type.value,
+                    "result": "reached_top_of_hierarchy",
+                    "guidance": "Escalate to the Sovereign for final clarification.",
+                })
+                break
+
+            parent = current_agent.parent
+            parent_context = ClarificationService._get_parent_perspective(
+                parent, current_agent, db
+            )
+            task_history = ClarificationService._get_task_history_from_parent(
+                parent, current_agent, db
+            )
+
+            step_result = {
+                "step": step + 1,
+                "consulted": parent.agentium_id,
+                "role": parent.agent_type.value,
+                "guidance": f"As your {parent.agent_type.value}: {parent_context}",
+                "task_history": task_history,
+            }
+            escalation_trail.append(step_result)
+
+            # If the parent has useful task context, stop escalation
+            if task_history:
+                step_result["result"] = "clarity_achieved"
+                break
+
+            # Otherwise, continue up the chain
+            current_agent = parent
+
+        return {
+            "original_agent": agent.agentium_id,
+            "question": question,
+            "escalation_trail": escalation_trail,
+            "resolved": any(
+                s.get("result") == "clarity_achieved" for s in escalation_trail
+            ),
+        }
+
     @staticmethod
     def _get_parent_perspective(parent: Agent, child: Agent, db: Session) -> str:
         """Get what the parent thinks the child should be doing."""
