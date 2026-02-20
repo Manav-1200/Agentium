@@ -139,10 +139,16 @@ jobs:
           AMD64_IMAGE="${{ env.REGISTRY }}/${{ steps.lowercase.outputs.IMAGE_PREFIX_LOWER }}/backend:${{ github.sha }}-linux-amd64"
           ARM64_IMAGE="${{ env.REGISTRY }}/${{ steps.lowercase.outputs.IMAGE_PREFIX_LOWER }}/backend:${{ github.sha }}-linux-arm64"
           
+          # Build tag arguments from metadata output (convert each tag to -t flag)
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
+          
           # Create manifest list with all tags
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ steps.lowercase.outputs.IMAGE_PREFIX_LOWER }}/backend:${{ github.sha }} \
-            ${{ steps.meta.outputs.tags }} \
+            $TAG_ARGS \
             ${AMD64_IMAGE} \
             ${ARM64_IMAGE}
 
@@ -267,10 +273,16 @@ jobs:
           AMD64_IMAGE="${{ env.REGISTRY }}/${{ steps.lowercase.outputs.IMAGE_PREFIX_LOWER }}/frontend:${{ github.sha }}-linux-amd64"
           ARM64_IMAGE="${{ env.REGISTRY }}/${{ steps.lowercase.outputs.IMAGE_PREFIX_LOWER }}/frontend:${{ github.sha }}-linux-arm64"
           
+          # Build tag arguments from metadata output (convert each tag to -t flag)
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
+          
           # Create manifest list with all tags
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ steps.lowercase.outputs.IMAGE_PREFIX_LOWER }}/frontend:${{ github.sha }} \
-            ${{ steps.meta.outputs.tags }} \
+            $TAG_ARGS \
             ${AMD64_IMAGE} \
             ${ARM64_IMAGE}
 
