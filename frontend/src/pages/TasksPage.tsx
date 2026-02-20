@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Task } from '../types';
 import { tasksService, CreateTaskRequest } from '../services/tasks';
+import { api } from '../services/api';
 import { TaskCard } from '../components/tasks/TaskCard';
 import { CreateTaskModal } from '../components/tasks/CreateTaskModal';
 import {
@@ -10,9 +11,110 @@ import {
     Clock,
     AlertTriangle,
     ListTodo,
-    RefreshCw
+    RefreshCw,
+    ShieldCheck,
+    ShieldX,
+    ShieldAlert,
+    TrendingUp,
+    Activity,
+    Code2,
+    FileText,
+    GitBranch,
+    ChevronUp,
+    ChevronDown,
+    ChevronRight,
+    Minus,
+    Users,
+    Cpu,
+    CornerDownRight,
+    AlertCircle,
+    ArrowDown,
+    Zap,
+    CheckSquare,
+    RotateCcw,
+    Info,
+    Hash,
+    Calendar,
+    Timer,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface CriticAgentStats {
+    agentium_id: string;
+    critic_specialty: 'code' | 'output' | 'plan';
+    reviews_completed: number;
+    vetoes_issued: number;
+    escalations_issued: number;
+    passes_issued: number;
+    approval_rate: number;
+    veto_rate: number;
+    avg_review_time_ms: number;
+    status: string;
+    preferred_review_model: string | null;
+}
+
+interface CriticStatsResponse {
+    total_critics: number;
+    total_reviews: number;
+    total_vetoes: number;
+    total_escalations: number;
+    overall_approval_rate: number;
+    by_type: Record<string, {
+        count: number;
+        reviews: number;
+        vetoes: number;
+        escalations: number;
+        approval_rate: number;
+    }>;
+    critics: CriticAgentStats[];
+}
+
+interface CritiqueReview {
+    id: string;
+    task_id: string;
+    subtask_id?: string;
+    critic_type: string;
+    critic_agentium_id: string;
+    verdict: 'pass' | 'reject' | 'escalate';
+    rejection_reason: string | null;
+    suggestions: string | null;
+    retry_count: number;
+    max_retries: number;
+    review_duration_ms: number;
+    model_used: string | null;
+    reviewed_at: string;
+    can_retry?: boolean;
+}
+
+interface Subtask {
+    id: string;
+    agentium_id?: string;
+    title: string;
+    status: string;
+    assigned_agents?: {
+        head?: string;
+        lead?: string;
+        task_agents?: string[];
+    };
+    error_info?: {
+        error_count: number;
+        retry_count: number;
+        max_retries: number;
+        last_error?: string;
+    } | null;
+    progress?: number;
+    created_at?: string;
+}
+
+interface SubtaskWithReviews extends Subtask {
+    reviews: CritiqueReview[];
+    reviewsLoaded: boolean;
+    reviewsLoading: boolean;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_FILTERS = [
     { value: '',             label: 'All',          color: 'gray'   },
@@ -26,37 +128,1114 @@ const STATUS_FILTERS = [
 ];
 
 const FILTER_COLORS: Record<string, string> = {
-    gray:   'bg-gray-100 text-gray-700 border-gray-200 dark:bg-[#1e2535] dark:text-gray-300 dark:border-[#2a3347]',
-    yellow: 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20',
-    purple: 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-500/10 dark:text-purple-400 dark:border-purple-500/20',
-    blue:   'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20',
-    green:  'bg-green-100 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/20',
-    red:    'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20',
-    amber:  'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20',
+    gray:    'bg-gray-100 text-gray-700 border-gray-200 dark:bg-[#1e2535] dark:text-gray-300 dark:border-[#2a3347]',
+    yellow:  'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20',
+    purple:  'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-500/10 dark:text-purple-400 dark:border-purple-500/20',
+    blue:    'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20',
+    green:   'bg-green-100 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/20',
+    red:     'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20',
+    amber:   'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20',
     crimson: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/30',
 };
 
 const FILTER_ACTIVE: Record<string, string> = {
-    gray:   'bg-gray-600 text-white border-gray-600 dark:bg-gray-500 dark:border-gray-500',
-    yellow: 'bg-yellow-500 text-white border-yellow-500',
-    purple: 'bg-purple-600 text-white border-purple-600',
-    blue:   'bg-blue-600 text-white border-blue-600',
-    green:  'bg-green-600 text-white border-green-600',
-    red:    'bg-red-600 text-white border-red-600',
-    amber:  'bg-amber-500 text-white border-amber-500',
+    gray:    'bg-gray-600 text-white border-gray-600 dark:bg-gray-500 dark:border-gray-500',
+    yellow:  'bg-yellow-500 text-white border-yellow-500',
+    purple:  'bg-purple-600 text-white border-purple-600',
+    blue:    'bg-blue-600 text-white border-blue-600',
+    green:   'bg-green-600 text-white border-green-600',
+    red:     'bg-red-600 text-white border-red-600',
+    amber:   'bg-amber-500 text-white border-amber-500',
     crimson: 'bg-red-700 text-white border-red-700',
 };
 
+const CRITIC_META: Record<string, {
+    label: string;
+    id: string;
+    icon: React.ElementType;
+    accent: string;
+    accentDark: string;
+    bg: string;
+    bgDark: string;
+    border: string;
+    borderDark: string;
+    badge: string;
+    bar: string;
+}> = {
+    code: {
+        label: 'Code Critic',
+        id: '40001',
+        icon: Code2,
+        accent: 'text-violet-600',
+        accentDark: 'dark:text-violet-400',
+        bg: 'bg-violet-50',
+        bgDark: 'dark:bg-violet-500/10',
+        border: 'border-violet-200',
+        borderDark: 'dark:border-violet-500/20',
+        badge: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300',
+        bar: 'bg-violet-500',
+    },
+    output: {
+        label: 'Output Critic',
+        id: '50001',
+        icon: FileText,
+        accent: 'text-sky-600',
+        accentDark: 'dark:text-sky-400',
+        bg: 'bg-sky-50',
+        bgDark: 'dark:bg-sky-500/10',
+        border: 'border-sky-200',
+        borderDark: 'dark:border-sky-500/20',
+        badge: 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300',
+        bar: 'bg-sky-500',
+    },
+    plan: {
+        label: 'Plan Critic',
+        id: '60001',
+        icon: GitBranch,
+        accent: 'text-teal-600',
+        accentDark: 'dark:text-teal-400',
+        bg: 'bg-teal-50',
+        bgDark: 'dark:bg-teal-500/10',
+        border: 'border-teal-200',
+        borderDark: 'dark:border-teal-500/20',
+        badge: 'bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300',
+        bar: 'bg-teal-500',
+    },
+};
+
+const SUBTASK_STATUS_CONFIG: Record<string, {
+    border: string;
+    dot: string;
+    badge: string;
+    label: string;
+}> = {
+    pending:      { border: 'border-l-gray-300 dark:border-l-gray-600',     dot: 'bg-gray-400',                      badge: 'bg-gray-100 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400',       label: 'Pending' },
+    in_progress:  { border: 'border-l-blue-400 dark:border-l-blue-500',     dot: 'bg-blue-400 animate-pulse',        badge: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400',       label: 'In Progress' },
+    deliberating: { border: 'border-l-purple-400 dark:border-l-purple-500', dot: 'bg-purple-400',                    badge: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400', label: 'Deliberating' },
+    retrying:     { border: 'border-l-amber-400 dark:border-l-amber-500',   dot: 'bg-amber-400',                     badge: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400',     label: 'Retrying' },
+    completed:    { border: 'border-l-green-400 dark:border-l-green-500',   dot: 'bg-green-400',                     badge: 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400',     label: 'Completed' },
+    failed:       { border: 'border-l-red-400 dark:border-l-red-500',       dot: 'bg-red-400',                       badge: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400',             label: 'Failed' },
+    escalated:    { border: 'border-l-orange-400 dark:border-l-orange-500', dot: 'bg-orange-400',                    badge: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400', label: 'Escalated' },
+    stopped:      { border: 'border-l-gray-400 dark:border-l-gray-500',     dot: 'bg-gray-500',                      badge: 'bg-gray-100 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400',         label: 'Stopped' },
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fmtMs = (ms: number) =>
+    ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+
+const fmtDate = (iso: string) =>
+    new Date(iso).toLocaleString(undefined, {
+        month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+    });
+
+const isProblematic = (status: string) =>
+    ['failed', 'escalated', 'retrying'].includes(status);
+
+const getSubtaskStatusCfg = (status: string) =>
+    SUBTASK_STATUS_CONFIG[status] ?? SUBTASK_STATUS_CONFIG.pending;
+
+// ─── Shared Sub-components ────────────────────────────────────────────────────
+
+const VerdictBadge: React.FC<{ verdict: string; size?: 'sm' | 'xs' }> = ({ verdict, size = 'sm' }) => {
+    const map: Record<string, { icon: React.ElementType; cls: string; label: string }> = {
+        pass:     { icon: ShieldCheck, cls: 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400', label: 'Pass' },
+        reject:   { icon: ShieldX,     cls: 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400',         label: 'Reject' },
+        escalate: { icon: ShieldAlert, cls: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400', label: 'Escalate' },
+    };
+    const cfg = map[verdict] ?? map.pass;
+    const Icon = cfg.icon;
+    return (
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold ${size === 'xs' ? 'text-[10px]' : 'text-xs'} ${cfg.cls}`}>
+            <Icon className={size === 'xs' ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
+            {cfg.label}
+        </span>
+    );
+};
+
+const MiniBar: React.FC<{ value: number; color: string }> = ({ value, color }) => (
+    <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-[#1e2535] overflow-hidden">
+        <div
+            className={`h-full rounded-full transition-all duration-700 ${color}`}
+            style={{ width: `${Math.min(100, value)}%` }}
+        />
+    </div>
+);
+
+const DeltaChip: React.FC<{ value: number }> = ({ value }) => {
+    if (value === 0) return <span className="text-xs text-gray-400 flex items-center gap-0.5"><Minus className="w-3 h-3" />—</span>;
+    const up = value > 0;
+    return (
+        <span className={`text-xs flex items-center gap-0.5 font-medium ${up ? 'text-green-500' : 'text-red-400'}`}>
+            {up ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            {Math.abs(value).toFixed(1)}%
+        </span>
+    );
+};
+
+// ─── Critic Summary Dots ──────────────────────────────────────────────────────
+
+const CriticSummaryDots: React.FC<{ reviews: CritiqueReview[] }> = ({ reviews }) => {
+    if (reviews.length === 0) {
+        return <span className="text-xs text-gray-300 dark:text-gray-600 italic">No reviews</span>;
+    }
+
+    // Group by critic_type, get latest verdict per type
+    const latest: Record<string, string> = {};
+    [...reviews]
+        .sort((a, b) => new Date(a.reviewed_at).getTime() - new Date(b.reviewed_at).getTime())
+        .forEach(r => { latest[r.critic_type] = r.verdict; });
+
+    const dotColor: Record<string, string> = {
+        pass:     'bg-green-400 dark:bg-green-500',
+        reject:   'bg-red-400 dark:bg-red-500',
+        escalate: 'bg-amber-400 dark:bg-amber-500',
+    };
+
+    return (
+        <div className="flex items-center gap-1.5">
+            {Object.entries(latest).map(([type, verdict]) => {
+                const meta = CRITIC_META[type];
+                return (
+                    <div key={type} className="relative group flex items-center">
+                        <span className={`w-2 h-2 rounded-full inline-block ${dotColor[verdict] ?? 'bg-gray-300'}`} />
+                        {/* Tooltip */}
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center z-20 pointer-events-none">
+                            <div className="bg-gray-900 dark:bg-gray-700 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap shadow-lg">
+                                {meta?.label ?? type}: {verdict}
+                            </div>
+                            <div className="w-1.5 h-1.5 bg-gray-900 dark:bg-gray-700 rotate-45 -mt-0.5" />
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+// ─── Inline Critic Review Panel ───────────────────────────────────────────────
+
+const CriticReviewPanel: React.FC<{
+    reviews: CritiqueReview[];
+    loading: boolean;
+}> = ({ reviews, loading }) => {
+    const [expandedSuggestions, setExpandedSuggestions] = useState<Set<string>>(new Set());
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-6 gap-2 text-gray-400">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span className="text-xs">Loading critic reviews…</span>
+            </div>
+        );
+    }
+
+    if (reviews.length === 0) {
+        return (
+            <div className="flex items-center justify-center py-6 gap-2 text-gray-400 dark:text-gray-500">
+                <ShieldCheck className="w-4 h-4" />
+                <span className="text-xs">No critic reviews yet for this subtask.</span>
+            </div>
+        );
+    }
+
+    // Group by critic_type, sort latest first within each group
+    const grouped: Record<string, CritiqueReview[]> = {};
+    reviews.forEach(r => {
+        if (!grouped[r.critic_type]) grouped[r.critic_type] = [];
+        grouped[r.critic_type].push(r);
+    });
+    Object.values(grouped).forEach(g =>
+        g.sort((a, b) => new Date(b.reviewed_at).getTime() - new Date(a.reviewed_at).getTime())
+    );
+
+    const allPass = Object.values(grouped).every(g => g[0]?.verdict === 'pass');
+
+    if (allPass) {
+        return (
+            <div className="flex items-center gap-3 py-4 px-5">
+                <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-500/10 flex items-center justify-center flex-shrink-0">
+                    <CheckSquare className="w-4 h-4 text-green-600 dark:text-green-400" />
+                </div>
+                <div>
+                    <p className="text-sm font-medium text-green-700 dark:text-green-400">All checks passed</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                        {Object.keys(grouped).length} critic{Object.keys(grouped).length !== 1 ? 's' : ''} approved this output
+                    </p>
+                </div>
+                <div className="ml-auto flex gap-2 flex-wrap">
+                    {Object.entries(grouped).map(([type]) => {
+                        const meta = CRITIC_META[type];
+                        if (!meta) return null;
+                        const Icon = meta.icon;
+                        return (
+                            <div key={type} className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${meta.badge}`}>
+                                <Icon className="w-3 h-3" />
+                                {meta.label.split(' ')[0]}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="divide-y divide-gray-100 dark:divide-[#1e2535]">
+            {Object.entries(grouped).map(([type, typeReviews]) => {
+                const latest = typeReviews[0];
+                const meta = CRITIC_META[type] ?? CRITIC_META.output;
+                const Icon = meta.icon;
+                const hasSuggestions = !!latest.suggestions;
+                const suggestionsOpen = expandedSuggestions.has(latest.id);
+
+                return (
+                    <div key={type} className="px-5 py-4">
+                        <div className="flex items-start gap-3">
+                            <div className={`w-8 h-8 rounded-lg ${meta.bg} ${meta.bgDark} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                                <Icon className={`w-4 h-4 ${meta.accent} ${meta.accentDark}`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-semibold text-gray-900 dark:text-white">{meta.label}</span>
+                                    <VerdictBadge verdict={latest.verdict} />
+                                    <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">
+                                        retry {latest.retry_count}/{latest.max_retries}
+                                    </span>
+                                    {latest.model_used && (
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${meta.badge}`}>
+                                            {latest.model_used.split(':')[1] ?? latest.model_used}
+                                        </span>
+                                    )}
+                                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto whitespace-nowrap">
+                                        {fmtDate(latest.reviewed_at)} · {fmtMs(latest.review_duration_ms)}
+                                    </span>
+                                </div>
+
+                                {/* Rejection reason */}
+                                {latest.rejection_reason && (
+                                    <div className="mt-2 flex items-start gap-2">
+                                        <AlertCircle className="w-3.5 h-3.5 text-red-400 dark:text-red-500 flex-shrink-0 mt-0.5" />
+                                        <p className="text-xs text-red-700 dark:text-red-400 leading-relaxed">
+                                            {latest.rejection_reason}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Suggestions accordion */}
+                                {hasSuggestions && (
+                                    <div className="mt-2">
+                                        <button
+                                            onClick={() => setExpandedSuggestions(prev => {
+                                                const next = new Set(prev);
+                                                if (next.has(latest.id)) next.delete(latest.id);
+                                                else next.add(latest.id);
+                                                return next;
+                                            })}
+                                            className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                                        >
+                                            <ChevronRight className={`w-3 h-3 transition-transform ${suggestionsOpen ? 'rotate-90' : ''}`} />
+                                            <Zap className="w-3 h-3 text-amber-500" />
+                                            Improvement hints
+                                        </button>
+                                        {suggestionsOpen && (
+                                            <div className="mt-2 pl-5 pr-2 py-2 bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20 rounded-lg">
+                                                <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                                                    {latest.suggestions}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Previous reviews count */}
+                                {typeReviews.length > 1 && (
+                                    <p className="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+                                        + {typeReviews.length - 1} earlier review{typeReviews.length - 1 !== 1 ? 's' : ''}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+// ─── Subtask Row ──────────────────────────────────────────────────────────────
+
+const SubtaskRow: React.FC<{
+    subtask: SubtaskWithReviews;
+    index: number;
+    isExpanded: boolean;
+    onToggle: () => void;
+    onLoadReviews: () => void;
+    subtaskRef?: React.RefObject<HTMLDivElement>;
+}> = ({ subtask, index, isExpanded, onToggle, onLoadReviews, subtaskRef }) => {
+    const cfg = getSubtaskStatusCfg(subtask.status);
+    const hasProblem = isProblematic(subtask.status);
+
+    const handleToggle = () => {
+        onToggle();
+        if (!subtask.reviewsLoaded && !subtask.reviewsLoading) {
+            onLoadReviews();
+        }
+    };
+
+    return (
+        <div
+            ref={subtaskRef}
+            className={`
+                border-l-[3px] ${cfg.border}
+                ${hasProblem ? 'bg-red-50/30 dark:bg-red-500/[0.03]' : 'bg-white dark:bg-[#161b27]'}
+                transition-colors duration-200
+            `}
+        >
+            {/* Row header */}
+            <button
+                onClick={handleToggle}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1e2535]/50 transition-colors duration-150 text-left group"
+            >
+                {/* Index */}
+                <span className="text-[10px] font-mono text-gray-300 dark:text-gray-600 w-5 flex-shrink-0 text-right select-none">
+                    {String(index + 1).padStart(2, '0')}
+                </span>
+
+                {/* Status dot */}
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
+
+                {/* Title */}
+                <span className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200 truncate min-w-0">
+                    {subtask.title}
+                </span>
+
+                {/* Agentium ID */}
+                {subtask.agentium_id && (
+                    <span className="hidden sm:block text-[10px] font-mono text-gray-300 dark:text-gray-600 flex-shrink-0">
+                        {subtask.agentium_id}
+                    </span>
+                )}
+
+                {/* Critic summary dots */}
+                <div className="flex-shrink-0">
+                    <CriticSummaryDots reviews={subtask.reviews} />
+                </div>
+
+                {/* Status badge */}
+                <span className={`hidden md:inline-flex flex-shrink-0 items-center px-2 py-0.5 rounded text-[10px] font-semibold ${cfg.badge}`}>
+                    {cfg.label}
+                </span>
+
+                {/* Problem indicator */}
+                {hasProblem && (
+                    <AlertCircle className="w-3.5 h-3.5 text-red-400 dark:text-red-500 flex-shrink-0" />
+                )}
+
+                {/* Expand chevron */}
+                <ChevronDown
+                    className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform duration-200 group-hover:text-gray-600 dark:group-hover:text-gray-300 ${isExpanded ? 'rotate-180' : ''}`}
+                />
+            </button>
+
+            {/* Expanded critic panel */}
+            {isExpanded && (
+                <div className="border-t border-gray-100 dark:border-[#1e2535] bg-gray-50/50 dark:bg-[#0f1117]/50">
+                    {/* Subtask meta strip */}
+                    <div className="px-5 pt-3 pb-2 flex items-center gap-4 flex-wrap border-b border-gray-100 dark:border-[#1e2535]">
+                        <span className="text-xs text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wide">
+                            Critic Reviews
+                        </span>
+                        {subtask.error_info && subtask.error_info.error_count > 0 && (
+                            <div className="flex items-center gap-1.5">
+                                <RotateCcw className="w-3 h-3 text-amber-500" />
+                                <span className="text-xs text-amber-600 dark:text-amber-400">
+                                    {subtask.error_info.retry_count}/{subtask.error_info.max_retries} retries
+                                </span>
+                            </div>
+                        )}
+                        {subtask.progress !== undefined && (
+                            <div className="flex items-center gap-1.5">
+                                <Timer className="w-3 h-3 text-gray-400" />
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    {subtask.progress}% complete
+                                </span>
+                            </div>
+                        )}
+                        {subtask.error_info?.last_error && (
+                            <span className="text-xs text-red-500 dark:text-red-400 truncate max-w-xs" title={subtask.error_info.last_error}>
+                                ✕ {subtask.error_info.last_error}
+                            </span>
+                        )}
+                    </div>
+
+                    <CriticReviewPanel
+                        reviews={subtask.reviews}
+                        loading={subtask.reviewsLoading}
+                    />
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ─── Task Subtask Accordion ───────────────────────────────────────────────────
+
+const TaskSubtaskAccordion: React.FC<{ task: Task }> = ({ task }) => {
+    const [subtasks, setSubtasks] = useState<SubtaskWithReviews[]>([]);
+    const [loading, setLoading]   = useState(true);
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const subtaskRefs = useRef<Map<string, React.RefObject<HTMLDivElement>>>(new Map());
+
+    useEffect(() => {
+        api.get(`/api/v1/tasks/${task.id}/subtasks`)
+            .then(r => {
+                const raw: Subtask[] = (r.data as any).subtasks ?? [];
+                const withReviews: SubtaskWithReviews[] = raw.map(s => ({
+                    ...s,
+                    reviews: [],
+                    reviewsLoaded: false,
+                    reviewsLoading: false,
+                }));
+                setSubtasks(withReviews);
+
+                // Auto-expand and auto-load reviews for problematic subtasks
+                const autoExpand = new Set<string>(
+                    raw.filter(s => isProblematic(s.status)).map(s => s.id)
+                );
+                setExpanded(autoExpand);
+                autoExpand.forEach(id => loadReviewsForSubtask(id));
+            })
+            .catch(() => toast.error('Failed to load subtasks'))
+            .finally(() => setLoading(false));
+    }, [task.id]);
+
+    const loadReviewsForSubtask = useCallback(async (subtaskId: string) => {
+        setSubtasks(prev => prev.map(s =>
+            s.id === subtaskId ? { ...s, reviewsLoading: true } : s
+        ));
+        try {
+            const r = await api.get(`/api/v1/critics/reviews/${subtaskId}`);
+            const reviews: CritiqueReview[] = (r.data as any).reviews ?? [];
+            setSubtasks(prev => prev.map(s =>
+                s.id === subtaskId ? { ...s, reviews, reviewsLoaded: true, reviewsLoading: false } : s
+            ));
+        } catch {
+            setSubtasks(prev => prev.map(s =>
+                s.id === subtaskId ? { ...s, reviewsLoading: false } : s
+            ));
+        }
+    }, []);
+
+    const toggleSubtask = (id: string) => {
+        setExpanded(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const getOrCreateRef = (id: string): React.RefObject<HTMLDivElement> => {
+        if (!subtaskRefs.current.has(id)) {
+            subtaskRefs.current.set(id, React.createRef<HTMLDivElement>());
+        }
+        return subtaskRefs.current.get(id)!;
+    };
+
+    const jumpToFirstIssue = () => {
+        const first = subtasks.find(s => isProblematic(s.status));
+        if (first) {
+            subtaskRefs.current.get(first.id)?.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="flex items-center gap-2 px-5 py-4 text-gray-400 dark:text-gray-500">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span className="text-xs">Loading subtasks…</span>
+            </div>
+        );
+    }
+
+    if (subtasks.length === 0) {
+        return (
+            <div className="flex items-center gap-2 px-5 py-4 text-gray-400 dark:text-gray-500">
+                <CornerDownRight className="w-3.5 h-3.5" />
+                <span className="text-xs italic">No subtasks have been generated yet.</span>
+            </div>
+        );
+    }
+
+    const problemCount = subtasks.filter(s => isProblematic(s.status)).length;
+    const passCount    = subtasks.filter(s => s.status === 'completed').length;
+
+    return (
+        <div>
+            {/* Subtask list header */}
+            <div className="px-5 py-2.5 bg-gray-50 dark:bg-[#0f1117] border-b border-gray-100 dark:border-[#1e2535] flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                        Subtasks
+                    </span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">
+                        {subtasks.length} total
+                    </span>
+                    {passCount > 0 && (
+                        <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                            {passCount} passing
+                        </span>
+                    )}
+                    {problemCount > 0 && (
+                        <span className="inline-flex items-center gap-1 text-xs text-red-500 dark:text-red-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                            {problemCount} need attention
+                        </span>
+                    )}
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setExpanded(new Set(subtasks.map(s => s.id)))}
+                        className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors px-2 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-[#1e2535]"
+                    >
+                        Expand all
+                    </button>
+                    <span className="text-gray-200 dark:text-gray-700">·</span>
+                    <button
+                        onClick={() => setExpanded(new Set())}
+                        className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors px-2 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-[#1e2535]"
+                    >
+                        Collapse all
+                    </button>
+                </div>
+            </div>
+
+            {/* Subtask rows */}
+            <div className="divide-y divide-gray-100 dark:divide-[#1e2535]">
+                {subtasks.map((subtask, i) => (
+                    <SubtaskRow
+                        key={subtask.id}
+                        subtask={subtask}
+                        index={i}
+                        isExpanded={expanded.has(subtask.id)}
+                        onToggle={() => toggleSubtask(subtask.id)}
+                        onLoadReviews={() => loadReviewsForSubtask(subtask.id)}
+                        subtaskRef={getOrCreateRef(subtask.id)}
+                    />
+                ))}
+            </div>
+
+            {/* Jump-to-issues floating bar */}
+            {problemCount > 0 && (
+                <div className="sticky bottom-4 mx-4 mt-2 mb-1 z-10">
+                    <button
+                        onClick={jumpToFirstIssue}
+                        className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/20 transition-all duration-150 group"
+                    >
+                        <div className="flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                            <span className="text-sm font-medium">
+                                {problemCount} subtask{problemCount !== 1 ? 's' : ''} need{problemCount === 1 ? 's' : ''} attention
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-red-200 group-hover:text-white transition-colors">
+                            <span className="text-xs font-medium">Jump to first</span>
+                            <ArrowDown className="w-3.5 h-3.5" />
+                        </div>
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ─── Main Task Card ───────────────────────────────────────────────────────────
+
+const MainTaskCard: React.FC<{ task: Task }> = ({ task }) => {
+    const [subtasksOpen, setSubtasksOpen]     = useState(true);
+    const [governanceOpen, setGovernanceOpen] = useState(false);
+
+    const statusColor: Record<string, string> = {
+        pending:      'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-400',
+        in_progress:  'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400',
+        deliberating: 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-400',
+        retrying:     'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
+        completed:    'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400',
+        failed:       'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400',
+        escalated:    'bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-400',
+    };
+
+    const priorityColor: Record<string, string> = {
+        critical: 'text-red-600 dark:text-red-400',
+        high:     'text-orange-600 dark:text-orange-400',
+        normal:   'text-gray-500 dark:text-gray-400',
+        low:      'text-gray-400 dark:text-gray-500',
+    };
+
+    const gov       = (task as any).governance;
+    const agents    = (task as any).assigned_agents;
+    const errorInfo = (task as any).error_info;
+    const progress  = (task as any).progress ?? 0;
+
+    return (
+        <div className="bg-white dark:bg-[#161b27] rounded-xl border border-gray-200 dark:border-[#1e2535] shadow-sm dark:shadow-[0_2px_16px_rgba(0,0,0,0.25)] overflow-hidden transition-colors duration-200">
+
+            {/* ── Main task header ──────────────────────────────────────── */}
+            <div className="px-6 pt-5 pb-4 border-b border-gray-100 dark:border-[#1e2535]">
+                <div className="flex items-start gap-4">
+                    {/* Icon */}
+                    <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <ListTodo className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+
+                    {/* Title + meta */}
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                            {(task as any).agentium_id && (
+                                <span className="text-xs font-mono text-gray-400 dark:text-gray-500">
+                                    {(task as any).agentium_id}
+                                </span>
+                            )}
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusColor[task.status] ?? statusColor.pending}`}>
+                                {task.status.replace('_', ' ')}
+                            </span>
+                            <span className={`text-xs font-semibold uppercase tracking-wide ${priorityColor[(task as any).priority ?? 'normal']}`}>
+                                {(task as any).priority ?? 'normal'}
+                            </span>
+                        </div>
+                        <h3 className="text-base font-semibold text-gray-900 dark:text-white leading-snug">
+                            {task.title}
+                        </h3>
+                        {task.description && (
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+                                {task.description}
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                        {errorInfo && (
+                            <button
+                                onClick={() =>
+                                    tasksService.retryTask(task.id)
+                                        .then(() => toast.success('Task queued for retry'))
+                                        .catch(() => toast.error('Retry failed'))
+                                }
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/20 transition-colors"
+                            >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                Retry
+                            </button>
+                        )}
+                        {['in_progress', 'pending', 'retrying'].includes(task.status) && (
+                            <button
+                                onClick={() =>
+                                    tasksService.escalateTask(task.id, 'Manual escalation')
+                                        .then(() => toast.success('Task escalated'))
+                                        .catch(() => toast.error('Escalation failed'))
+                                }
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20 transition-colors"
+                            >
+                                <ShieldAlert className="w-3.5 h-3.5" />
+                                Escalate
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Progress bar */}
+                {progress > 0 && (
+                    <div className="mt-4">
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs text-gray-400 dark:text-gray-500">Overall progress</span>
+                            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">{progress}%</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-gray-100 dark:bg-[#1e2535] overflow-hidden">
+                            <div
+                                className="h-full rounded-full bg-blue-500 transition-all duration-700"
+                                style={{ width: `${Math.min(100, progress)}%` }}
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {/* Agent assignment strip */}
+                {agents && (
+                    <div className="mt-4 flex items-center gap-3 flex-wrap">
+                        <Users className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                        {agents.head && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                                <span className="font-medium text-gray-700 dark:text-gray-300">Head:</span>
+                                <span className="font-mono bg-gray-100 dark:bg-[#1e2535] px-1.5 py-0.5 rounded text-[10px]">{agents.head}</span>
+                            </span>
+                        )}
+                        {agents.lead && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                                <span className="font-medium text-gray-700 dark:text-gray-300">Lead:</span>
+                                <span className="font-mono bg-gray-100 dark:bg-[#1e2535] px-1.5 py-0.5 rounded text-[10px]">{agents.lead}</span>
+                            </span>
+                        )}
+                        {agents.task_agents?.length > 0 && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                                <Cpu className="w-3 h-3" />
+                                <span>{agents.task_agents.length} task agent{agents.task_agents.length !== 1 ? 's' : ''}</span>
+                            </span>
+                        )}
+                    </div>
+                )}
+
+                {/* Error info banner */}
+                {errorInfo && errorInfo.error_count > 0 && (
+                    <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20">
+                        <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium text-red-700 dark:text-red-400">
+                                {errorInfo.error_count} error{errorInfo.error_count !== 1 ? 's' : ''} · retry {errorInfo.retry_count}/{errorInfo.max_retries}
+                            </span>
+                            {errorInfo.last_error && (
+                                <p className="text-[10px] text-red-600 dark:text-red-500 mt-0.5 truncate">{errorInfo.last_error}</p>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* ── Subtasks section ──────────────────────────────────────── */}
+            <div>
+                <button
+                    onClick={() => setSubtasksOpen(o => !o)}
+                    className="w-full flex items-center gap-3 px-6 py-3 hover:bg-gray-50 dark:hover:bg-[#1e2535]/50 transition-colors duration-150 border-b border-gray-100 dark:border-[#1e2535] group"
+                >
+                    <CornerDownRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex-1 text-left">
+                        Subtasks &amp; Critic Reviews
+                    </span>
+                    <ChevronDown
+                        className={`w-4 h-4 text-gray-400 transition-transform duration-200 group-hover:text-gray-600 dark:group-hover:text-gray-300 ${subtasksOpen ? 'rotate-180' : ''}`}
+                    />
+                </button>
+
+                {subtasksOpen && <TaskSubtaskAccordion task={task} />}
+            </div>
+
+            {/* ── Governance details (collapsible) ─────────────────────── */}
+            {gov && (gov.constitutional_basis || gov.hierarchical_id || gov.parent_task_id) && (
+                <div className="border-t border-gray-100 dark:border-[#1e2535]">
+                    <button
+                        onClick={() => setGovernanceOpen(o => !o)}
+                        className="w-full flex items-center gap-3 px-6 py-3 hover:bg-gray-50 dark:hover:bg-[#1e2535]/50 transition-colors duration-150 group"
+                    >
+                        <Info className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <span className="text-sm font-medium text-gray-500 dark:text-gray-400 flex-1 text-left">
+                            Governance details
+                        </span>
+                        <ChevronDown
+                            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${governanceOpen ? 'rotate-180' : ''}`}
+                        />
+                    </button>
+                    {governanceOpen && (
+                        <div className="px-6 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {gov.constitutional_basis && (
+                                <div>
+                                    <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">Constitutional basis</p>
+                                    <p className="text-xs text-gray-700 dark:text-gray-300">{gov.constitutional_basis}</p>
+                                </div>
+                            )}
+                            {gov.hierarchical_id && (
+                                <div>
+                                    <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">Hierarchical ID</p>
+                                    <p className="text-xs font-mono text-gray-700 dark:text-gray-300">{gov.hierarchical_id}</p>
+                                </div>
+                            )}
+                            {gov.parent_task_id && (
+                                <div>
+                                    <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">Parent task</p>
+                                    <p className="text-xs font-mono text-gray-700 dark:text-gray-300">{gov.parent_task_id}</p>
+                                </div>
+                            )}
+                            <div className="sm:col-span-2 flex items-center gap-3 pt-1 flex-wrap">
+                                {gov.council_approved && (
+                                    <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                                        <CheckCircle className="w-3 h-3" /> Council approved
+                                    </span>
+                                )}
+                                {gov.head_approved && (
+                                    <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                                        <CheckCircle className="w-3 h-3" /> Head approved
+                                    </span>
+                                )}
+                                {gov.requires_deliberation && (
+                                    <span className="inline-flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400">
+                                        <AlertTriangle className="w-3 h-3" /> Requires deliberation
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── Footer meta ──────────────────────────────────────────── */}
+            <div className="px-6 py-3 bg-gray-50 dark:bg-[#0f1117] border-t border-gray-100 dark:border-[#1e2535] flex items-center justify-between">
+                <div className="flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
+                    {task.created_at && (
+                        <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {fmtDate(task.created_at as unknown as string)}
+                        </span>
+                    )}
+                    {(task as any).event_count > 0 && (
+                        <span className="flex items-center gap-1">
+                            <Hash className="w-3 h-3" />
+                            {(task as any).event_count} events
+                        </span>
+                    )}
+                </div>
+                <span className="text-[10px] font-mono text-gray-300 dark:text-gray-700 select-all">
+                    {task.id}
+                </span>
+            </div>
+        </div>
+    );
+};
+
+// ─── Critic Card (Critics tab) ────────────────────────────────────────────────
+
+const CriticCard: React.FC<{ critic: CriticAgentStats }> = ({ critic }) => {
+    const meta     = CRITIC_META[critic.critic_specialty] ?? CRITIC_META.output;
+    const Icon     = meta.icon;
+    const isActive = critic.status === 'active';
+
+    return (
+        <div className={`bg-white dark:bg-[#161b27] border ${meta.border} ${meta.borderDark} rounded-xl p-5 hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(0,0,0,0.35)] transition-all duration-150`}>
+            <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg ${meta.bg} ${meta.bgDark} flex items-center justify-center`}>
+                        <Icon className={`w-5 h-5 ${meta.accent} ${meta.accentDark}`} />
+                    </div>
+                    <div>
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{meta.label}</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">{meta.id}</p>
+                    </div>
+                </div>
+                <div className="flex flex-col items-end gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-400' : 'bg-gray-300 dark:bg-gray-600'}`} title={critic.status} />
+                    {critic.preferred_review_model && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${meta.badge}`}>
+                            {critic.preferred_review_model.split(':')[1] ?? critic.preferred_review_model}
+                        </span>
+                    )}
+                </div>
+            </div>
+
+            <div className="mb-3">
+                <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Approval rate</span>
+                    <span className={`text-sm font-bold ${meta.accent} ${meta.accentDark}`}>
+                        {critic.approval_rate.toFixed(1)}%
+                    </span>
+                </div>
+                <MiniBar value={critic.approval_rate} color={meta.bar} />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 pt-3 border-t border-gray-100 dark:border-[#1e2535]">
+                {[
+                    { label: 'Reviews',   value: critic.reviews_completed },
+                    { label: 'Vetoes',    value: critic.vetoes_issued },
+                    { label: 'Escalated', value: critic.escalations_issued },
+                ].map(({ label, value }) => (
+                    <div key={label} className="text-center">
+                        <p className="text-base font-bold text-gray-900 dark:text-white">{value}</p>
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{label}</p>
+                    </div>
+                ))}
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-[#1e2535] flex items-center justify-between">
+                <span className="text-xs text-gray-400 dark:text-gray-500">Avg review</span>
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-300 font-mono">
+                    {fmtMs(critic.avg_review_time_ms)}
+                </span>
+            </div>
+        </div>
+    );
+};
+
+// ─── Critics Tab ──────────────────────────────────────────────────────────────
+
+const CriticsTab: React.FC = () => {
+    const [stats, setStats]           = useState<CriticStatsResponse | null>(null);
+    const [loading, setLoading]       = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [inspectTask, setInspectTask]     = useState<string>('');
+    const [showInspect, setShowInspect]     = useState(false);
+    const [inspectReviews, setInspectReviews] = useState<CritiqueReview[]>([]);
+    const [inspectLoading, setInspectLoading] = useState(false);
+
+    const loadStats = useCallback(async (silent = false) => {
+        try {
+            if (silent) setRefreshing(true); else setLoading(true);
+            const r = await api.get<CriticStatsResponse>('/api/v1/critics/stats');
+            setStats(r.data);
+        } catch {
+            toast.error('Failed to load critic stats');
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, []);
+
+    useEffect(() => { loadStats(); }, [loadStats]);
+
+    const handleInspect = async () => {
+        if (!inspectTask.trim()) return;
+        setInspectLoading(true);
+        setShowInspect(true);
+        try {
+            const r = await api.get(`/api/v1/critics/reviews/${inspectTask.trim()}`);
+            setInspectReviews((r.data as any).reviews ?? []);
+        } catch {
+            toast.error('Failed to load reviews');
+        } finally {
+            setInspectLoading(false);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                {[0, 1, 2].map(i => (
+                    <div key={i} className="h-52 rounded-xl bg-gray-100 dark:bg-[#1e2535] animate-pulse" />
+                ))}
+            </div>
+        );
+    }
+
+    if (!stats) return null;
+
+    const overallCards = [
+        { label: 'Total Reviews',  value: stats.total_reviews,                          icon: Activity,    bg: 'bg-blue-50 dark:bg-blue-500/10',   text: 'text-blue-600 dark:text-blue-400'   },
+        { label: 'Approval Rate',  value: `${stats.overall_approval_rate.toFixed(1)}%`, icon: TrendingUp,  bg: 'bg-green-50 dark:bg-green-500/10',  text: 'text-green-600 dark:text-green-400' },
+        { label: 'Total Vetoes',   value: stats.total_vetoes,                           icon: ShieldX,     bg: 'bg-red-50 dark:bg-red-500/10',     text: 'text-red-500 dark:text-red-400'     },
+        { label: 'Escalations',    value: stats.total_escalations,                      icon: ShieldAlert, bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400' },
+    ];
+
+    return (
+        <div className="mt-6 space-y-6">
+            {/* Overall stats */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {overallCards.map(c => (
+                    <div key={c.label} className="bg-white dark:bg-[#161b27] rounded-xl border border-gray-200 dark:border-[#1e2535] p-5 hover:border-gray-300 dark:hover:border-[#2a3347] hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(0,0,0,0.35)] transition-all duration-150">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className={`w-9 h-9 rounded-lg ${c.bg} flex items-center justify-center`}>
+                                <c.icon className={`w-4 h-4 ${c.text}`} />
+                            </div>
+                        </div>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{c.value}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{c.label}</p>
+                    </div>
+                ))}
+            </div>
+
+            {/* Critic agent cards */}
+            <div>
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                        Critic Agents
+                        <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+                            operate outside democratic chain · absolute veto authority
+                        </span>
+                    </h3>
+                    <button
+                        onClick={() => loadStats(true)}
+                        disabled={refreshing}
+                        className="p-1.5 rounded-lg border border-gray-200 dark:border-[#1e2535] bg-white dark:bg-[#161b27] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#1e2535] transition-all duration-150 disabled:opacity-50"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                    </button>
+                </div>
+
+                {stats.critics.length === 0 ? (
+                    <div className="bg-white dark:bg-[#161b27] rounded-xl border border-dashed border-gray-200 dark:border-[#2a3347] p-8 text-center">
+                        <ShieldCheck className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                        <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">No critic agents found</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            Critics are seeded during genesis (agents 40001, 50001, 60001)
+                        </p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {stats.critics.map(c => <CriticCard key={c.agentium_id} critic={c} />)}
+                    </div>
+                )}
+            </div>
+
+            {/* Task inspector */}
+            <div className="bg-white dark:bg-[#161b27] rounded-xl border border-gray-200 dark:border-[#1e2535]">
+                <div className="px-5 py-4 border-b border-gray-100 dark:border-[#1e2535]">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Inspect Reviews by Task</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                        Paste a task or subtask ID to see its full critic review history
+                    </p>
+                </div>
+                <div className="px-5 py-4 flex gap-3">
+                    <input
+                        type="text"
+                        placeholder="task-uuid-here…"
+                        value={inspectTask}
+                        onChange={e => { setInspectTask(e.target.value); setShowInspect(false); }}
+                        onKeyDown={e => e.key === 'Enter' && handleInspect()}
+                        className="flex-1 text-sm bg-gray-50 dark:bg-[#0f1117] border border-gray-200 dark:border-[#2a3347] rounded-lg px-3 py-2 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40 font-mono"
+                    />
+                    <button
+                        onClick={handleInspect}
+                        disabled={!inspectTask.trim() || inspectLoading}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors duration-150 flex items-center gap-2"
+                    >
+                        {inspectLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                        Inspect
+                    </button>
+                </div>
+                {showInspect && !inspectLoading && (
+                    <div className="px-5 pb-5">
+                        <div className="rounded-xl border border-gray-200 dark:border-[#1e2535] overflow-hidden">
+                            <div className="px-4 py-3 bg-gray-50 dark:bg-[#0f1117] border-b border-gray-100 dark:border-[#1e2535] flex items-center justify-between">
+                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                    Reviews for <span className="font-mono text-gray-400 dark:text-gray-500">{inspectTask.slice(0, 8)}…</span>
+                                </span>
+                                <button
+                                    onClick={() => setShowInspect(false)}
+                                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                            <CriticReviewPanel reviews={inspectReviews} loading={false} />
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+type Tab = 'tasks' | 'critics';
+
 export const TasksPage: React.FC = () => {
-    const [tasks, setTasks] = useState<Task[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [tasks, setTasks]               = useState<Task[]>([]);
+    const [isLoading, setIsLoading]       = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [filterStatus, setFilterStatus] = useState<string>('');
+    const [activeTab, setActiveTab]       = useState<Tab>('tasks');
 
-    useEffect(() => {
-        loadTasks();
-    }, [filterStatus]);
+    useEffect(() => { loadTasks(); }, [filterStatus]);
 
     const loadTasks = async (silent = false) => {
         try {
@@ -93,73 +1272,47 @@ export const TasksPage: React.FC = () => {
     };
 
     const statCards = [
-        {
-            label: 'Total Tasks',
-            value: stats.total,
-            icon: ListTodo,
-            bg:   'bg-blue-100 dark:bg-blue-500/10',
-            text: 'text-blue-600 dark:text-blue-400',
-        },
-        {
-            label: 'Pending',
-            value: stats.pending,
-            icon: Clock,
-            bg:   'bg-yellow-100 dark:bg-yellow-500/10',
-            text: 'text-yellow-600 dark:text-yellow-400',
-        },
-        {
-            label: 'In Progress',
-            value: stats.active,
-            icon: AlertTriangle,
-            bg:   'bg-purple-100 dark:bg-purple-500/10',
-            text: 'text-purple-600 dark:text-purple-400',
-        },
-        {
-            label: 'Completed',
-            value: stats.completed,
-            icon: CheckCircle,
-            bg:   'bg-green-100 dark:bg-green-500/10',
-            text: 'text-green-600 dark:text-green-400',
-        },
+        { label: 'Total Tasks',  value: stats.total,     icon: ListTodo,      bg: 'bg-blue-100 dark:bg-blue-500/10',     text: 'text-blue-600 dark:text-blue-400'    },
+        { label: 'Pending',      value: stats.pending,   icon: Clock,         bg: 'bg-yellow-100 dark:bg-yellow-500/10', text: 'text-yellow-600 dark:text-yellow-400' },
+        { label: 'In Progress',  value: stats.active,    icon: AlertTriangle, bg: 'bg-purple-100 dark:bg-purple-500/10', text: 'text-purple-600 dark:text-purple-400' },
+        { label: 'Completed',    value: stats.completed, icon: CheckCircle,   bg: 'bg-green-100 dark:bg-green-500/10',   text: 'text-green-600 dark:text-green-400'   },
     ];
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-[#0f1117] p-6 transition-colors duration-200">
 
-            {/* ── Page Header ────────────────────────────────────────────── */}
+            {/* ── Page Header ──────────────────────────────────────────────── */}
             <div className="mb-8 flex items-start justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
-                        Tasks
-                    </h1>
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">
-                        Monitor and manage agent operations.
-                    </p>
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">Tasks</h1>
+                    <p className="text-gray-500 dark:text-gray-400 text-sm">Monitor and manage agent operations.</p>
                 </div>
-
                 <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => loadTasks(true)}
-                        disabled={isRefreshing}
-                        className="p-2 rounded-lg border border-gray-200 dark:border-[#1e2535] bg-white dark:bg-[#161b27] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-[#1e2535] hover:border-gray-300 dark:hover:border-[#2a3347] transition-all duration-150 shadow-sm dark:shadow-[0_2px_8px_rgba(0,0,0,0.2)] disabled:opacity-50"
-                        title="Refresh"
-                    >
-                        <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                    </button>
-
-                    <button
-                        onClick={() => setShowCreateModal(true)}
-                        className="bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-150 shadow-sm text-sm font-medium"
-                    >
-                        <Plus className="w-4 h-4" />
-                        New Task
-                    </button>
+                    {activeTab === 'tasks' && (
+                        <>
+                            <button
+                                onClick={() => loadTasks(true)}
+                                disabled={isRefreshing}
+                                className="p-2 rounded-lg border border-gray-200 dark:border-[#1e2535] bg-white dark:bg-[#161b27] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-[#1e2535] hover:border-gray-300 dark:hover:border-[#2a3347] transition-all duration-150 shadow-sm dark:shadow-[0_2px_8px_rgba(0,0,0,0.2)] disabled:opacity-50"
+                                title="Refresh"
+                            >
+                                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                            </button>
+                            <button
+                                onClick={() => setShowCreateModal(true)}
+                                className="bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-150 shadow-sm text-sm font-medium"
+                            >
+                                <Plus className="w-4 h-4" />
+                                New Task
+                            </button>
+                        </>
+                    )}
                 </div>
             </div>
 
-            {/* ── Stats Grid ─────────────────────────────────────────────── */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-                {statCards.map((stat) => (
+            {/* ── Stats Grid ───────────────────────────────────────────────── */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
+                {statCards.map(stat => (
                     <div
                         key={stat.label}
                         className="bg-white dark:bg-[#161b27] p-6 rounded-xl border border-gray-200 dark:border-[#1e2535] hover:border-gray-300 dark:hover:border-[#2a3347] hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(0,0,0,0.35)] transition-all duration-150"
@@ -171,94 +1324,127 @@ export const TasksPage: React.FC = () => {
                             <span className="text-2xl font-bold text-gray-900 dark:text-white">
                                 {isLoading ? (
                                     <span className="inline-block w-7 h-6 rounded bg-gray-200 dark:bg-[#1e2535] animate-pulse" />
-                                ) : (
-                                    stat.value
-                                )}
+                                ) : stat.value}
                             </span>
                         </div>
-                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                            {stat.label}
-                        </p>
+                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{stat.label}</p>
                     </div>
                 ))}
             </div>
 
-            {/* ── Filter + Task List Panel ────────────────────────────────── */}
+            {/* ── Tab Switcher + Panel ─────────────────────────────────────── */}
             <div className="bg-white dark:bg-[#161b27] rounded-xl border border-gray-200 dark:border-[#1e2535] shadow-sm dark:shadow-[0_2px_16px_rgba(0,0,0,0.25)] transition-colors duration-200">
 
-                {/* Panel header with filters */}
-                <div className="px-6 py-4 border-b border-gray-100 dark:border-[#1e2535] flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2 text-gray-400 dark:text-gray-500">
-                        <Filter className="w-4 h-4" />
-                        <span className="text-sm font-medium">Filter:</span>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                        {STATUS_FILTERS.map(({ value, label, color }) => {
-                            const isActive = filterStatus === value;
-                            return (
-                                <button
-                                    key={value}
-                                    onClick={() => setFilterStatus(value)}
-                                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-all duration-150 ${
-                                        isActive ? FILTER_ACTIVE[color] : FILTER_COLORS[color]
-                                    }`}
-                                >
-                                    {label}
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    {!isLoading && (
-                        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
-                            {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
-                        </span>
-                    )}
+                {/* Tab bar */}
+                <div className="px-6 pt-4 border-b border-gray-100 dark:border-[#1e2535] flex items-center gap-1">
+                    {([
+                        { id: 'tasks',   label: 'Tasks',   icon: ListTodo    },
+                        { id: 'critics', label: 'Critics', icon: ShieldCheck },
+                    ] as { id: Tab; label: string; icon: React.ElementType }[]).map(tab => {
+                        const isActive = activeTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`
+                                    flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg
+                                    border-b-2 -mb-px transition-all duration-150
+                                    ${isActive
+                                        ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-500/5'
+                                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#1e2535]'
+                                    }
+                                `}
+                            >
+                                <tab.icon className="w-4 h-4" />
+                                {tab.label}
+                                {tab.id === 'critics' && (
+                                    <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400">
+                                        3
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
 
-                {/* Task grid */}
-                <div className="p-6">
-                    {isLoading ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                            {[...Array(8)].map((_, i) => (
-                                <div
-                                    key={i}
-                                    className="h-48 rounded-xl bg-gray-100 dark:bg-[#1e2535] animate-pulse"
-                                />
-                            ))}
-                        </div>
-                    ) : tasks.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-center">
-                            <div className="w-14 h-14 rounded-xl bg-gray-100 dark:bg-[#1e2535] border border-gray-200 dark:border-[#2a3347] flex items-center justify-center mb-4">
-                                <ListTodo className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+                {/* ── Tasks tab ─────────────────────────────────────────── */}
+                {activeTab === 'tasks' && (
+                    <>
+                        {/* Filter bar */}
+                        <div className="px-6 py-4 border-b border-gray-100 dark:border-[#1e2535] flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-2 text-gray-400 dark:text-gray-500">
+                                <Filter className="w-4 h-4" />
+                                <span className="text-sm font-medium">Filter:</span>
                             </div>
-                            <p className="text-gray-900 dark:text-white font-medium mb-1">
-                                {filterStatus ? `No ${filterStatus} tasks` : 'No tasks yet'}
-                            </p>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                                {filterStatus
-                                    ? 'Try a different filter or create a new task'
-                                    : 'Create your first task to get started'}
-                            </p>
-                            {!filterStatus && (
-                                <button
-                                    onClick={() => setShowCreateModal(true)}
-                                    className="bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-150 text-sm font-medium shadow-sm"
-                                >
-                                    <Plus className="w-4 h-4" />
-                                    New Task
-                                </button>
+                            <div className="flex flex-wrap gap-2">
+                                {STATUS_FILTERS.map(({ value, label, color }) => {
+                                    const isActive = filterStatus === value;
+                                    return (
+                                        <button
+                                            key={value}
+                                            onClick={() => setFilterStatus(value)}
+                                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-all duration-150 ${
+                                                isActive ? FILTER_ACTIVE[color] : FILTER_COLORS[color]
+                                            }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {!isLoading && (
+                                <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+                                    {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
+                                </span>
                             )}
                         </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                            {tasks.map(task => (
-                                <TaskCard key={task.id} task={task} />
-                            ))}
+
+                        {/* Hierarchical task list */}
+                        <div className="p-6">
+                            {isLoading ? (
+                                <div className="space-y-4">
+                                    {[...Array(3)].map((_, i) => (
+                                        <div key={i} className="h-40 rounded-xl bg-gray-100 dark:bg-[#1e2535] animate-pulse" />
+                                    ))}
+                                </div>
+                            ) : tasks.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-16 text-center">
+                                    <div className="w-14 h-14 rounded-xl bg-gray-100 dark:bg-[#1e2535] border border-gray-200 dark:border-[#2a3347] flex items-center justify-center mb-4">
+                                        <ListTodo className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+                                    </div>
+                                    <p className="text-gray-900 dark:text-white font-medium mb-1">
+                                        {filterStatus ? `No ${filterStatus} tasks` : 'No tasks yet'}
+                                    </p>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                                        {filterStatus ? 'Try a different filter or create a new task' : 'Create your first task to get started'}
+                                    </p>
+                                    {!filterStatus && (
+                                        <button
+                                            onClick={() => setShowCreateModal(true)}
+                                            className="bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-150 text-sm font-medium shadow-sm"
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                            New Task
+                                        </button>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {tasks.map(task => (
+                                        <MainTaskCard key={task.id} task={task} />
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                    )}
-                </div>
+                    </>
+                )}
+
+                {/* ── Critics tab ───────────────────────────────────────── */}
+                {activeTab === 'critics' && (
+                    <div className="p-6">
+                        <CriticsTab />
+                    </div>
+                )}
             </div>
 
             {showCreateModal && (

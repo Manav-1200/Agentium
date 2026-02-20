@@ -627,7 +627,7 @@ class CritiqueReview(BaseEntity):
 - [x] Critic decisions logged in audit trail
 - [x] Critics use different AI models than executors (orthogonal failure modes)
 
-### 6.3 Pre-Declared Acceptance Criteria 🆕 (PENDING - HIGH PRIORITY)
+### 6.3 Pre-Declared Acceptance Criteria 🆕 (PENDING - HIGH PRIORITY) (HERE)
 
 **Goal:** Define success criteria BEFORE work begins
 

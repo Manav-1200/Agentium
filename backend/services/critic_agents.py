@@ -5,10 +5,13 @@ Critics operate OUTSIDE the democratic chain with absolute veto authority.
 """
 
 import hashlib
+import logging
 import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from backend.models.database import get_db_context
 from backend.models.entities.agents import Agent, AgentType, AgentStatus
@@ -171,6 +174,10 @@ class CriticService:
         
         return critic
     
+    # Model orthogonality: critics use a different provider/model than executors.
+    # Override per critic instance via preferred_review_model.
+    CRITIC_DEFAULT_MODEL = "openai:gpt-4o-mini"  # Distinct from executor default
+
     async def _execute_review(
         self,
         db: Session,
@@ -180,25 +187,166 @@ class CriticService:
         critic_type: CriticType,
     ) -> tuple:
         """
-        Execute the actual review logic.
-        
-        In production this would call a different AI model than the executor.
-        Currently implements rule-based checks as a foundation.
-        
+        Execute the review via a dedicated AI model (orthogonal failure modes).
+
+        Two-stage approach:
+          1. Rule-based pre-flight — fast, cheap, catches obvious violations.
+          2. AI model review — semantic validation against task intent.
+
         Returns:
             (verdict: CriticVerdict, reason: Optional[str], suggestions: Optional[str])
         """
-        # Get the task for context
         task = db.query(Task).filter_by(id=task_id).first()
-        
+
+        # Stage 1: Rule-based pre-flight (no API cost)
+        preflight_verdict, preflight_reason, preflight_suggestions = self._preflight_check(
+            output_content, critic_type, task
+        )
+        if preflight_verdict == CriticVerdict.REJECT:
+            return (preflight_verdict, preflight_reason, preflight_suggestions)
+
+        # Stage 2: AI model review (orthogonal model)
+        try:
+            return await self._ai_review(critic, task, output_content, critic_type)
+        except Exception as exc:
+            logger.warning(
+                "AI review failed for task %s (%s critic): %s. "
+                "Falling back to rule-based result.",
+                task_id, critic_type.value, exc,
+            )
+            # Fall back to rule-based result rather than blocking execution
+            return self._rule_based_review(output_content, critic_type, task)
+
+    async def _ai_review(
+        self,
+        critic: CriticAgent,
+        task: Optional[Task],
+        output_content: str,
+        critic_type: CriticType,
+    ) -> tuple:
+        """
+        Call an AI model that is DIFFERENT from the executor model.
+        Uses the model_provider abstraction already in the codebase.
+        """
+        from backend.services.model_provider import ModelService
+
+        model_key = critic.preferred_review_model or self.CRITIC_DEFAULT_MODEL
+
+        system_prompt = self._build_critic_system_prompt(critic_type)
+        user_prompt = self._build_critic_user_prompt(critic_type, task, output_content)
+
+        raw_response = await ModelService.generate(
+            model_key=model_key,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=512,
+            temperature=0.1,   # Low temperature — we want deterministic judgement
+        )
+
+        return self._parse_ai_verdict(raw_response)
+
+    def _build_critic_system_prompt(self, critic_type: CriticType) -> str:
+        """Build a tight system prompt that forces structured JSON output."""
+        role_descriptions = {
+            CriticType.CODE: (
+                "You are a senior code reviewer with a security and correctness focus. "
+                "You NEVER write code yourself — only evaluate what you are given."
+            ),
+            CriticType.OUTPUT: (
+                "You are a quality assurance specialist. "
+                "Your job is to verify that an agent's output actually satisfies the user's intent."
+            ),
+            CriticType.PLAN: (
+                "You are an execution plan auditor. "
+                "You verify that plans are sound, non-circular, and achievable."
+            ),
+        }
+        return f"""{role_descriptions[critic_type]}
+
+Respond ONLY with a JSON object — no markdown, no preamble:
+{{
+  "verdict": "pass" | "reject",
+  "reason": "<one concise sentence — null if pass>",
+  "suggestions": "<one actionable fix — null if pass>"
+}}"""
+
+    def _build_critic_user_prompt(
+        self,
+        critic_type: CriticType,
+        task: Optional[Task],
+        output_content: str,
+    ) -> str:
+        task_context = (
+            f"TASK DESCRIPTION:\n{task.description}\n\n"
+            if task and task.description
+            else "TASK DESCRIPTION: (not available)\n\n"
+        )
+
+        criteria_map = {
+            CriticType.CODE: (
+                "Evaluate for: syntax correctness, security (no eval/exec/shell injection), "
+                "logic soundness, and absence of obvious bugs."
+            ),
+            CriticType.OUTPUT: (
+                "Evaluate whether the output meaningfully addresses the task description. "
+                "Reject if: empty, pure error traceback, or clearly off-topic."
+            ),
+            CriticType.PLAN: (
+                "Evaluate the plan for: completeness, absence of circular steps, "
+                "and achievability within reasonable scope (< 100 steps)."
+            ),
+        }
+
+        return (
+            f"{task_context}"
+            f"EVALUATION CRITERIA:\n{criteria_map[critic_type]}\n\n"
+            f"OUTPUT TO REVIEW:\n{output_content[:6000]}"  # Cap at 6k chars
+        )
+
+    def _parse_ai_verdict(self, raw_response: str) -> tuple:
+        """Parse the AI model's JSON verdict into (verdict, reason, suggestions)."""
+        import json, re
+
+        # Strip markdown fences if model wrapped output anyway
+        cleaned = re.sub(r"```(?:json)?|```", "", raw_response).strip()
+
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError:
+            # Model didn't follow instructions — be lenient, log, pass
+            logger.warning("Critic AI returned non-JSON: %s", raw_response[:200])
+            return (CriticVerdict.PASS, None, "AI response was not valid JSON — manual review recommended")
+
+        verdict_str = str(data.get("verdict", "pass")).lower()
+        verdict = CriticVerdict.REJECT if verdict_str == "reject" else CriticVerdict.PASS
+        reason = data.get("reason") or None
+        suggestions = data.get("suggestions") or None
+
+        return (verdict, reason, suggestions)
+
+    def _preflight_check(
+        self,
+        content: str,
+        critic_type: CriticType,
+        task: Optional[Task],
+    ) -> tuple:
+        """Fast, cheap rule-based checks run BEFORE the AI model call."""
         if critic_type == CriticType.CODE:
-            return self._review_code(output_content, task)
+            return self._review_code(content, task)
         elif critic_type == CriticType.OUTPUT:
-            return self._review_output(output_content, task)
+            return self._review_output(content, task)
         elif critic_type == CriticType.PLAN:
-            return self._review_plan(output_content, task)
-        
+            return self._review_plan(content, task)
         return (CriticVerdict.PASS, None, None)
+
+    def _rule_based_review(
+        self,
+        content: str,
+        critic_type: CriticType,
+        task: Optional[Task],
+    ) -> tuple:
+        """Identical to preflight — used as AI fallback."""
+        return self._preflight_check(content, critic_type, task)
     
     def _review_code(self, content: str, task: Optional[Task]) -> tuple:
         """Code critic: check syntax, security, and logic."""

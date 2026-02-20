@@ -19,11 +19,14 @@ from backend.core.vector_store import get_vector_store, VectorStore
 from backend.models.entities.agents import Agent, AgentType, AgentStatus
 from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
 from backend.models.entities.task import TaskStatus, Task
-from backend.core.tool_registry import tool_registry  # NEW
-from backend.services.idle_governance import idle_budget, token_optimizer  # NEW
-from backend.api.routes.websocket import manager  # NEW
-from backend.core.constitutional_guard import ConstitutionalGuard, Verdict, ViolationSeverity  # NEW
-from backend.services.tool_creation_service import ToolCreationService  # Phase 6.1: analytics-wrapped execution
+from backend.core.tool_registry import tool_registry  
+from backend.services.idle_governance import idle_budget, token_optimizer  
+from backend.api.routes.websocket import manager  
+from backend.core.constitutional_guard import ConstitutionalGuard, Verdict, ViolationSeverity  
+from backend.services.tool_creation_service import ToolCreationService  
+from backend.services.critic_agents import critic_service, CriticType  
+from backend.services.api_manager import api_manager
+from backend.services.model_provider import ModelService
 
 # NEW: Tool execution imports
 from backend.services.host_access import HostAccessService
@@ -77,27 +80,27 @@ class AgentOrchestrator:
 
     async def execute_task(self, task: Task, agent: Agent, db: Session):
         # Allocate optimal model for this task
-        config_id = token_optimizer.allocate_for_task(agent, task)
+        config_id = await token_optimizer.allocate_model_for_agent(agent, task, db)
         
         # Update agent with allocated model
         agent.preferred_config_id = config_id
         
         # Get the model info
+        db.refresh(agent)
         model_key = f"{agent.preferred_config.provider}:{agent.preferred_config.default_model}"
         model = api_manager.models.get(model_key)
         
         # Execute with allocated model
-        result = await ModelService.generate_with_config(
+        result = await ModelService.generate_with_agent(
             agent=agent,
-            task=task,
+            user_message=task.description,
             config_id=config_id
         )
         
-        # Record token usage
-        token_optimizer.record_token_usage(
-            agentium_id=agent.agentium_id,
-            tokens_used=result.get("tokens_used", 0),
-            model_key=model_key
+        # Record usage
+        token_optimizer.update_token_count(
+            agent_id=agent.agentium_id,
+            tokens_used=result.get("tokens_used", 0)
         )
         
         # Workflow §3: Compress ethos after sub-step execution to prevent
@@ -424,18 +427,31 @@ class AgentOrchestrator:
         
         return suggestions
     
-    # ENHANCED: With tool checking
-    async def delegate_to_task(self, task: Dict, lead_id: str, task_id: Optional[str] = None) -> RouteResult:
-        """Delegate from Lead (2xxxx) to Task (3xxxx)."""
+    # ENHANCED: With tool checking + critic review (Phase 6.2)
+    async def delegate_to_task(
+        self,
+        task: Dict,
+        lead_id: str,
+        task_id: Optional[str] = None,
+        retry_count: int = 0,
+    ) -> RouteResult:
+        """Delegate from Lead (2xxxx) to Task (3xxxx).
+
+        After execution, routes output through the appropriate critic before
+        returning the result up the hierarchy.
+          PASS     → return result normally
+          REJECT   → retry within same team (no Council escalation)
+          ESCALATE → forward to Council once max_retries exhausted
+        """
         # Wake from idle
         token_optimizer.record_activity()
-        
+
         if not task_id:
             task_id = await self._find_available_task(lead_id)
-        
+
         if not task_id:
             return RouteResult(success=False, message_id="", error="No Task Agent available")
-        
+
         msg = AgentMessage(
             sender_id=lead_id,
             recipient_id=task_id,
@@ -444,26 +460,112 @@ class AgentOrchestrator:
             payload=task,
             route_direction="down"
         )
-        
-        # NEW: Enrich with task-specific tools
+
+        # Enrich with task-specific tool patterns
         if self.vector_store:
             patterns = self.vector_store.get_collection("task_patterns").query(
                 query_texts=[task.get("description", "")],
                 n_results=3
             )
             msg.rag_context = {"patterns": patterns}
-        
+
         result = await self.message_bus.route_down(msg)
-        
-        # NEW: Log task assignment with tool permissions
+
         await self._log(
             actor=lead_id,
             action="task_delegation",
             desc=f"Assigned task to {task_id} with tools: {task.get('allowed_tools', 'default')}",
             target=task_id
         )
-        
+
+        # ── Phase 6.2: Critic Review ──────────────────────────────────────
+        # Only review when execution produced real output content.
+        output_content = ""
+        if result.success and result.metadata:
+            output_content = (
+                result.metadata.get("output")
+                or result.metadata.get("result")
+                or ""
+            )
+
+        if result.success and output_content:
+            critic_type = self._resolve_critic_type(task)
+            db_task_id = task.get("id") or task_id
+
+            review = await critic_service.review_task_output(
+                db=self.db,
+                task_id=db_task_id,
+                output_content=output_content,
+                critic_type=critic_type,
+                subtask_id=task_id,
+                retry_count=retry_count,
+            )
+
+            verdict = review.get("verdict")
+
+            await self._log(
+                actor=lead_id,
+                action=f"critic_review_{verdict}",
+                desc=(
+                    f"Critic ({critic_type.value}) verdict for task {db_task_id}: {verdict}"
+                    + (f" — {review.get('rejection_reason', '')[:150]}" if verdict != "pass" else "")
+                ),
+                level=AuditLevel.INFO if verdict == "pass" else AuditLevel.WARNING,
+                target=task_id,
+            )
+
+            if verdict == "reject":
+                # Retry within same team — no Council replanning
+                logger.warning(
+                    "Critic REJECTED output for task %s (attempt %d/%d). Retrying within team...",
+                    db_task_id, retry_count + 1, review.get("max_retries", 5),
+                )
+                return await self.delegate_to_task(
+                    task=task,
+                    lead_id=lead_id,
+                    task_id=None,          # Re-pick — allow load balancer to choose
+                    retry_count=retry_count + 1,
+                )
+
+            elif verdict == "escalate":
+                # Max retries exhausted — escalate to Council for replanning
+                logger.error(
+                    "Critic ESCALATING task %s to Council after %d failed retries.",
+                    db_task_id, retry_count,
+                )
+                return await self.escalate_to_council(
+                    issue=(
+                        f"Task {db_task_id} failed critic review after {retry_count} retries. "
+                        f"Critic type: {critic_type.value}. "
+                        f"Reason: {review.get('rejection_reason', 'unknown')}"
+                    ),
+                    reporter_id=lead_id,
+                )
+
+            # verdict == "pass" — fall through and return result normally
+
         return result
+
+    def _resolve_critic_type(self, task: Dict) -> CriticType:
+        """
+        Map task type/hints to the appropriate CriticType.
+
+        Precedence:
+          1. Explicit 'critic_type' key on the task dict
+          2. task_type field heuristics (code → CodeCritic, plan → PlanCritic)
+          3. Default: OutputCritic
+        """
+        explicit = task.get("critic_type", "").lower()
+        if explicit in ("code", "output", "plan"):
+            return CriticType(explicit)
+
+        task_type = str(task.get("task_type") or task.get("type") or "").lower()
+        if any(kw in task_type for kw in ("code", "script", "function", "sql")):
+            return CriticType.CODE
+        if any(kw in task_type for kw in ("plan", "dag", "strategy", "decompose")):
+            return CriticType.PLAN
+
+        return CriticType.OUTPUT
     
     # ENHANCED: With constitution reading
     async def enrich_with_context(self, msg: AgentMessage) -> AgentMessage:

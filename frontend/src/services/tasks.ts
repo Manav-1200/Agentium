@@ -31,7 +31,6 @@ export const tasksService = {
         return response.data;
     },
 
-    // task id is a UUID string, not a number
     executeTask: async (taskId: string, agentId: string): Promise<any> => {
         const response = await api.post(`/api/v1/tasks/${taskId}/execute?agent_id=${agentId}`);
         return response.data;
@@ -55,5 +54,30 @@ export const tasksService = {
     getTaskSubtasks: async (taskId: string): Promise<any> => {
         const response = await api.get(`/api/v1/tasks/${taskId}/subtasks`);
         return response.data;
-    }
+    },
+};
+
+// ─── Critic service calls ─────────────────────────────────────────────────────
+
+export const criticsService = {
+    getStats: async () => {
+        const response = await api.get('/api/v1/critics/stats');
+        return response.data;
+    },
+
+    getTaskReviews: async (taskId: string) => {
+        const response = await api.get(`/api/v1/critics/reviews/${taskId}`);
+        return response.data;
+    },
+
+    submitReview: async (payload: {
+        task_id: string;
+        output_content: string;
+        critic_type: 'code' | 'output' | 'plan';
+        subtask_id?: string;
+        retry_count?: number;
+    }) => {
+        const response = await api.post('/api/v1/critics/review', payload);
+        return response.data;
+    },
 };

@@ -37,6 +37,11 @@ from backend.models.entities.task import (
     TaskType
 )
 
+from backend.models.entities.task_events import (
+    TaskEvent,
+    TaskEventType
+)
+
 from backend.models.entities.user_config import (
     UserModelConfig,
     ProviderType,
@@ -147,6 +152,8 @@ __all__ = [
     'TaskStatus',
     'TaskPriority',
     'TaskType',
+    'TaskEvent',
+    'TaskEventType',
     
     # Voting
     'TaskDeliberation',

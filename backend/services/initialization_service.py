@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from backend.models.database import get_db
 from backend.models.entities.agents import Agent, HeadOfCouncil, CouncilMember, AgentType, AgentStatus
+from backend.models.entities.critics import CriticAgent, CriticType
 from backend.models.entities.constitution import Constitution, Ethos
 from backend.models.entities.user import User
 from backend.models.entities.voting import VotingSession, IndividualVote
@@ -32,10 +33,47 @@ class InitializationService:
     6. Grant Council admin rights
     """
     
-    DEFAULT_COUNCIL_SIZE = 2  # ✅ Changed to 2 to match your memory (Head + 2 Council)
+    DEFAULT_COUNCIL_SIZE = 2  
     MIN_COUNCIL_VOTES_FOR_INIT = 2
     GENESIS_LOG_PATH = "docs_ministry/genesis_log.md"
     CONSTITUTION_TEMPLATE_PATH = "docs_ministry/templates/constitution_template.md"
+
+    # Phase 6.2: Critic agents — persistent, outside democratic chain
+    CRITIC_SEED = [
+        {
+            "agentium_id": "40001",
+            "critic_specialty": CriticType.CODE,
+            "role": "Code Critic",
+            "name": "Code Critic Prime",
+            "description": (
+                "Validates code syntax, security, and logic. "
+                "Operates outside the democratic chain with absolute veto authority."
+            ),
+            "specialization": "Code Security & Correctness",
+        },
+        {
+            "agentium_id": "50001",
+            "critic_specialty": CriticType.OUTPUT,
+            "role": "Output Critic",
+            "name": "Output Critic Prime",
+            "description": (
+                "Validates agent outputs against user intent. "
+                "Operates outside the democratic chain with absolute veto authority."
+            ),
+            "specialization": "Output Quality & Relevance",
+        },
+        {
+            "agentium_id": "60001",
+            "critic_specialty": CriticType.PLAN,
+            "role": "Plan Critic",
+            "name": "Plan Critic Prime",
+            "description": (
+                "Validates execution DAG soundness and plan feasibility. "
+                "Operates outside the democratic chain with absolute veto authority."
+            ),
+            "specialization": "Execution Planning & DAG Validation",
+        },
+    ]
     
     def __init__(self, db: Session = None):
         self.db = db
@@ -100,6 +138,11 @@ class InitializationService:
             # Step 6: Grant Council admin rights
             await self._grant_council_privileges(council)
             results["steps_completed"].append("council_privileges_granted")
+
+            # Step 7: Seed persistent critic agents (Phase 6.2)
+            critics = await self._create_critic_agents(constitution)
+            results["steps_completed"].append(f"created_critic_agents:{len(critics)}")
+            self._log("INFO", f"Created {len(critics)} Critic Agents (40001, 50001, 60001)")
             
             self._save_genesis_log(results)
             
@@ -356,6 +399,117 @@ class InitializationService:
         self.db.flush()
         return ethos
     
+
+    async def _create_critic_agents(self, constitution: Constitution) -> List[CriticAgent]:
+        """
+        Seed the three persistent critic agents: 40001, 50001, 60001.
+
+        Critics operate OUTSIDE the democratic chain — they are never
+        voted on, never receive tasks, and never participate in Council
+        deliberation. They are created here once and persist forever.
+        """
+        critics = []
+
+        for seed in self.CRITIC_SEED:
+            existing = self.db.query(CriticAgent).filter_by(
+                agentium_id=seed["agentium_id"]
+            ).first()
+
+            if existing:
+                critics.append(existing)
+                self._log("INFO", f"Critic {seed['agentium_id']} already exists — skipping")
+                continue
+
+            critic = CriticAgent(
+                agentium_id=seed["agentium_id"],
+                name=seed["name"],
+                description=seed["description"],
+                critic_specialty=seed["critic_specialty"],
+                status=AgentStatus.ACTIVE,
+                is_active="Y",
+                is_persistent=True,
+                idle_mode_enabled=False,   # Critics are never idle — always ready
+                constitution_version=constitution.version,
+                # Orthogonal model: deliberately different from executor default
+                preferred_review_model="openai:gpt-4o-mini",
+            )
+
+            self.db.add(critic)
+            self.db.flush()
+
+            ethos = self._create_critic_ethos(critic, seed)
+            critic.ethos_id = ethos.id
+            self.db.flush()
+
+            critics.append(critic)
+            self._log("INFO", f"Critic {seed['agentium_id']} ({seed['role']}) created")
+
+        return critics
+
+    def _create_critic_ethos(self, critic: CriticAgent, seed: dict) -> Ethos:
+        """Create ethos for a critic agent."""
+        specialty = seed["critic_specialty"]
+        spec_label = seed["specialization"]
+
+        specialty_rules = {
+            CriticType.CODE: [
+                "Reject any output containing dangerous patterns: eval, exec, os.system, shell injection",
+                "Reject syntactically invalid code without exception",
+                "Reject outputs exceeding 100K characters — likely unbounded generation",
+                "Pass clean, secure, logically sound code without modification",
+            ],
+            CriticType.OUTPUT: [
+                "Reject empty outputs — they fulfill no user intent",
+                "Reject pure error tracebacks passed off as results",
+                "Reject outputs with less than 5% keyword overlap with the task description",
+                "Pass outputs that meaningfully address the task, even if imperfect",
+            ],
+            CriticType.PLAN: [
+                "Reject empty plans",
+                "Reject plans with duplicate steps — indicates circular logic",
+                "Reject plans exceeding 100 steps — likely over-engineered",
+                "Pass plans that are complete, sequential, and achievable",
+            ],
+        }
+
+        ethos = Ethos(
+            agentium_id=f"E{critic.agentium_id}",
+            agent_type="critic",
+            mission_statement=(
+                f"{seed['role']} — specialist in {spec_label}. "
+                f"Operates OUTSIDE the democratic chain with ABSOLUTE veto authority. "
+                f"Does not vote, does not deliberate, does not accept tasks. "
+                f"Sole purpose: validate outputs and enforce quality gates."
+            ),
+            core_values=json.dumps([
+                "Absolute Independence — Never influenced by the democratic chain",
+                "Orthogonal Judgement — Uses a different model than executors to avoid correlated failures",
+                "Decisive Authority — Issues verdicts without negotiation",
+                f"Domain Mastery — {spec_label} is the sole area of focus",
+            ]),
+            behavioral_rules=json.dumps(specialty_rules[specialty]),
+            restrictions=json.dumps([
+                "Cannot vote on amendments or Council deliberations",
+                "Cannot be overruled by any agent in the democratic chain",
+                "Cannot accept task assignments — critics review, never execute",
+                "Cannot modify verdicts after they are issued",
+            ]),
+            capabilities=json.dumps([
+                "Absolute veto authority over task outputs",
+                "Force retry within the same team on REJECT (up to 5 retries)",
+                "Escalate to Council after max retries exhausted",
+                "Full audit trail logging of every verdict",
+            ]),
+            created_by_agentium_id="00001",
+            agent_id=critic.id,
+            is_verified=True,
+            verified_by_agentium_id="00001",
+        )
+
+        self.db.add(ethos)
+        self.db.flush()
+        return ethos
+
     def _assign_specialization(self, index: int) -> str:
         """Assign specializations."""
         specializations = ["Constitutional Law", "System Security", "Resource Allocation"]

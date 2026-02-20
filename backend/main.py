@@ -56,6 +56,7 @@ from backend.api.routes import api_keys as api_keys_routes
 
 from backend.api.routes import capability_routes
 from backend.api.routes import lifecycle_routes
+from backend.api.routes import critics as critics_routes  # Phase 6.2: Critic Agents
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -271,6 +272,7 @@ app.include_router(capability_routes.router)
 app.include_router(lifecycle_routes.router) 
 app.include_router(monitoring_router.router, prefix="/api/v1")   
 app.include_router(api_keys_routes.router, prefix="/api/v1")
+app.include_router(critics_routes.router, prefix="/api/v1")  # Phase 6.2: Critic Agents
 
 # ==================== Health Check ====================
 
@@ -631,4 +633,3 @@ if __name__ == "__main__":
         reload=True,
         log_level="info"
     )
-    
