@@ -4,15 +4,19 @@ import { Task } from '../types';
 export interface CreateTaskRequest {
     title: string;
     description: string;
-    priority: 'low' | 'normal' | 'urgent' | 'critical';
-    task_type: 'execution' | 'research' | 'creative';
+    priority: string;
+    task_type: string;
+    constitutional_basis?: string;
+    hierarchical_id?: string;
+    parent_task_id?: string;
 }
 
 export const tasksService = {
-    getTasks: async (filters?: { status?: string; agent_id?: string }): Promise<Task[]> => {
+    getTasks: async (filters?: { status?: string; agent_id?: string; parent_task_id?: string }): Promise<Task[]> => {
         const params = new URLSearchParams();
         if (filters?.status) params.append('status', filters.status);
         if (filters?.agent_id) params.append('agent_id', filters.agent_id);
+        if (filters?.parent_task_id) params.append('parent_task_id', filters.parent_task_id);
 
         const query = params.toString() ? `?${params.toString()}` : '';
         const response = await api.get<Task[]>(`/api/v1/tasks/${query}`);
@@ -30,6 +34,26 @@ export const tasksService = {
     // task id is a UUID string, not a number
     executeTask: async (taskId: string, agentId: string): Promise<any> => {
         const response = await api.post(`/api/v1/tasks/${taskId}/execute?agent_id=${agentId}`);
+        return response.data;
+    },
+
+    escalateTask: async (taskId: string, reason: string): Promise<any> => {
+        const response = await api.post(`/api/v1/tasks/${taskId}/escalate?reason=${encodeURIComponent(reason)}`);
+        return response.data;
+    },
+
+    retryTask: async (taskId: string): Promise<any> => {
+        const response = await api.post(`/api/v1/tasks/${taskId}/retry`);
+        return response.data;
+    },
+
+    getTaskEvents: async (taskId: string): Promise<any> => {
+        const response = await api.get(`/api/v1/tasks/${taskId}/events`);
+        return response.data;
+    },
+
+    getTaskSubtasks: async (taskId: string): Promise<any> => {
+        const response = await api.get(`/api/v1/tasks/${taskId}/subtasks`);
         return response.data;
     }
 };

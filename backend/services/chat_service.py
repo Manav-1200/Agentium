@@ -29,32 +29,50 @@ class ChatService:
         Process message with context management and potential reincarnation.
         Preserves task state across reincarnations.
         """
-        # Register context tracking if not exists
+        # FIX: Extract config values immediately while session is active
         config = head.get_model_config(db)
+        config_id = config.id if config else None
         model_name = config.default_model if config else "default"
 
+        # Register context tracking if not exists
         context_manager.register_agent(
             head.agentium_id,
             model_name
         )
 
-        # Get provider
-        config = head.get_model_config(db)
-        provider = await ModelService.get_provider("sovereign", config.id if config else None)
+        # Get provider using extracted primitive config_id
+        provider = await ModelService.get_provider("sovereign", config_id)
+        
+        # FIX: Handle case where no model provider is available
         if not provider:
-            raise ValueError("No model provider available")
+            logger.warning(f"No model provider available for Head {head.agentium_id} (config_id: {config_id})")
+            return {
+                "content": (
+                    "⚠️ **Model Configuration Required**\n\n"
+                    "I apologize, Sovereign, but I am currently unable to process your request. "
+                    "No AI model provider is configured for my operation.\n\n"
+                    "**To resolve this:**\n"
+                    "1. Navigate to **Settings → Model Configuration**\n"
+                    "2. Add a valid model provider (OpenAI, Anthropic, or local Ollama)\n"
+                    "3. Set it as the default for the Head of Council\n"
+                    "4. Return to this chat and try again\n\n"
+                    "Your command has been noted but cannot be executed until a model is available."
+                ),
+                "model": "none",
+                "error": "no_provider",
+                "reincarnated": False,
+                "task_created": False,
+                "task_id": None
+            }
 
         # Get predecessor context if this agent recently reincarnated
-        # FIX 1: get_predecessor_context now exists on ReincarnationService and returns a dict
         predecessor_context = reincarnation_service.get_predecessor_context(head, db)
 
         # Get system prompt and context
         system_prompt = head.get_system_prompt()
         context = await ChatService.get_system_context(db)
 
-        # FIX 2: Actually build consultation note from predecessor context for reincarnated agents.
-        # If this agent has a predecessor, consult supervisor to orient it — avoids the
-        # dead `consultation_result = None` that was always producing an empty note.
+        # Build consultation note from predecessor context for reincarnated agents
         consultation_result = None
         if predecessor_context.get("has_predecessor"):
             try:
@@ -90,8 +108,52 @@ Current System State:
 
 Address the Sovereign respectfully. If they issue a command that requires execution, indicate that you will create a task."""
 
-        # Generate response
-        result = await provider.generate(full_prompt, message)
+        # FIX: Handle model generation failures with try/except
+        try:
+            result = await provider.generate(full_prompt, message)
+        except Exception as e:
+            logger.error(f"Model generation failed for Head {head.agentium_id}: {str(e)}")
+            return {
+                "content": (
+                    "⚠️ **Model Response Failure**\n\n"
+                    "I apologize, Sovereign, but I encountered an error while attempting to generate a response. "
+                    f"The model provider reported: `{str(e)[:200]}`\n\n"
+                    "**Possible causes:**\n"
+                    "- API rate limit exceeded\n"
+                    "- Invalid API key or authentication failure\n"
+                    "- Model service temporarily unavailable\n"
+                    "- Network connectivity issues\n\n"
+                    "**Suggested actions:**\n"
+                    "1. Check your model provider settings and API keys\n"
+                    "2. Verify your internet connection\n"
+                    "3. Try again in a moment\n"
+                    "4. Consider switching to a backup model provider in Settings\n\n"
+                    "Your message has been preserved. Please retry when ready."
+                ),
+                "model": model_name,
+                "error": "generation_failed",
+                "error_details": str(e),
+                "reincarnated": False,
+                "task_created": False,
+                "task_id": None
+            }
+
+        # Validate result has content
+        if not result or not result.get("content"):
+            logger.error(f"Empty response from model for Head {head.agentium_id}")
+            return {
+                "content": (
+                    "⚠️ **Empty Model Response**\n\n"
+                    "I apologize, Sovereign. The model provider returned an empty response. "
+                    "This may indicate a temporary service issue or model overload.\n\n"
+                    "Please try again or switch to an alternative model provider."
+                ),
+                "model": model_name,
+                "error": "empty_response",
+                "reincarnated": False,
+                "task_created": False,
+                "task_id": None
+            }
 
         # Update context usage
         tokens_used = result.get("tokens_used", 0)
@@ -142,7 +204,7 @@ Progress: {task_progress or 'N/A'}%"""
 
 [System Notice: I have evolved from {head.agentium_id} to {new_head_id} to serve you with renewed clarity. My context window has been refreshed through reincarnation.]
 
-[Agent Reference: This is incarnation #{reincarnation_result.get('incarnation_number', 1) + 1}. {f"Task {reincarnation_result.get('task_transferred')} transferred to successor." if reincarnation_result.get('task_transferred') else "No active task transferred."}]
+[Agent Reference: This is incarnation #{reincarnation_result.get('incarnation_number', 1) + 1}. {f"Task {reincarnation_result.get('task_transferred')} transferred to successor." if reincarnation_result.get("task_transferred") else "No active task transferred."}]
 
 [If confused: New agent can consult parent {new_head.parent.agentium_id if new_head.parent else 'None'} or check inherited ethos for predecessor wisdom.]"""
 
@@ -270,7 +332,6 @@ Progress: {task_progress or 'N/A'}%"""
             db.commit()
 
             # Workflow §2: Write plan into Head's Ethos with retry logic
-            # No execution begins without a successfully updated Ethos
             plan = {
                 "objective": prompt[:200],
                 "title": task.title,
@@ -288,8 +349,7 @@ Progress: {task_progress or 'N/A'}%"""
                     head.agentium_id, e
                 )
 
-            # FIX 3: Use enum comparison instead of string — string filter silently returned
-            # an empty list, so deliberation was never actually started on any task.
+            # Use enum comparison instead of string
             council = db.query(Agent).filter(
                 Agent.agent_type == AgentType.COUNCIL_MEMBER,
                 Agent.is_active == 'Y'

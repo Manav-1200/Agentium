@@ -10,7 +10,7 @@ from enum import Enum
 from sqlalchemy.orm import Session
 
 from backend.models.entities.agents import Agent, CouncilMember, AgentType
-from backend.models.entities.voting import VotingSession, IndividualVote
+from backend.models.entities.voting import AmendmentVoting, IndividualVote
 from backend.models.entities.audit import AuditLog, AuditCategory, AuditLevel
 from backend.core.vector_store import get_vector_store
 from backend.services.knowledge_service import get_knowledge_service

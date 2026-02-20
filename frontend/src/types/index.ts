@@ -106,23 +106,43 @@ export interface Agent {
     is_terminated: boolean;
 }
 
+export interface GovernanceInfo {
+    constitutional_basis?: string | null;
+    hierarchical_id?: string | null;
+    parent_task_id?: string | null;
+    execution_plan_id?: string | null;
+    recurrence_pattern?: string | null;
+    requires_deliberation: boolean;
+    council_approved: boolean;
+    head_approved: boolean;
+}
+
+export interface ErrorInfo {
+    error_count: number;
+    retry_count: number;
+    max_retries: number;
+    last_error?: string | null;
+}
+
 export interface Task {
     id: string;
-    agentium_id?: string;          // optional - not always returned by API
+    agentium_id?: string;
     title: string;
     description: string;
     status: string;
     priority: string;
-    task_type: string;             // added - "execution" | "research" | etc.
+    task_type: string;
     progress: number;
-    created_by?: string;           // optional - not always returned
     assigned_agents: {
         head?: string | null;
         lead?: string | null;
-        task_agents: string[];     // always an array, never null
+        task_agents: string[];
     };
-    created_at: string | null;     // ISO string or null
-    updated_at?: string | null;    // added
+    governance: GovernanceInfo;
+    error_info?: ErrorInfo | null;
+    created_at: string | null;
+    updated_at?: string | null;
+    event_count?: number;
 }
 
 export interface Constitution {

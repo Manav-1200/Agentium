@@ -81,6 +81,9 @@ export function ChatPage() {
     const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
+    
+    // FIX: Track processed message IDs to prevent duplicates
+    const processedMessageIds = useRef<Set<string>>(new Set());
 
     const user = useAuthStore(state => state.user);
     const isAuthenticated = user?.isAuthenticated ?? false;
@@ -132,23 +135,43 @@ export function ChatPage() {
                 attachments: msg.attachments
             }));
             setMessages(formattedMessages);
+            
+            // FIX: Initialize processed IDs from history to prevent re-adding historical messages
+            formattedMessages.forEach(msg => processedMessageIds.current.add(msg.id));
         } catch (error) {
             console.error('Failed to load chat history:', error);
         }
     };
 
-    // Listen for new messages from global store
+    // FIX: Listen for new messages from global store with deduplication
     useEffect(() => {
-        const unsubscribe = useWebSocketStore.subscribe((state) => {
-            if (state.lastMessage && state.lastMessage.type === 'message') {
+        const unsubscribe = useWebSocketStore.subscribe((state, prevState) => {
+            // Only process if lastMessage actually changed and exists
+            if (state.lastMessage && 
+                state.lastMessage !== prevState.lastMessage &&
+                state.lastMessage.type === 'message') {
+                
                 const msg = state.lastMessage;
+                
+                // FIX: Generate or extract a unique ID for deduplication
+                const messageId = msg.timestamp || crypto.randomUUID();
+                
+                // FIX: Skip if we've already processed this message
+                if (processedMessageIds.current.has(messageId)) {
+                    return;
+                }
+                
+                // Mark as processed
+                processedMessageIds.current.add(messageId);
+                
                 const newMessage: Message = {
-                    id: crypto.randomUUID(),
+                    id: messageId,
                     role: msg.role || 'head_of_council',
                     content: msg.content,
                     timestamp: new Date(),
                     metadata: msg.metadata
                 };
+                
                 setMessages(prev => [...prev, newMessage]);
 
                 if (msg.metadata?.task_created) {
@@ -594,6 +617,9 @@ export function ChatPage() {
                             {messages.map((message, index) => {
                                 const isUser = message.role === 'sovereign';
                                 const showAvatar = index === 0 || messages[index - 1].role !== message.role;
+                                
+                                // FIX: Detect error messages for styling
+                                const isError = message.metadata?.error || message.content?.includes('⚠️');
 
                                 return (
                                     <div key={message.id} className="group">
@@ -604,12 +630,16 @@ export function ChatPage() {
                                                 <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-sm ${
                                                     isUser
                                                         ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/25 dark:shadow-blue-900/40'
+                                                        : isError
+                                                        ? 'bg-orange-100 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20'
                                                         : message.role === 'system'
                                                         ? 'bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20'
                                                         : 'bg-purple-100 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/20'
                                                 }`}>
                                                     {isUser ? (
                                                         <Crown className="w-4 h-4 text-white" />
+                                                    ) : isError ? (
+                                                        <AlertCircle className="w-4 h-4 text-orange-600 dark:text-orange-400" />
                                                     ) : message.role === 'system' ? (
                                                         <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
                                                     ) : (
@@ -624,6 +654,8 @@ export function ChatPage() {
                                                     <div className={`px-4 py-3 rounded-2xl ${
                                                         isUser
                                                             ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/20 dark:shadow-blue-900/40'
+                                                            : isError
+                                                            ? 'bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 text-orange-900 dark:text-orange-300'
                                                             : message.role === 'system'
                                                             ? 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-900 dark:text-red-300'
                                                             : 'bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#1e2535] text-gray-900 dark:text-gray-100 shadow-sm dark:shadow-[0_2px_12px_rgba(0,0,0,0.2)]'

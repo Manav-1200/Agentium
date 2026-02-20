@@ -21,6 +21,7 @@ class AssignedAgents(BaseModel):
 class GovernanceInfo(BaseModel):
     """NEW: Governance-related fields."""
     constitutional_basis: Optional[str] = None
+    hierarchical_id: Optional[str] = None
     parent_task_id: Optional[str] = None
     execution_plan_id: Optional[str] = None
     recurrence_pattern: Optional[str] = None  # Cron expression for recurring tasks
@@ -50,6 +51,7 @@ class TaskCreate(BaseModel):
     task_type: str = Field(default="execution")
     # NEW: Governance fields
     constitutional_basis: Optional[str] = Field(None, description="Constitutional justification for task")
+    hierarchical_id: Optional[str] = Field(None, description="Hierarchical dot-notated ID")
     parent_task_id: Optional[str] = Field(None, description="Parent task ID for hierarchical tasks")
     execution_plan_id: Optional[str] = Field(None, description="Linked execution plan ID")
     recurrence_pattern: Optional[str] = Field(None, description="Cron expression for recurring tasks")
@@ -105,5 +107,6 @@ class TaskUpdate(BaseModel):
     status_note: Optional[str] = Field(None, description="Note explaining status change")
     # NEW: Governance fields
     constitutional_basis: Optional[str] = None
+    hierarchical_id: Optional[str] = None
     parent_task_id: Optional[str] = None
     execution_plan_id: Optional[str] = None

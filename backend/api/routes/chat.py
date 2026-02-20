@@ -256,10 +256,22 @@ async def _stream_response(
             if not config:
                 raise ValueError("No active model configuration found")
             
-            # Pre-fetch config details to avoid detachment later
-            config_id = config.id
-            model_name = config.default_model
-            
+            # Eagerly extract ALL scalar values we need before any async work.
+            # This prevents DetachedInstanceError: once we await anything the
+            # session may expire/close and lazy-attribute access will fail.
+            config_id = str(config.id)
+            model_name = str(config.default_model)
+
+            # Expunge the ORM object so SQLAlchemy stops tracking it.
+            # We have everything we need as plain Python scalars above.
+            try:
+                db.expunge(config)
+            except Exception:
+                pass  # Already detached or not in session — safe to ignore
+
+            # Also pre-fetch head's scalar values for the same reason
+            head_agentium_id = str(head.agentium_id)
+
             # Verify provider availability
             provider = await ModelService.get_provider("sovereign", config_id)
             if not provider:
@@ -306,7 +318,7 @@ You are speaking directly to the Sovereign. Address them respectfully and provid
             'type': 'complete',
             'content': '',
             'metadata': {
-                'agent_id': head.agentium_id,
+                'agent_id': head_agentium_id,
                 'model': model_name,
                 'task_created': task_info['created'],
                 'task_id': task_info.get('task_id')
@@ -315,7 +327,7 @@ You are speaking directly to the Sovereign. Address them respectfully and provid
         
         # Log the interaction
         await ChatService.log_interaction(
-            head.agentium_id,
+            head_agentium_id,
             message,
             full_text,
             config_id,

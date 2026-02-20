@@ -5,7 +5,7 @@ Updated for Task Execution Architecture: Governance Alignment
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, Enum, Boolean, JSON
 from sqlalchemy.orm import relationship, validates
 from backend.models.entities.base import BaseEntity
@@ -96,6 +96,7 @@ class Task(BaseEntity):
     
     # NEW: Constitutional governance fields
     constitutional_basis = Column(Text, nullable=True)  # Reason task is constitutionally valid
+    hierarchical_id = Column(String(100), nullable=True)  # NEW: Dot-notated ID for tracking
     recurrence_pattern = Column(String(100), nullable=True)  # Cron expression for recurring tasks
     
     # Hierarchical task structure (NEW)
@@ -210,7 +211,7 @@ class Task(BaseEntity):
             return f"T{next_num:05d}"
     
     @validates('priority')
-    def validate_priority(self, key, priority):
+    def validate_priority(self, _, priority):
         """Critical and Sovereign tasks skip deliberation. Idle tasks skip deliberation."""
         if priority in [TaskPriority.CRITICAL, TaskPriority.SOVEREIGN, TaskPriority.IDLE]:
             self.requires_deliberation = False
@@ -221,7 +222,7 @@ class Task(BaseEntity):
         Set task status with state machine validation.
         This is the ONLY way to change status - enforces legal transitions.
         """
-        from backend.services.task_state_machine import TaskStateMachine, IllegalStateTransition
+        from backend.services.task_state_machine import TaskStateMachine
         
         # Validate transition
         TaskStateMachine.validate_transition(self.status, new_status)
@@ -252,7 +253,8 @@ class Task(BaseEntity):
                 "note": note
             }
         )
-        # Note: Event will be added to session by caller or via relationship
+        # Add to events relationship so it's persisted
+        self.events.append(event)
     
     def start_idle_execution(self, agent_id: str):
         """Mark task for idle execution."""
@@ -425,8 +427,8 @@ class Task(BaseEntity):
         self.set_status(TaskStatus.ESCALATED, escalated_by, reason)
     
     def _update_agent_stats(self, success: bool):
-        """Update statistics for assigned agents."""
-        pass
+        """Update statistics for assigned agents (Placeholder)."""
+        # Future implementation for agent performance tracking
     
     def _log_status_change(self, new_status: str, agent_id: str, note: str = None):
         """Append to status history."""
@@ -483,6 +485,7 @@ class Task(BaseEntity):
             },
             'governance': {
                 'constitutional_basis': self.constitutional_basis,
+                'hierarchical_id': self.hierarchical_id,
                 'parent_task_id': self.parent_task_id,
                 'execution_plan_id': self.execution_plan_id,
                 'recurrence_pattern': self.recurrence_pattern

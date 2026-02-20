@@ -1,6 +1,6 @@
 import React from 'react';
 import { Task } from '../../types';
-import { Clock, User, Zap, CheckCircle2, AlertCircle, Loader2, MessageSquare } from 'lucide-react';
+import { Clock, User, Zap, CheckCircle2, AlertCircle, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 
 interface TaskCardProps {
     task: Task;
@@ -48,6 +48,21 @@ const STATUS_CONFIG: Record<string, {
         darkBg: 'dark:bg-rose-500/10', darkText: 'dark:text-rose-300', darkBorder: 'dark:border-rose-500/20',
         icon: <AlertCircle className="w-3 h-3" />, label: 'Failed'
     },
+    retrying: {
+        bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200',
+        darkBg: 'dark:bg-amber-500/10', darkText: 'dark:text-amber-300', darkBorder: 'dark:border-amber-500/20',
+        icon: <RefreshCw className="w-3 h-3 animate-spin" />, label: 'Retrying'
+    },
+    escalated: {
+        bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200',
+        darkBg: 'dark:bg-red-500/10', darkText: 'dark:text-red-300', darkBorder: 'dark:border-red-500/20',
+        icon: <AlertCircle className="w-3 h-3" />, label: 'Escalated'
+    },
+    stopped: {
+        bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200',
+        darkBg: 'dark:bg-gray-500/10', darkText: 'dark:text-gray-400', darkBorder: 'dark:border-gray-500/20',
+        icon: <AlertCircle className="w-3 h-3" />, label: 'Stopped'
+    },
     cancelled: {
         bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200',
         darkBg: 'dark:bg-gray-500/10', darkText: 'dark:text-gray-400', darkBorder: 'dark:border-gray-500/20',
@@ -61,6 +76,11 @@ const PRIORITY_CONFIG: Record<string, {
     label: string;
     darkDot: string;
 }> = {
+    sovereign: { 
+        dot: 'bg-indigo-500', 
+        label: 'text-indigo-600 dark:text-indigo-400',
+        darkDot: 'dark:bg-indigo-400'
+    },
     critical: { 
         dot: 'bg-rose-500', 
         label: 'text-rose-600 dark:text-rose-400',
@@ -170,6 +190,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onClick }) => {
                     group-hover:text-blue-600 dark:group-hover:text-blue-400
                     transition-colors duration-200
                 ">
+                    {task.governance?.hierarchical_id && (
+                        <span className="text-xs font-mono text-gray-400 dark:text-gray-500 mr-2">
+                            [{task.governance.hierarchical_id}]
+                        </span>
+                    )}
                     {task.title}
                 </h3>
                 <p className="text-gray-500 dark:text-gray-400 text-xs leading-relaxed line-clamp-3">
@@ -205,6 +230,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onClick }) => {
                             style={{ width: `${Math.max(progress, isActive ? 5 : 0)}%` }}
                         />
                     </div>
+                </div>
+            )}
+
+            {/* Error/Retry Info Contextual Display */}
+            {task.status === 'retrying' && task.error_info && (
+                <div className="pl-3 py-1 bg-amber-500/5 rounded-lg border border-amber-500/10 mb-1">
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                        Retry {task.error_info.retry_count}/{task.error_info.max_retries}
+                    </p>
                 </div>
             )}
 

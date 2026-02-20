@@ -19,8 +19,10 @@ const STATUS_FILTERS = [
     { value: 'pending',      label: 'Pending',      color: 'yellow' },
     { value: 'deliberating', label: 'Deliberating', color: 'purple' },
     { value: 'in_progress',  label: 'In Progress',  color: 'blue'   },
+    { value: 'retrying',     label: 'Retrying',     color: 'amber'  },
     { value: 'completed',    label: 'Completed',    color: 'green'  },
     { value: 'failed',       label: 'Failed',       color: 'red'    },
+    { value: 'escalated',    label: 'Escalated',    color: 'crimson'},
 ];
 
 const FILTER_COLORS: Record<string, string> = {
@@ -30,6 +32,8 @@ const FILTER_COLORS: Record<string, string> = {
     blue:   'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20',
     green:  'bg-green-100 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/20',
     red:    'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20',
+    amber:  'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20',
+    crimson: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/30',
 };
 
 const FILTER_ACTIVE: Record<string, string> = {
@@ -39,6 +43,8 @@ const FILTER_ACTIVE: Record<string, string> = {
     blue:   'bg-blue-600 text-white border-blue-600',
     green:  'bg-green-600 text-white border-green-600',
     red:    'bg-red-600 text-white border-red-600',
+    amber:  'bg-amber-500 text-white border-amber-500',
+    crimson: 'bg-red-700 text-white border-red-700',
 };
 
 export const TasksPage: React.FC = () => {
@@ -82,7 +88,7 @@ export const TasksPage: React.FC = () => {
     const stats = {
         total:     tasks.length,
         pending:   tasks.filter(t => t.status === 'pending').length,
-        active:    tasks.filter(t => ['in_progress', 'deliberating'].includes(t.status)).length,
+        active:    tasks.filter(t => ['in_progress', 'deliberating', 'retrying'].includes(t.status)).length,
         completed: tasks.filter(t => t.status === 'completed').length,
     };
 

@@ -2,7 +2,15 @@ import React, { useState } from 'react';
 import { X, FileText, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 
 interface CreateTaskModalProps {
-    onConfirm: (data: { title: string; description: string; priority: string; task_type: string }) => Promise<void>;
+    onConfirm: (data: { 
+        title: string; 
+        description: string; 
+        priority: string; 
+        task_type: string;
+        constitutional_basis?: string;
+        hierarchical_id?: string;
+        parent_task_id?: string;
+    }) => Promise<void>;
     onClose: () => void;
 }
 
@@ -11,6 +19,7 @@ const PRIORITY_OPTIONS = [
     { value: 'normal', label: 'Normal', color: 'emerald', description: 'Standard priority' },
     { value: 'urgent', label: 'Urgent', color: 'orange', description: 'Needs attention soon' },
     { value: 'critical', label: 'Critical', color: 'rose', description: 'Immediate action required' },
+    { value: 'sovereign', label: 'Sovereign', color: 'indigo', description: 'Bypasses deliberation' },
 ] as const;
 
 const TYPE_OPTIONS = [
@@ -24,6 +33,10 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onConfirm, onC
     const [description, setDescription] = useState('');
     const [priority, setPriority] = useState('normal');
     const [taskType, setTaskType] = useState('execution');
+    const [constitutionalBasis, setConstitutionalBasis] = useState('');
+    const [hierarchicalId, setHierarchicalId] = useState('');
+    const [parentTaskId, setParentTaskId] = useState('');
+    const [showAdvanced, setShowAdvanced] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [focusedField, setFocusedField] = useState<string | null>(null);
@@ -34,7 +47,15 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onConfirm, onC
         setError(null);
 
         try {
-            await onConfirm({ title, description, priority, task_type: taskType });
+            await onConfirm({ 
+                title, 
+                description, 
+                priority, 
+                task_type: taskType,
+                constitutional_basis: constitutionalBasis || undefined,
+                hierarchical_id: hierarchicalId || undefined,
+                parent_task_id: parentTaskId || undefined
+            });
             onClose();
         } catch (err: any) {
             setError(err.message || 'Failed to create task');
@@ -48,7 +69,8 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onConfirm, onC
             low: 'blue',
             normal: 'emerald',
             urgent: 'orange',
-            critical: 'rose'
+            critical: 'rose',
+            sovereign: 'indigo'
         };
         return map[p] || 'blue';
     };
@@ -166,6 +188,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onConfirm, onC
                                                 ? `bg-${color}-50 dark:bg-${color}-500/10 border-${color}-300 dark:border-${color}-500/30 ring-1 ring-${color}-500/20` 
                                                 : 'bg-white dark:bg-[#0f1117] border-gray-200 dark:border-[#1e2535] hover:border-gray-300 dark:hover:border-[#2a3347]'
                                             }
+                                            ${option.value === 'sovereign' ? 'col-span-2' : ''}
                                         `}
                                     >
                                         <div className="flex items-center gap-2">
@@ -225,6 +248,67 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onConfirm, onC
                             })}
                         </div>
                     </div>
+
+                    {/* Advanced Governance Toggle */}
+                    <div className="pt-2">
+                        <button
+                            type="button"
+                            onClick={() => setShowAdvanced(!showAdvanced)}
+                            className="flex items-center gap-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                        >
+                            <Sparkles className={`w-3 h-3 transition-transform duration-300 ${showAdvanced ? 'rotate-180' : ''}`} />
+                            {showAdvanced ? 'Hide Advanced Governance' : 'Show Advanced Governance'}
+                        </button>
+                    </div>
+
+                    {/* Advanced Governance Fields */}
+                    {showAdvanced && (
+                        <div className="space-y-4 p-4 rounded-xl bg-gray-50 dark:bg-[#0f1117] border border-gray-100 dark:border-[#1e2535] animate-in fade-in slide-in-from-top-2 duration-300">
+                            {/* Constitutional Basis */}
+                            <div className="space-y-1.5">
+                                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                                    Constitutional Basis
+                                </label>
+                                <input
+                                    type="text"
+                                    value={constitutionalBasis}
+                                    onChange={(e) => setConstitutionalBasis(e.target.value)}
+                                    className="w-full bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#2a3347] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white"
+                                    placeholder="Justification for this task..."
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                {/* Hierarchical ID */}
+                                <div className="space-y-1.5">
+                                    <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                                        Hierarchical ID
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={hierarchicalId}
+                                        onChange={(e) => setHierarchicalId(e.target.value)}
+                                        className="w-full bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#2a3347] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white"
+                                        placeholder="e.g. T0001.01"
+                                    />
+                                </div>
+
+                                {/* Parent Task ID */}
+                                <div className="space-y-1.5">
+                                    <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                                        Parent Task ID
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={parentTaskId}
+                                        onChange={(e) => setParentTaskId(e.target.value)}
+                                        className="w-full bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#2a3347] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white"
+                                        placeholder="UUID of parent"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Error Message */}
                     {error && (

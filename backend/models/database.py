@@ -36,6 +36,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
+    expire_on_commit=False,   # Prevent DetachedInstanceError in streaming contexts
     bind=engine
 )
 

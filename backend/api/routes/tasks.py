@@ -41,6 +41,7 @@ def _serialize(task: Task) -> dict:
         # NEW: Governance fields
         "governance": {
             "constitutional_basis": task.constitutional_basis,
+            "hierarchical_id": task.hierarchical_id,
             "parent_task_id": task.parent_task_id,
             "execution_plan_id": task.execution_plan_id,
             "recurrence_pattern": task.recurrence_pattern,
@@ -89,6 +90,7 @@ async def create_task(
         created_by=creator,
         # NEW: Set governance fields if provided
         constitutional_basis=task_data.constitutional_basis,
+        hierarchical_id=task_data.hierarchical_id,
         parent_task_id=task_data.parent_task_id,
         execution_plan_id=task_data.execution_plan_id,
         recurrence_pattern=task_data.recurrence_pattern,
@@ -229,6 +231,8 @@ async def update_task(
     # NEW: Update governance fields
     if task_data.constitutional_basis is not None:
         task.constitutional_basis = task_data.constitutional_basis
+    if task_data.hierarchical_id is not None:
+        task.hierarchical_id = task_data.hierarchical_id
     if task_data.parent_task_id is not None:
         task.parent_task_id = task_data.parent_task_id
     if task_data.execution_plan_id is not None:
