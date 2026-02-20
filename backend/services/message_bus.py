@@ -345,15 +345,48 @@ class MessageBus:
     async def _get_parent_id(self, agent_id: str) -> Optional[str]:
         """
         Query database to find parent agent.
-        In production, use SQLAlchemy session.
         """
-        # This will be integrated with AgentFactory/Database
-        # For now, return pattern-based parent
-        tier = HierarchyValidator.get_tier(agent_id)
-        if tier == 3:
-            # Query DB for Lead parent of this Task agent
+        try:
+            return await asyncio.to_thread(self._get_parent_id_sync, agent_id)
+        except Exception as e:
+            print(f"Parent lookup error for {agent_id}: {e}")
+            return self._get_pattern_parent(agent_id)
+
+    def _get_parent_id_sync(self, agent_id: str) -> Optional[str]:
+        """Synchronous implementation of parent lookup."""
+        from backend.models.database import get_db_context
+        from backend.models.entities.agents import Agent
+        from sqlalchemy import select
+
+        try:
+            with get_db_context() as session:
+                # Find the agent
+                result = session.execute(
+                    select(Agent).where(Agent.agentium_id == agent_id)
+                )
+                agent = result.scalars().first()
+                
+                if not agent or not agent.parent_id:
+                    return None
+                
+                # Find the parent
+                parent_result = session.execute(
+                    select(Agent).where(Agent.id == agent.parent_id)
+                )
+                parent = parent_result.scalars().first()
+                
+                if parent:
+                    return parent.agentium_id
+        except ImportError:
             pass
+        except Exception as e:
+            print(f"Sync parent lookup error: {e}")
+            
         return None
+
+    def _get_pattern_parent(self, agent_id: str) -> str:
+        """Fallback to pattern-based parent ID."""
+        return HierarchyValidator.get_parent_tier_id(agent_id)
     
     async def _enrich_context(self, message: AgentMessage) -> Optional[Dict[str, Any]]:
         """Enrich message with Vector DB context for escalations."""

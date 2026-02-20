@@ -139,7 +139,7 @@ Build a self-governing AI ecosystem where agents operate under constitutional la
 - [x] Task agent can message parent Lead
 - [x] Lead can broadcast to child Tasks
 - [x] Task → Council direct message blocked
-- [ ] **TO TEST:** Message persistence after restart
+- [x] **TO TEST:** Message persistence after restart
 - [ ] **TO TEST:** Rate limit enforcement under load
 
 ### 2.2 Agent Orchestrator ✅
@@ -349,7 +349,7 @@ TIER_CAPABILITIES = {
 **Implemented Channels:**
 
 - [x] WebSocket (real-time dashboard)
-- [x] WhatsApp (Baileys library integration)
+- [x] WhatsApp (Official Cloud API)
 - [x] Telegram Bot API
 - [x] Discord Bot
 - [x] Slack App
@@ -363,12 +363,15 @@ TIER_CAPABILITIES = {
 **Files:**
 
 - ✅ `backend/services/channel_manager.py` - Core routing
+- ✅ `backend/services/channels/base.py` - Base adapter
+- ✅ `backend/services/channels/whatsapp.py` - WhatsApp adapter
+- ✅ `backend/services/channels/slack.py` - Slack adapter
 - ✅ `backend/models/entities/channels.py` - Channel metadata
 - ✅ `backend/api/routes/channels.py` - Channel CRUD
 
 **Testing Needs:**
 
-- [ ] Multi-channel concurrent message handling
+- [x] Multi-channel concurrent message handling
 - [ ] Channel failure recovery
 - [ ] Message format translation (text → rich media)
 - [ ] Rate limiting per platform

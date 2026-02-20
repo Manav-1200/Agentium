@@ -22,6 +22,7 @@ from backend.models.entities.task import TaskStatus, Task
 from backend.core.tool_registry import tool_registry  # NEW
 from backend.services.idle_governance import idle_budget, token_optimizer  # NEW
 from backend.api.routes.websocket import manager  # NEW
+from backend.core.constitutional_guard import ConstitutionalGuard, Verdict, ViolationSeverity  # NEW
 
 # NEW: Tool execution imports
 from backend.services.host_access import HostAccessService
@@ -55,6 +56,7 @@ class AgentOrchestrator:
         self.vector_store: Optional[VectorStore] = None
         self._routing_cache: Dict[str, datetime] = {}
         self.host_access = HostAccessService("00001")  # For system-level operations
+        self.guard = ConstitutionalGuard(db)  # NEW: Constitutional Guard
 
         # --- Metrics ---
         self._metrics: Dict[str, Any] = {
@@ -109,6 +111,7 @@ class AgentOrchestrator:
         if self.message_bus is None:
             self.message_bus = await get_message_bus()
         self.vector_store = get_vector_store()
+        await self.guard.initialize()  # NEW: Initialize guard
     
     async def process_intent(self, raw_input: str, source_id: str, target_id: Optional[str] = None) -> RouteResult:
         """
@@ -133,6 +136,44 @@ class AgentOrchestrator:
         if cb_result is not None:
             self._record_metric(source_id, success=False)
             return cb_result
+            
+        # --- Constitutional Guard Check ---
+        # We treat raw inputs as "intent" actions for now.
+        # Future: deeper inspection of tool arguments if applicable.
+        decision = await self.guard.check_action(
+            agent_id=source_id,
+            action="process_intent",
+            context={"raw_input": raw_input, "target_id": target_id}
+        )
+        
+        if decision.verdict == Verdict.BLOCK:
+            await self._log(
+                source_id, 
+                "constitutional_violation", 
+                f"Blocked action: {decision.explanation}", 
+                AuditLevel.CRITICAL
+            )
+            self._record_metric(source_id, success=False)
+            return RouteResult(
+                success=False, 
+                message_id="", 
+                error=f"Constitutional Violation: {decision.explanation}"
+            )
+            
+        elif decision.verdict == Verdict.VOTE_REQUIRED:
+            # For now, we block but indicate a vote is needed.
+            # In Phase 6, we will auto-trigger the VotingService here.
+            await self._log(
+                source_id,
+                "constitutional_vote_required",
+                f"Vote required: {decision.explanation}",
+                AuditLevel.WARNING
+            )
+            return RouteResult(
+                success=False,
+                message_id="",
+                error=f"Action requires Council Vote: {decision.explanation}"
+            )
         
         # Check if message is a tool execution command
         tool_detection = self._detect_tool_intent(raw_input, source_id)
@@ -657,9 +698,10 @@ class AgentOrchestrator:
             actor_type="agent",
             actor_id=actor,
             action=action,
+            action_description=desc,
+            agentium_id=f"L{datetime.utcnow().strftime('%H%M%S')}",
             target_type="agent",
             target_id=target or "",
-            description=desc
         )
         self.db.add(audit)
         self.db.commit()
