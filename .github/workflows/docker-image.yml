@@ -13,18 +13,22 @@ env:
 
 jobs:
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # Build & Push Backend Image
-  # (reused by backend, celery-worker, and celery-beat)
+  # Build & Push Backend Image (Multi-Platform)
+  # Native runners for AMD64 and ARM64, then merge
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   build-backend:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
       id-token: write
-
-    outputs:
-      image-tag: ${{ steps.meta.outputs.version }}
 
     steps:
       - name: Checkout repository
@@ -54,23 +58,92 @@ jobs:
             type=sha,prefix=,suffix=,format=short
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
-      - name: Build and push Backend image
+      - name: Convert platform to tag suffix
+        id: platform_suffix
+        run: |
+          SUFFIX=$(echo "${{ matrix.platform }}" | tr '/' '-')
+          echo "suffix=${SUFFIX}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Backend image (per-platform)
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           file: ./backend/Dockerfile.privileged
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }}-${{ steps.platform_suffix.outputs.suffix }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # Build & Push Frontend Image
+  # Merge Backend Multi-Platform Manifests
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  merge-backend-manifests:
+    runs-on: ubuntu-latest
+    needs: [build-backend]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=,suffix=,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+
+      - name: Create and push manifest
+        run: |
+          # Pull the per-platform images
+          AMD64_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }}-linux-amd64"
+          ARM64_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }}-linux-arm64"
+          
+          # Create manifest list with all tags
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }} \
+            ${{ steps.meta.outputs.tags }} \
+            ${AMD64_IMAGE} \
+            ${ARM64_IMAGE}
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Build & Push Frontend Image (Multi-Platform)
+  # Native runners for AMD64 and ARM64, then merge
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   build-frontend:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -103,29 +176,82 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
-      - name: Build and push Frontend image
+      - name: Convert platform to tag suffix
+        id: platform_suffix
+        run: |
+          SUFFIX=$(echo "${{ matrix.platform }}" | tr '/' '-')
+          echo "suffix=${SUFFIX}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Frontend image (per-platform)
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }}-${{ steps.platform_suffix.outputs.suffix }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # NOTE: VITE_API_URL should be set at runtime via env or reverse proxy,
-          # not baked into the image. Override this secret/var per environment.
           build-args: |
             VITE_API_URL=${{ vars.VITE_API_URL || 'http://localhost:8000' }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Merge Frontend Multi-Platform Manifests
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  merge-frontend-manifests:
+    runs-on: ubuntu-latest
+    needs: [build-frontend]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+
+      - name: Create and push manifest
+        run: |
+          # Pull the per-platform images
+          AMD64_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }}-linux-amd64"
+          ARM64_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }}-linux-arm64"
+          
+          # Create manifest list with all tags
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }} \
+            ${{ steps.meta.outputs.tags }} \
+            ${AMD64_IMAGE} \
+            ${ARM64_IMAGE}
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   # Security Scan with Trivy
-  # Runs after backend image is built and pushed
+  # Runs after manifests are merged
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   security-scan:
     runs-on: ubuntu-latest
-    needs: [build-backend, build-frontend]
+    needs: [merge-backend-manifests, merge-frontend-manifests]
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
@@ -139,9 +265,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # GHCR requires image names to be fully lowercase.
-      # github.repository preserves the original casing (e.g. AshminDhungana/Agentium),
-      # which causes Trivy to fail with "could not parse reference". This step normalises it.
       - name: Lowercase image reference
         id: image
         run: |
@@ -154,7 +277,7 @@ jobs:
           image-ref: ${{ steps.image.outputs.ref }}
           format: sarif
           output: trivy-results.sarif
-          exit-code: '0'       # set to '1' to fail the build on HIGH/CRITICAL findings
+          exit-code: '0'
 
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
@@ -167,7 +290,7 @@ jobs:
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   update-compose:
     runs-on: ubuntu-latest
-    needs: [build-backend, build-frontend]
+    needs: [merge-backend-manifests, merge-frontend-manifests]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -180,7 +303,6 @@ jobs:
 
       - name: Determine version tag
         id: version
-        # Expand variables in bash (double-quotes), not sed single-quotes
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
@@ -189,7 +311,6 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
       
-            # ADD THIS STEP - Lowercase the image prefix
       - name: Lowercase image references
         id: lowercase
         run: |
@@ -206,8 +327,6 @@ jobs:
           BACKEND_IMAGE="${REGISTRY}/${IMAGE_PREFIX}/backend:${VERSION}"
           FRONTEND_IMAGE="${REGISTRY}/${IMAGE_PREFIX}/frontend:${VERSION}"
 
-          # Replace commented-out image lines with real image references.
-          # Each service has a unique placeholder comment so sed targets are unambiguous.
           sed -i "s|# image: agentium-backend:latest$|image: ${BACKEND_IMAGE}|g" docker-compose.yml
           sed -i "s|# image: agentium-backend:latest # celery-worker|image: ${BACKEND_IMAGE}|g" docker-compose.yml
           sed -i "s|# image: agentium-backend:latest # celery-beat|image: ${BACKEND_IMAGE}|g" docker-compose.yml
@@ -218,6 +337,6 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add docker-compose.yml
-          # Only commit if there are actual changes
           git diff --staged --quiet || git commit -m "ci: update docker-compose.yml image tags to ${{ steps.version.outputs.VERSION }} [skip ci]"
           git push
+          
