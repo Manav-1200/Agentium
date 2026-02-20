@@ -8,7 +8,7 @@ from typing import Generator, Optional
 from contextlib import contextmanager
 from datetime import datetime
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session, scoped_session
 from sqlalchemy.pool import QueuePool
@@ -80,29 +80,74 @@ def get_db_context():
     finally:
         db.close()
 
+
 def _ensure_api_key_resilience_columns(db: Session):
-    """Add Phase 5.4 columns to user_model_configs table if they don't exist."""
-    # Check if columns exist by trying to select them
+    """
+    Add Phase 5.4 columns to user_model_configs table if they don't exist.
+    Uses SQLAlchemy inspector to avoid transaction state issues.
+    """
+    # Use inspector to check column existence without executing queries
+    inspector = inspect(db.get_bind())
+    
+    # Get existing columns from the table
     try:
-        db.execute(text("""
-            SELECT priority, failure_count, last_failure_at, cooldown_until, 
-                   monthly_budget_usd, current_spend_usd, last_spend_reset
-            FROM user_model_configs LIMIT 1
-        """))
+        existing_columns = {
+            col['name'] for col in inspector.get_columns('user_model_configs')
+        }
     except Exception:
-        # Columns don't exist, add them
-        db.execute(text("""
-            ALTER TABLE user_model_configs 
-            ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 999 NOT NULL,
-            ADD COLUMN IF NOT EXISTS failure_count INTEGER DEFAULT 0 NOT NULL,
-            ADD COLUMN IF NOT EXISTS last_failure_at TIMESTAMP NULL,
-            ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMP NULL,
-            ADD COLUMN IF NOT EXISTS monthly_budget_usd FLOAT DEFAULT 0.0 NOT NULL,
-            ADD COLUMN IF NOT EXISTS current_spend_usd FLOAT DEFAULT 0.0 NOT NULL,
-            ADD COLUMN IF NOT EXISTS last_spend_reset TIMESTAMP DEFAULT NOW() NOT NULL
-        """))
-        db.commit()
-        print("✅ Added API Key Resilience columns to user_model_configs")
+        # Table might not exist yet, skip (will be created by Base.metadata.create_all)
+        return
+    
+    # Define columns to add with their definitions
+    columns_to_add = []
+    
+    if 'priority' not in existing_columns:
+        columns_to_add.append(
+            "ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 999 NOT NULL"
+        )
+    if 'failure_count' not in existing_columns:
+        columns_to_add.append(
+            "ADD COLUMN IF NOT EXISTS failure_count INTEGER DEFAULT 0 NOT NULL"
+        )
+    if 'last_failure_at' not in existing_columns:
+        columns_to_add.append(
+            "ADD COLUMN IF NOT EXISTS last_failure_at TIMESTAMP NULL"
+        )
+    if 'cooldown_until' not in existing_columns:
+        columns_to_add.append(
+            "ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMP NULL"
+        )
+    if 'monthly_budget_usd' not in existing_columns:
+        columns_to_add.append(
+            "ADD COLUMN IF NOT EXISTS monthly_budget_usd FLOAT DEFAULT 0.0 NOT NULL"
+        )
+    if 'current_spend_usd' not in existing_columns:
+        columns_to_add.append(
+            "ADD COLUMN IF NOT EXISTS current_spend_usd FLOAT DEFAULT 0.0 NOT NULL"
+        )
+    if 'last_spend_reset' not in existing_columns:
+        columns_to_add.append(
+            "ADD COLUMN IF NOT EXISTS last_spend_reset TIMESTAMP DEFAULT NOW() NOT NULL"
+        )
+    
+    if not columns_to_add:
+        return  # All columns exist
+    
+    # Execute each ALTER statement in its own transaction
+    # This prevents transaction abortion issues if one fails
+    for alter_stmt in columns_to_add:
+        try:
+            db.execute(text(f"ALTER TABLE user_model_configs {alter_stmt}"))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            # If column already exists (race condition), continue
+            # Otherwise, re-raise the error
+            if "already exists" not in str(e).lower() and "duplicate" not in str(e).lower():
+                raise
+    
+    print(f"✅ Added {len(columns_to_add)} API Key Resilience columns to user_model_configs")
+
 
 def get_next_agentium_id(db: Session, prefix: str) -> str:
     """

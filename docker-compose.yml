@@ -128,7 +128,7 @@ services:
     build:  
       context: ./backend
       dockerfile: Dockerfile.privileged
-    image: ghcr.io/AshminDhungana/Agentium/backend:main
+    #image: ghcr.io/ashmindhungana/agentium/backend:main
     container_name: agentium-celery
     privileged: true
     cap_add:
@@ -178,7 +178,7 @@ services:
     build:  
       context: ./backend
       dockerfile: Dockerfile.privileged
-    image: ghcr.io/AshminDhungana/Agentium/backend:main
+    #image: ghcr.io/ashmindhungana/agentium/backend:main
     container_name: agentium-celery-beat
     privileged: true
     cap_add:
@@ -228,7 +228,7 @@ services:
     ports:
       - "3000:80"
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=
     depends_on:
       backend:
         condition: service_healthy

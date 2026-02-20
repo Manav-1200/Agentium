@@ -188,12 +188,20 @@ jobs:
             VERSION="${GITHUB_REF#refs/heads/}"
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+      
+            # ADD THIS STEP - Lowercase the image prefix
+      - name: Lowercase image references
+        id: lowercase
+        run: |
+          echo "IMAGE_PREFIX_LOWER=${IMAGE_PREFIX,,}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
 
       - name: Update docker-compose.yml image references
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
           REGISTRY: ${{ env.REGISTRY }}
-          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+          IMAGE_PREFIX: ${{ steps.lowercase.outputs.IMAGE_PREFIX_LOWER }} 
         run: |
           BACKEND_IMAGE="${REGISTRY}/${IMAGE_PREFIX}/backend:${VERSION}"
           FRONTEND_IMAGE="${REGISTRY}/${IMAGE_PREFIX}/frontend:${VERSION}"
