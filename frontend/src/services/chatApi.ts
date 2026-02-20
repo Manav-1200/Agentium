@@ -127,8 +127,9 @@ export const chatApi = {
      * Delete a specific message.
      */
     deleteMessage: async (messageId: string): Promise<{ success: boolean }> => {
-        const response = await api.delete(`${API_BASE}/messages/${messageId}`);
-        return response.data;
+        // Backend does not currently implement individual message deletion.
+        // It implements conversation deletion. This method is a stub.
+        throw new Error("Not implemented in backend");
     },
 
     /**

@@ -22,11 +22,11 @@ export const agentsService = {
     },
 
     spawnAgent: async (parentId: string, data: SpawnAgentRequest): Promise<Agent> => {
-        const response = await api.post<{ agent: Agent }>(`/api/v1/agents/${parentId}/spawn?child_type=${data.child_type}&name=${encodeURIComponent(data.name)}`);
+        const response = await api.post<{ agent: Agent }>(`/api/v1/agents/lifecycle/spawn?child_type=${data.child_type}&name=${encodeURIComponent(data.name)}`);
         return response.data.agent;
     },
 
     terminateAgent: async (id: string, reason: string): Promise<void> => {
-        await api.post(`/api/v1/agents/${id}/terminate?reason=${encodeURIComponent(reason)}`);
+        await api.post(`/api/v1/agents/lifecycle/${id}/terminate?reason=${encodeURIComponent(reason)}`);
     }
 };

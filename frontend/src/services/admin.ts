@@ -132,9 +132,9 @@ export const adminService = {
     },
 
     async changeUserPassword(userId: number, newPassword: string): Promise<{ success: boolean; message: string }> {
+        // The backend expects `/api/v1/admin/users/${userId}/change-password?new_password=...` as query parameters defined in the fast api routes.
         const response = await api.post(
-            `/api/v1/admin/users/${userId}/change-password`,
-            { new_password: newPassword }
+            `/api/v1/admin/users/${userId}/change-password?new_password=${encodeURIComponent(newPassword)}`
         );
         return response.data;
     }
