@@ -1839,4 +1839,5 @@ Memory optimization:
 4. The vector database will be optimized, old knowledge will be viewed and kept uptodate and dublicated will be removed.
 5. New tasks will not be assigned to the agent if the agent is not available.
 6. Optimizatin of all system without loos of functionality, and loss of imported information.
-7. Need to Improve on Skills creation a unified structure for skills should be setup and the format should be same.
+7. Optimization inside contaner should be priority. Outside contaner should be done carefully and deletion of files should be taken seriously. outside contaner and for that the Sovereign (User) should be asked for permission.
+8. Need to Improve on Skills creation a unified structure for skills should be setup and the format should be same.
