@@ -879,6 +879,18 @@ class ChannelManager:
         if not channel or channel.status != ChannelStatus.ACTIVE:
             raise ValueError(f"Channel {channel_id} not found or inactive")
 
+        # ── Sender whitelist check ──────────────────────────────────────────────
+        allowed_senders = channel.config.get('allowed_senders', [])
+        if allowed_senders:
+            # Normalise: strip spaces, +, country code formatting for comparison
+            def _normalise(num: str) -> str:
+                return num.replace('+', '').replace(' ', '').replace('-', '').strip()
+            norm_sender = _normalise(sender_id.split('@')[0])  # strip @s.whatsapp.net
+            norm_allowed = [_normalise(s) for s in allowed_senders]
+            if norm_sender not in norm_allowed:
+                print(f"[ChannelManager] Blocked message from {sender_id} — not in allowed_senders")
+                raise ValueError(f"Sender {sender_id} not in allowed senders list")
+
         # Circuit breaker check
         if not circuit_breaker.can_execute(channel_id):
             raise Exception(f"Circuit breaker open for channel {channel_id}")

@@ -62,6 +62,7 @@ interface Channel {
         bb_url?: string;
         provider?: WhatsAppProvider;
         bridge_url?: string;
+        allowed_senders?: string[];
     };
     routing: {
         default_agent?: string;
@@ -293,6 +294,8 @@ export function ChannelsPage() {
     const [pollingChannelId, setPollingChannelId] = useState<string | null>(null);
     const pollingChannelIdRef = useRef<string | null>(null);
     const [showProviderSwitch, setShowProviderSwitch] = useState<string | null>(null);
+    const [editingSenders, setEditingSenders] = useState<string | null>(null); // channel id being edited
+    const [senderInput, setSenderInput] = useState('');
     const [qrStep, setQrStep]                             = useState(false);   // true = show QR screen
 
     // ── fetch ─────────────────────────────────────────────────────────────────
@@ -340,6 +343,18 @@ export function ChannelsPage() {
     const deleteMutation = useMutation({
         mutationFn: (id: string) => api.delete(`/api/v1/channels/${id}`),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['channels'] }); toast.success('Channel deleted'); },
+    });
+
+    const updateSendersMutation = useMutation({
+        mutationFn: ({ id, senders }: { id: string; senders: string[] }) =>
+            api.put(`/api/v1/channels/${id}`, { config: { allowed_senders: senders } }).then(r => r.data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels'] });
+            setEditingSenders(null);
+            setSenderInput('');
+            toast.success('Allowed senders updated');
+        },
+        onError: () => toast.error('Failed to update allowed senders'),
     });
 
     const testMutation = useMutation({
@@ -391,7 +406,6 @@ export function ChannelsPage() {
                 setQrStep(true);   // transition to QR screen
             }
 
-            // Use ref (not state) to avoid stale closure bug on re-renders
             if (pollingChannelIdRef.current === channelId) {
                 setTimeout(() => pollForQR(channelId), 10000);
             }
@@ -707,6 +721,75 @@ export function ChannelsPage() {
                                             Backend: <span className="font-mono text-gray-700 dark:text-gray-300">{channel.config?.backend ?? 'applescript'}</span>
                                             {channel.config?.bb_url && <span className="text-gray-400 dark:text-gray-600"> · {channel.config.bb_url}</span>}
                                         </p>
+                                    )}
+
+                                    {/* Allowed Senders (WhatsApp only) */}
+                                    {isWhatsApp && (
+                                        <div className="pt-3 border-t border-gray-100 dark:border-[#1e2535]">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                                                    Allowed Senders
+                                                </span>
+                                                <button
+                                                    onClick={() => { setEditingSenders(channel.id); setSenderInput(''); }}
+                                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                                >
+                                                    {editingSenders === channel.id ? 'Cancel' : 'Edit'}
+                                                </button>
+                                            </div>
+
+                                            {editingSenders === channel.id ? (
+                                                <div className="space-y-2">
+                                                    {/* existing numbers */}
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {(channel.config?.allowed_senders || []).map(num => (
+                                                            <span key={num} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 rounded-full text-xs font-mono">
+                                                                {num}
+                                                                <button onClick={() => {
+                                                                    const updated = (channel.config?.allowed_senders || []).filter(s => s !== num);
+                                                                    updateSendersMutation.mutate({ id: channel.id, senders: updated });
+                                                                }} className="hover:text-red-500 ml-0.5">×</button>
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                    {/* add new number */}
+                                                    <div className="flex gap-2">
+                                                        <input
+                                                            value={senderInput}
+                                                            onChange={e => setSenderInput(e.target.value)}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter' && senderInput.trim()) {
+                                                                    const updated = [...(channel.config?.allowed_senders || []), senderInput.trim()];
+                                                                    updateSendersMutation.mutate({ id: channel.id, senders: updated });
+                                                                    setSenderInput('');
+                                                                }
+                                                            }}
+                                                            placeholder="+1234567890 (Enter to add)"
+                                                            className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-[#1e2535] rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 focus:ring-1 focus:ring-blue-500 outline-none"
+                                                        />
+                                                        <button
+                                                            onClick={() => updateSendersMutation.mutate({ id: channel.id, senders: channel.config?.allowed_senders || [] })}
+                                                            className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                                                        >
+                                                            Save
+                                                        </button>
+                                                    </div>
+                                                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                                                        Leave empty to accept messages from everyone. Add your number to only accept your own messages.
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {(channel.config?.allowed_senders || []).length === 0 ? (
+                                                        <span className="text-xs text-amber-600 dark:text-amber-400">⚠ Everyone can trigger this channel</span>
+                                                    ) : (
+                                                        (channel.config.allowed_senders || []).map(num => (
+                                                            <span key={num} className="px-2 py-0.5 bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-300 rounded-full text-xs font-mono">{num}</span>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     )}
 
                                     {/* Stats */}
