@@ -291,7 +291,7 @@ export function ChannelsPage() {
     const [whatsappProvider, setWhatsappProvider] = useState<WhatsAppProvider>('cloud_api');
     const [qrCodeData, setQrCodeData]             = useState<string | null>(null);
     const [pollingChannelId, setPollingChannelId] = useState<string | null>(null);
-    const pollingChannelIdRef = useRef<string | null>(null); // ref survives re-renders
+    const pollingChannelIdRef = useRef<string | null>(null);
     const [showProviderSwitch, setShowProviderSwitch] = useState<string | null>(null);
     const [qrStep, setQrStep]                             = useState(false);   // true = show QR screen
 
@@ -366,6 +366,7 @@ export function ChannelsPage() {
                 setWhatsappProvider('web_bridge');
                 setPollingChannelId(data.channel_id);
                 pollingChannelIdRef.current = data.channel_id;
+                setQrStep(true);
                 pollForQR(data.channel_id);
             }
         },
@@ -378,7 +379,7 @@ export function ChannelsPage() {
             const response = await api.get(`/api/v1/channels/${channelId}/qr`);
             const data = response.data;
 
-            if (data.authenticated || data.connected || data.status === 'active') {
+            if (data.authenticated === true || data.status === 'active') {
                 toast.success('WhatsApp connected successfully!');
                 closeModal();
                 queryClient.invalidateQueries({ queryKey: ['channels'] });
@@ -390,14 +391,12 @@ export function ChannelsPage() {
                 setQrStep(true);   // transition to QR screen
             }
 
-            // Keep polling while channel is pending and not yet authenticated.
-            // Use ref (not state) to avoid stale closure bug on re-renders.
+            // Use ref (not state) to avoid stale closure bug on re-renders
             if (pollingChannelIdRef.current === channelId) {
                 setTimeout(() => pollForQR(channelId), 10000);
             }
         } catch (err) {
             console.error('QR polling error:', err);
-            // Retry on error — bridge may not have the QR ready yet
             if (pollingChannelIdRef.current === channelId) {
                 setTimeout(() => pollForQR(channelId), 10000);
             }
