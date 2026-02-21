@@ -117,10 +117,13 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Database initialized")
         
         # Create default admin user
-        with next(get_db()) as db:
+        db = next(get_db())
+        try:
             admin_created = create_default_admin(db)
             if admin_created:
                 logger.info("✅ Default admin user created")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         raise
@@ -129,7 +132,8 @@ async def lifespan(app: FastAPI):
     # 2. Initialize Persistent Council (IDLE GOVERNANCE)
     # ─────────────────────────────────────────────────────────────
     try:
-        with next(get_db()) as db:
+        db = next(get_db())
+        try:
             council_status = persistent_council.initialize_persistent_council(db)
             
             # Get the initialized persistent agents for token optimizer
@@ -139,6 +143,8 @@ async def lifespan(app: FastAPI):
             logger.info(f"✅ Persistent Council initialized: {council_status}")
             logger.info(f"   - Head: {len([a for a in agent_list if a.agentium_id.startswith('0')])}")
             logger.info(f"   - Council: {len([a for a in agent_list if a.agentium_id.startswith('1')])}")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"❌ Persistent Council initialization failed: {e}")
         # Continue anyway - council can be initialized later
@@ -147,9 +153,12 @@ async def lifespan(app: FastAPI):
     # 3. Initialize API Manager (Universal Provider Support)
     # ─────────────────────────────────────────────────────────────
     try:
-        with next(get_db()) as db:
+        db = next(get_db())
+        try:
             init_api_manager(db)
             logger.info("✅ API Manager initialized with universal provider support")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"❌ API Manager initialization failed: {e}")
     
@@ -157,9 +166,12 @@ async def lifespan(app: FastAPI):
     # 4. Initialize Model Allocator
     # ─────────────────────────────────────────────────────────────
     try:
-        with next(get_db()) as db:
+        db = next(get_db())
+        try:
             init_model_allocator(db)
             logger.info("✅ Model Allocator initialized")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"❌ Model Allocator initialization failed: {e}")
     
@@ -167,7 +179,8 @@ async def lifespan(app: FastAPI):
     # 5. Initialize Token Optimizer with Idle Budget
     # ─────────────────────────────────────────────────────────────
     try:
-        with next(get_db()) as db:
+        db = next(get_db())
+        try:
             persistent_agents = persistent_council.get_persistent_agents(db)
             agent_list = list(persistent_agents.values())
             init_token_optimizer(agent_list)
@@ -175,19 +188,30 @@ async def lifespan(app: FastAPI):
             logger.info("✅ Token Optimizer initialized")
             logger.info(f"   - Idle Budget: ${idle_budget.daily_idle_budget_usd:.2f}/day")
             logger.info(f"   - Active Mode Budget: ${token_optimizer.active_budget.daily_cost_limit_usd:.2f}/day")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"❌ Token Optimizer initialization failed: {e}")
     
-    init_api_key_manager(db)
-    logger.info("✅ API Key Manager initialized with resilience")
+    # Initialize API Key Manager (moved outside try block to match original, but fixed)
+    db = next(get_db())
+    try:
+        init_api_key_manager(db)
+        logger.info("✅ API Key Manager initialized with resilience")
+    finally:
+        db.close()
+    
     # ─────────────────────────────────────────────────────────────
     # 6. Start Idle Governance Engine
     # ─────────────────────────────────────────────────────────────
     try:
-        with next(get_db()) as db:
+        db = next(get_db())
+        try:
             await idle_governance.start(db)
             logger.info("✅ Idle Governance Engine started")
             logger.info("   Eternal Council now active in background")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"⚠️ Idle Governance Engine start failed: {e}")
         logger.error("   System will continue without idle governance")
@@ -219,7 +243,8 @@ async def lifespan(app: FastAPI):
     
     # Final statistics
     try:
-        with next(get_db()) as db:
+        db = next(get_db())
+        try:
             status = token_optimizer.get_status()
             logger.info("📊 Final Statistics:")
             logger.info(f"   - Total Tokens Saved (Idle): {idle_budget.total_tokens_saved:,}")
@@ -228,6 +253,8 @@ async def lifespan(app: FastAPI):
             if model_allocator:
                 allocation_report = model_allocator.get_allocation_report()
                 logger.info(f"   - Model Allocations: {allocation_report['total_agents']} agents")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"❌ Could not generate final statistics: {e}")
 
