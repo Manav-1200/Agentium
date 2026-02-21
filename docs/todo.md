@@ -725,7 +725,6 @@ class AgentMessage:
 - [x] Context window optimization (reduced token usage)
 - [x] No cross-contamination between execution branches
 
-
 ### 6.5 Checkpointing & Time-Travel Recovery 🆕 (COMPLETE)
 
 **New File:** `backend/services/checkpoint_service.py`
@@ -1840,3 +1839,4 @@ Memory optimization:
 4. The vector database will be optimized, old knowledge will be viewed and kept uptodate and dublicated will be removed.
 5. New tasks will not be assigned to the agent if the agent is not available.
 6. Optimizatin of all system without loos of functionality, and loss of imported information.
+7. Need to Improve on Skills creation a unified structure for skills should be setup and the format should be same.

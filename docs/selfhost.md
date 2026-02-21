@@ -89,7 +89,7 @@ curl -fsSL https://get.docker.com | sh
 git clone https://github.com/AshminDhungana/Agentium.git
 cd Agentium
 .env        # ⚠️ Change and Configure strong secrets before continuing
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 ```
 
 **Recommended additions**
@@ -172,12 +172,6 @@ docker compose -f docker-compose.cicd.yml up -d
 ```bash
 # Local development
 docker compose up -d
-
-# Production VM
-docker compose -f docker-compose.prod.yml up -d
-
-# CI/CD stack
-docker compose -f docker-compose.cicd.yml up -d
 
 # Kubernetes
 kubectl apply -f k8s/
