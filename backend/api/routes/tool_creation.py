@@ -1,23 +1,24 @@
 """
-Tool Creation API Routes
-Covers all of Phase 6.1:
-  - Core: propose, vote, list tools
-  - Versioning: propose update, approve update, rollback, diff, changelog
-  - Deprecation: deprecate, schedule sunset, execute sunset, restore
-  - Analytics: tool stats, full report, agent usage, recent errors
-  - Marketplace: publish, browse, import, rate, yank, update listing
+Tool Creation API Routes — Phase 6.8
 
 ROUTE ORDER RULE:
   Static routes (/deprecated, /analytics/*, /marketplace/*)
   must come BEFORE wildcard routes (/{tool_name}/*)
   or FastAPI will swallow them as tool_name values.
+
+Fixes (Phase 6.8):
+- VoteRequest.vote now validated as Literal["for", "against", "abstain"]
+- /execute endpoint now enforces tier auth (blocks task agents 3xxxx)
+  and injects agent_tier dependency to do so
+- Router tag updated from stale "Phase 6.1" to "Phase 6.8"
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, validator
+from typing import Optional, List, Dict, Any, Literal
 
 from backend.models.database import get_db
+from backend.core.auth import get_current_active_user, get_current_agent_tier, get_current_agent_id
 from backend.models.schemas.tool_creation import ToolCreationRequest
 from backend.services.tool_creation_service import ToolCreationService
 from backend.services.tool_versioning import ToolVersioningService
@@ -25,7 +26,26 @@ from backend.services.tool_deprecation import ToolDeprecationService
 from backend.services.tool_analytics import ToolAnalyticsService
 from backend.services.tool_marketplace import ToolMarketplaceService
 
-router = APIRouter(prefix="/tools", tags=["Tool Creation - Phase 6.1"])
+router = APIRouter(prefix="/tool-management", tags=["Tool Creation - Phase 6.8"])
+
+
+# ── Tier helpers ───────────────────────────────────────────────────────────────
+
+def _require_head_or_council(agent_tier: str):
+    """Raise 403 if agent is not Head (0xxxx) or Council (1xxxx)."""
+    if not (agent_tier.startswith("0") or agent_tier.startswith("1")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Agent tier '{agent_tier}' is not authorized. Head or Council required."
+        )
+
+def _require_not_task_agent(agent_tier: str):
+    """Raise 403 if agent is a Task agent (3xxxx) — they cannot create or manage tools."""
+    if agent_tier.startswith("3"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Task agents (3xxxx) cannot create or manage tools."
+        )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -33,13 +53,14 @@ router = APIRouter(prefix="/tools", tags=["Tool Creation - Phase 6.1"])
 # ═══════════════════════════════════════════════════════════════
 
 class VoteRequest(BaseModel):
-    voter_agentium_id: str
-    vote: str  # "for", "against", "abstain"
+    # FIX: was `vote: str` with no validation — any string was accepted silently.
+    # Now typed as Literal so FastAPI/Pydantic rejects invalid values at parse time
+    # with a clear 422 error before the request reaches service logic.
+    vote: Literal["for", "against", "abstain"]
 
 class ProposeUpdateRequest(BaseModel):
     new_code: str
     change_summary: str
-    proposed_by: str
 
 class ApproveUpdateRequest(BaseModel):
     pending_version_id: str
@@ -47,28 +68,23 @@ class ApproveUpdateRequest(BaseModel):
 
 class RollbackRequest(BaseModel):
     target_version_number: int
-    requested_by: str
     reason: str
 
 class DeprecateRequest(BaseModel):
-    deprecated_by: str
     reason: str
     replacement_tool_name: Optional[str] = None
     sunset_days: Optional[int] = None
 
 class ScheduleSunsetRequest(BaseModel):
-    requested_by: str
     sunset_days: int
 
 class ForceSunsetRequest(BaseModel):
-    forced_by: str
+    force: bool = False
 
 class RestoreRequest(BaseModel):
-    restored_by: str
     reason: str
 
 class ExecuteToolRequest(BaseModel):
-    called_by: str
     kwargs: Dict[str, Any] = Field(default_factory=dict)
     task_id: Optional[str] = None
 
@@ -77,24 +93,21 @@ class PublishListingRequest(BaseModel):
     display_name: str
     category: str
     tags: List[str] = Field(default_factory=list)
-    published_by: str
 
 class ImportToolRequest(BaseModel):
-    requested_by: str
+    pass  # agent_id comes from JWT now
 
 class FinalizeImportRequest(BaseModel):
     staging_id: str
 
 class RateToolRequest(BaseModel):
-    rated_by: str
     rating: float  # 1.0 - 5.0
 
 class YankListingRequest(BaseModel):
-    yanked_by: str
     reason: str
 
 class UpdateListingRequest(BaseModel):
-    updated_by: str
+    pass
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -105,10 +118,23 @@ class UpdateListingRequest(BaseModel):
 async def propose_tool(
     request: ToolCreationRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Agent proposes a new tool. Triggers vote or auto-approves (Head only)."""
+    """
+    Agent proposes a new tool.
+    - Head (0xxxx): auto-approved and activated immediately
+    - Council (1xxxx) / Lead (2xxxx): triggers Council vote
+    - Task agents (3xxxx): blocked
+    """
+    _require_not_task_agent(agent_tier)
+
+    # Override created_by with verified JWT identity — agents cannot spoof their ID
+    request.created_by_agentium_id = agent_id
+
     service = ToolCreationService(db)
-    result = service.propose_tool(request)
+    result  = service.propose_tool(request)
     if not result.get("proposed") and "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
@@ -116,13 +142,24 @@ async def propose_tool(
 
 @router.get("/")
 async def list_tools(
-    status: Optional[str] = None,
+    status_filter: Optional[str] = None,
     authorized_for_tier: Optional[str] = None,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
 ):
-    """List all tools, optionally filtered by status or authorized tier."""
+    """
+    List all tools, optionally filtered by status or authorized tier.
+    Task agents only see tools authorized for their tier.
+    Head/Council see all.
+    """
     service = ToolCreationService(db)
-    return service.list_tools(status=status, authorized_for_tier=authorized_for_tier)
+
+    # Task agents can only see tools they're authorized for
+    if agent_tier.startswith("3"):
+        authorized_for_tier = agent_tier
+
+    return service.list_tools(status=status_filter, authorized_for_tier=authorized_for_tier)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -130,18 +167,23 @@ async def list_tools(
 # ═══════════════════════════════════════════════════════════════
 
 @router.get("/deprecated")
-async def list_deprecated(db: Session = Depends(get_db)):
+async def list_deprecated(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+):
     """List all deprecated and sunset tools."""
     service = ToolDeprecationService(db)
     return service.list_deprecated_tools()
 
 
 @router.post("/run-sunset-cleanup")
-async def run_sunset_cleanup(db: Session = Depends(get_db)):
-    """
-    Trigger sunset cleanup manually (normally run by Celery beat scheduler).
-    Hard-removes all tools whose sunset_at has passed.
-    """
+async def run_sunset_cleanup(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+):
+    """Trigger sunset cleanup manually. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolDeprecationService(db)
     return service.run_sunset_cleanup()
 
@@ -154,8 +196,11 @@ async def run_sunset_cleanup(db: Session = Depends(get_db)):
 async def get_analytics_report(
     days: int = 30,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
 ):
-    """Full analytics report across all tools for the last N days."""
+    """Full analytics report across all tools. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolAnalyticsService(db)
     return service.get_full_report(days=days)
 
@@ -165,8 +210,11 @@ async def get_recent_errors(
     tool_name: Optional[str] = None,
     limit: int = 50,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
 ):
-    """Recent failed tool calls, optionally filtered by tool name."""
+    """Recent failed tool calls. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolAnalyticsService(db)
     return service.get_recent_errors(tool_name=tool_name, limit=limit)
 
@@ -176,8 +224,19 @@ async def get_agent_tool_usage(
     agentium_id: str,
     days: int = 30,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Which tools has a specific agent been using?"""
+    """
+    Which tools has an agent been using?
+    Agents can only view their own usage. Head/Council can view any agent.
+    """
+    if agent_tier.startswith("3") and agentium_id != agent_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Task agents can only view their own tool usage."
+        )
     service = ToolAnalyticsService(db)
     return service.get_agent_tool_usage(agentium_id=agentium_id, days=days)
 
@@ -190,15 +249,19 @@ async def get_agent_tool_usage(
 async def publish_tool(
     body: PublishListingRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
     """Publish an activated tool to the marketplace. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolMarketplaceService(db)
-    result = service.publish_tool(
+    result  = service.publish_tool(
         tool_name=body.tool_name,
         display_name=body.display_name,
         category=body.category,
         tags=body.tags,
-        published_by=body.published_by,
+        published_by=agent_id,   # from JWT, not request body
     )
     if not result.get("published"):
         raise HTTPException(status_code=400, detail=result.get("error"))
@@ -208,15 +271,16 @@ async def publish_tool(
 @router.get("/marketplace")
 async def browse_marketplace(
     category: Optional[str] = None,
-    tags: Optional[str] = None,        # comma-separated
+    tags: Optional[str] = None,
     search: Optional[str] = None,
     include_remote: bool = True,
     page: int = 1,
     page_size: int = 20,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
 ):
-    """Browse marketplace listings with optional filters."""
-    service = ToolMarketplaceService(db)
+    """Browse marketplace listings. All authenticated agents can browse."""
+    service  = ToolMarketplaceService(db)
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
     return service.browse_marketplace(
         category=category,
@@ -231,29 +295,31 @@ async def browse_marketplace(
 @router.post("/marketplace/{listing_id}/import")
 async def import_tool(
     listing_id: str,
-    body: ImportToolRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """
-    Stage a marketplace tool for import.
-    Returns an import_payload to submit via /tools/propose for Council vote.
-    """
+    """Stage a marketplace tool for import. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolMarketplaceService(db)
-    result = service.import_tool(listing_id=listing_id, requested_by=body.requested_by)
+    result  = service.import_tool(listing_id=listing_id, requested_by=agent_id)
     if not result.get("staged"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
 
 
-@router.post("/marketplace/{listing_id}/finalize-import")
+@router.post("/marketplace/finalize-import")
 async def finalize_import(
-    listing_id: str,
-    body: FinalizeImportRequest,        # ← fixed: was a loose query param before
+    body: FinalizeImportRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
 ):
-    """Mark a marketplace import as complete after Council approval."""
+    """Finalize a staged marketplace import. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolMarketplaceService(db)
-    result = service.finalize_import(listing_id=listing_id, staging_id=body.staging_id)
+    result  = service.finalize_import(staging_id=body.staging_id)
     if not result.get("finalized"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
@@ -264,12 +330,14 @@ async def rate_tool(
     listing_id: str,
     body: RateToolRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Rate a marketplace tool listing (1.0 - 5.0)."""
+    """Rate a marketplace tool listing (1.0 - 5.0). All agents can rate."""
     service = ToolMarketplaceService(db)
-    result = service.rate_tool(
+    result  = service.rate_tool(
         listing_id=listing_id,
-        rated_by=body.rated_by,
+        rated_by=agent_id,
         rating=body.rating,
     )
     if not result.get("rated"):
@@ -282,12 +350,16 @@ async def yank_listing(
     listing_id: str,
     body: YankListingRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
     """Retract a marketplace listing. Head or original publisher only."""
+    _require_head_or_council(agent_tier)
     service = ToolMarketplaceService(db)
-    result = service.yank_listing(
+    result  = service.yank_listing(
         listing_id=listing_id,
-        yanked_by=body.yanked_by,
+        yanked_by=agent_id,
         reason=body.reason,
     )
     if not result.get("yanked"):
@@ -298,12 +370,15 @@ async def yank_listing(
 @router.post("/marketplace/{tool_name}/update-listing")
 async def update_listing(
     tool_name: str,
-    body: UpdateListingRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Refresh a marketplace listing to the tool's current active version."""
+    """Refresh a marketplace listing to the tool's current active version. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolMarketplaceService(db)
-    result = service.update_listing(tool_name=tool_name, updated_by=body.updated_by)
+    result  = service.update_listing(tool_name=tool_name, updated_by=agent_id)
     if not result.get("updated"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
@@ -318,10 +393,18 @@ async def vote_on_tool(
     tool_name: str,
     body: VoteRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Council member casts a vote on a pending tool proposal."""
+    """Council member casts a vote on a pending tool proposal. Council only."""
+    if not agent_tier.startswith("1"):
+        raise HTTPException(
+            status_code=403,
+            detail="Only Council members (1xxxx) can vote on tool proposals."
+        )
     service = ToolCreationService(db)
-    result = service.vote_on_tool(tool_name, body.voter_agentium_id, body.vote)
+    result  = service.vote_on_tool(tool_name, agent_id, body.vote)
     if not result.get("voted"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
@@ -332,10 +415,26 @@ async def execute_tool(
     tool_name: str,
     body: ExecuteToolRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    # FIX: agent_tier was missing — any authenticated agent (including task agents 3xxxx)
+    # could call this endpoint and bypass registry-level tier enforcement.
+    # Now we inject agent_tier and block task agents explicitly.
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Execute a registered tool. Automatically records usage analytics."""
+    """
+    Execute a registered tool with analytics recording.
+    Note: for normal tool execution prefer POST /tools/execute which has
+    full tier enforcement via the tool registry. This endpoint is for
+    tools created via the tool creation workflow.
+
+    Access: Head (0xxxx), Council (1xxxx), Lead (2xxxx) only.
+    Task agents (3xxxx) must go through the standard /tools/execute route
+    where per-tool tier authorization is checked against the registry.
+    """
+    _require_not_task_agent(agent_tier)
     service = ToolCreationService(db)
-    return service.execute_tool(tool_name, body.called_by, body.kwargs, body.task_id)
+    return service.execute_tool(tool_name, agent_id, body.kwargs, body.task_id)
 
 
 @router.get("/{tool_name}/analytics")
@@ -343,8 +442,11 @@ async def get_tool_analytics(
     tool_name: str,
     days: int = 30,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
 ):
-    """Per-tool analytics: call counts, error rate, latency percentiles, top callers."""
+    """Per-tool analytics. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolAnalyticsService(db)
     return service.get_tool_stats(tool_name=tool_name, days=days)
 
@@ -354,12 +456,16 @@ async def deprecate_tool(
     tool_name: str,
     body: DeprecateRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Soft-deprecate a tool. Still callable, but marked deprecated. Head/Council only."""
+    """Soft-deprecate a tool. Still callable but marked deprecated. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolDeprecationService(db)
-    result = service.deprecate_tool(
+    result  = service.deprecate_tool(
         tool_name=tool_name,
-        deprecated_by=body.deprecated_by,
+        deprecated_by=agent_id,
         reason=body.reason,
         replacement_tool_name=body.replacement_tool_name,
         sunset_days=body.sunset_days,
@@ -374,12 +480,16 @@ async def schedule_sunset(
     tool_name: str,
     body: ScheduleSunsetRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Schedule a hard-removal date for a tool (minimum 7 days). Head/Council only."""
+    """Schedule hard-removal date (minimum 7 days). Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolDeprecationService(db)
-    result = service.schedule_sunset(
+    result  = service.schedule_sunset(
         tool_name=tool_name,
-        requested_by=body.requested_by,
+        requested_by=agent_id,
         sunset_days=body.sunset_days,
     )
     if not result.get("scheduled"):
@@ -392,13 +502,15 @@ async def execute_sunset(
     tool_name: str,
     body: ForceSunsetRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Hard-remove a tool. Requires sunset date to have passed (or Head force)."""
-    service = ToolDeprecationService(db)
-    result = service.execute_sunset(
-        tool_name=tool_name,
-        forced_by=body.forced_by if body.forced_by else None,
-    )
+    """Hard-remove a tool. Requires sunset date passed (or Head force). Head only for force."""
+    _require_head_or_council(agent_tier)
+    service  = ToolDeprecationService(db)
+    forced   = agent_id if body.force and agent_tier.startswith("0") else None
+    result   = service.execute_sunset(tool_name=tool_name, forced_by=forced)
     if not result.get("executed"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
@@ -409,12 +521,16 @@ async def restore_tool(
     tool_name: str,
     body: RestoreRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Restore a deprecated tool back to active. Head/Council only."""
+    """Restore a deprecated tool to active. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolDeprecationService(db)
-    result = service.restore_tool(
+    result  = service.restore_tool(
         tool_name=tool_name,
-        restored_by=body.restored_by,
+        restored_by=agent_id,
         reason=body.reason,
     )
     if not result.get("restored"):
@@ -427,14 +543,18 @@ async def propose_tool_update(
     tool_name: str,
     body: ProposeUpdateRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
-    """Propose a code update to an existing tool (creates a pending version)."""
+    """Propose a code update to an existing tool. Head/Council/Lead only."""
+    _require_not_task_agent(agent_tier)
     service = ToolVersioningService(db)
-    result = service.propose_update(
+    result  = service.propose_update(
         tool_name=tool_name,
         new_code=body.new_code,
         change_summary=body.change_summary,
-        proposed_by=body.proposed_by,
+        proposed_by=agent_id,
     )
     if not result.get("proposed"):
         raise HTTPException(status_code=400, detail=result.get("error"))
@@ -446,10 +566,13 @@ async def approve_tool_update(
     tool_name: str,
     body: ApproveUpdateRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
 ):
-    """Approve and activate a pending tool version (post-vote or Head auto-approve)."""
+    """Approve and activate a pending tool version. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolVersioningService(db)
-    result = service.approve_update(
+    result  = service.approve_update(
         tool_name=tool_name,
         pending_version_id=body.pending_version_id,
         approved_by_voting_id=body.approved_by_voting_id,
@@ -464,13 +587,17 @@ async def rollback_tool(
     tool_name: str,
     body: RollbackRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
+    agent_id: str = Depends(get_current_agent_id),
 ):
     """Roll back a tool to a specific prior version. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolVersioningService(db)
-    result = service.rollback(
+    result  = service.rollback(
         tool_name=tool_name,
         target_version_number=body.target_version_number,
-        requested_by=body.requested_by,
+        requested_by=agent_id,
         reason=body.reason,
     )
     if not result.get("rolled_back"):
@@ -482,6 +609,7 @@ async def rollback_tool(
 async def get_changelog(
     tool_name: str,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """Get full version history and changelog for a tool."""
     service = ToolVersioningService(db)
@@ -494,10 +622,13 @@ async def get_version_diff(
     version_a: int,
     version_b: int,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+    agent_tier: str = Depends(get_current_agent_tier),
 ):
-    """Get a unified diff between two versions of a tool."""
+    """Get a unified diff between two versions. Head/Council only."""
+    _require_head_or_council(agent_tier)
     service = ToolVersioningService(db)
-    result = service.get_diff(tool_name, version_a, version_b)
+    result  = service.get_diff(tool_name, version_a, version_b)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return result

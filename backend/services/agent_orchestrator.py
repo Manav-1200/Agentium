@@ -19,14 +19,15 @@ from backend.core.vector_store import get_vector_store, VectorStore
 from backend.models.entities.agents import Agent, AgentType, AgentStatus
 from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
 from backend.models.entities.task import TaskStatus, Task
-from backend.core.tool_registry import tool_registry  
-from backend.services.idle_governance import idle_budget, token_optimizer  
-from backend.api.routes.websocket import manager  
-from backend.core.constitutional_guard import ConstitutionalGuard, Verdict, ViolationSeverity  
-from backend.services.tool_creation_service import ToolCreationService  
-from backend.services.critic_agents import critic_service, CriticType  
+from backend.core.tool_registry import tool_registry
+from backend.services.idle_governance import idle_budget, token_optimizer
+from backend.api.routes.websocket import manager
+from backend.core.constitutional_guard import ConstitutionalGuard, Verdict, ViolationSeverity
+from backend.services.tool_creation_service import ToolCreationService
+from backend.services.critic_agents import critic_service, CriticType
 from backend.services.api_manager import api_manager
 from backend.services.model_provider import ModelService
+from backend.models.schemas.tool_creation import ToolCreationRequest
 
 # NEW: Tool execution imports
 from backend.services.host_access import HostAccessService
@@ -53,7 +54,7 @@ class AgentOrchestrator:
     Handles intent processing, routing decisions, context enrichment, and TOOL EXECUTION.
     Includes per-agent circuit breaker and routing metrics collection.
     """
-    
+
     def __init__(self, db: Session, message_bus: Optional[MessageBus] = None):
         self.db = db
         self.message_bus = message_bus
@@ -81,33 +82,33 @@ class AgentOrchestrator:
     async def execute_task(self, task: Task, agent: Agent, db: Session):
         # Allocate optimal model for this task
         config_id = await token_optimizer.allocate_model_for_agent(agent, task, db)
-        
+
         # Update agent with allocated model
         agent.preferred_config_id = config_id
-        
+
         # Get the model info
         db.refresh(agent)
         model_key = f"{agent.preferred_config.provider}:{agent.preferred_config.default_model}"
         model = api_manager.models.get(model_key)
-        
+
         # Execute with allocated model
         result = await ModelService.generate_with_agent(
             agent=agent,
             user_message=task.description,
             config_id=config_id
         )
-        
+
         # Record usage
         token_optimizer.update_token_count(
             agent_id=agent.agentium_id,
             tokens_used=result.get("tokens_used", 0)
         )
-        
+
         # Workflow §3: Compress ethos after sub-step execution to prevent
         # cognitive bloat.  Completed steps are pruned from progress markers.
         completed_steps = result.get("completed_steps", [])
         agent.compress_ethos(db, completed_steps=completed_steps)
-        
+
         return result
 
     async def initialize(self):
@@ -116,7 +117,7 @@ class AgentOrchestrator:
             self.message_bus = await get_message_bus()
         self.vector_store = get_vector_store()
         await self.guard.initialize()  # NEW: Initialize guard
-    
+
     async def process_intent(self, raw_input: str, source_id: str, target_id: Optional[str] = None) -> RouteResult:
         """
         Process intent and route to appropriate agent.
@@ -124,23 +125,23 @@ class AgentOrchestrator:
         """
         start = datetime.utcnow()
         start_mono = time.monotonic()
-        
+
         # CRITICAL: Wake from idle on any user activity
         token_optimizer.record_activity()
-        
+
         # Validate source
         source = self._get_agent(source_id)
         if not source:
             self._record_metric(source_id, success=False)
             return RouteResult(success=False, message_id="", error=f"Agent {source_id} not found")
-        
+
         # --- Circuit breaker check ---
         recipient = target_id or self._get_parent_id(source_id)
         cb_result = self._check_circuit_breaker(recipient)
         if cb_result is not None:
             self._record_metric(source_id, success=False)
             return cb_result
-            
+
         # --- Constitutional Guard Check ---
         # We treat raw inputs as "intent" actions for now.
         # Future: deeper inspection of tool arguments if applicable.
@@ -149,21 +150,21 @@ class AgentOrchestrator:
             action="process_intent",
             context={"raw_input": raw_input, "target_id": target_id}
         )
-        
+
         if decision.verdict == Verdict.BLOCK:
             await self._log(
-                source_id, 
-                "constitutional_violation", 
-                f"Blocked action: {decision.explanation}", 
+                source_id,
+                "constitutional_violation",
+                f"Blocked action: {decision.explanation}",
                 AuditLevel.CRITICAL
             )
             self._record_metric(source_id, success=False)
             return RouteResult(
-                success=False, 
-                message_id="", 
+                success=False,
+                message_id="",
                 error=f"Constitutional Violation: {decision.explanation}"
             )
-            
+
         elif decision.verdict == Verdict.VOTE_REQUIRED:
             # For now, we block but indicate a vote is needed.
             # In Phase 6, we will auto-trigger the VotingService here.
@@ -178,19 +179,19 @@ class AgentOrchestrator:
                 message_id="",
                 error=f"Action requires Council Vote: {decision.explanation}"
             )
-        
+
         # Check if message is a tool execution command
         tool_detection = self._detect_tool_intent(raw_input, source_id)
         if tool_detection["is_tool_command"]:
             return await self._execute_tool_directly(tool_detection, source_id, start)
-        
+
         # Check if message is a tool creation request (meta-tool)
         if self._detect_tool_creation_intent(raw_input, source_id):
             return await self._handle_tool_creation_request(raw_input, source_id, start)
-        
+
         # Determine target
         direction = self._get_direction(source_id, recipient)
-        
+
         # Create message
         msg = AgentMessage(
             sender_id=source_id,
@@ -199,16 +200,16 @@ class AgentOrchestrator:
             message_type="intent",
             route_direction=direction
         )
-        
+
         # Validate hierarchy
         if not HierarchyValidator.can_route(source_id, recipient, direction):
             await self._log(source_id, "routing_violation", f"Attempted {direction} to {recipient}", AuditLevel.WARNING)
             self._record_metric(source_id, success=False)
             return RouteResult(success=False, message_id=msg.message_id, error="Hierarchy violation")
-        
+
         # Enrich and route
         msg = await self.enrich_with_context(msg)
-        
+
         # Execute based on direction with tool enrichment
         if direction == "up":
             result = await self._route_up_with_tools(msg)
@@ -216,19 +217,19 @@ class AgentOrchestrator:
             result = await self._route_down_with_tools(msg)
         else:
             result = await self.message_bus.publish(msg)
-        
+
         latency_ms = (time.monotonic() - start_mono) * 1000
         result.latency_ms = latency_ms
-        
+
         # --- Record metrics & circuit breaker feedback ---
         self._record_metric(source_id, success=result.success, latency_ms=latency_ms)
         self._update_circuit_breaker(recipient, success=result.success)
-        
+
         # Broadcast via WebSocket to frontend
         await self._broadcast_orchestration_event(msg, result)
-        
+
         return result
-    
+
     # NEW: Tool Detection Method
     def _detect_tool_intent(self, content: str, agent_id: str) -> Dict[str, Any]:
         """
@@ -243,14 +244,14 @@ class AgentOrchestrator:
             "execute": "execute_command",
             "run command": "execute_command"
         }
-        
+
         content_lower = content.lower()
         for command_phrase, tool_name in tool_commands.items():
             if command_phrase in content_lower:
                 # Check if agent is authorized for this tool
                 agent_tier = self._get_tier(agent_id)
                 tool = tool_registry.get_tool(tool_name)
-                
+
                 if tool and agent_tier in tool.get("authorized_tiers", []):
                     # Extract parameters from natural language
                     params = self._extract_parameters_from_text(content, tool["parameters"])
@@ -259,9 +260,9 @@ class AgentOrchestrator:
                         "tool_name": tool_name,
                         "parameters": params
                     }
-        
+
         return {"is_tool_command": False}
-    
+
     # NEW: Tool Creation Detection
     def _detect_tool_creation_intent(self, content: str, agent_id: str) -> bool:
         """Detect if agent wants to create a new tool."""
@@ -271,9 +272,9 @@ class AgentOrchestrator:
             "make a function to",
             "add capability to"
         ]
-        
+
         return any(phrase in content.lower() for phrase in creation_phrases) and agent_id.startswith(('0', '1', '2'))
-    
+
     # NEW: Tool Execution Method
     async def _execute_tool_directly(self, tool_detection: Dict, agent_id: str, start_time: datetime) -> RouteResult:
         """
@@ -318,8 +319,8 @@ class AgentOrchestrator:
             },
             latency_ms=(datetime.utcnow() - start_time).total_seconds() * 1000
         )
-    
-    # NEW: Tool Creation Handler
+
+    # FIXED: Tool Creation Handler
     async def _handle_tool_creation_request(self, content: str, agent_id: str, start_time: datetime) -> RouteResult:
         """
         Process request to create a new tool.
@@ -329,7 +330,18 @@ class AgentOrchestrator:
           - Council/Lead (1xxxx/2xxxx) → proposal staged, Council vote triggered
           - Task (3xxxx)   → blocked, escalated to parent Lead
 
-        ToolCreationService is already imported at module level (Phase 6.1).
+        FIX: Previously this method always fell through to escalate_to_council()
+        for Head/Council/Lead agents due to a misplaced return and TODO comment,
+        making natural-language tool creation non-functional for all tiers.
+
+        Now: Task agents still escalate. Head/Council/Lead agents get a minimal
+        ToolCreationRequest parsed from the natural language content and sent
+        directly to ToolCreationService.propose_tool(). The service handles
+        tier-based approval internally (Head auto-activates, others go to vote).
+
+        Note: natural language parsing here produces a minimal/stub request.
+        Agents should use the structured POST /tool-management/propose endpoint
+        for production tool proposals with full code templates and test cases.
         """
         # Task agents cannot create tools — escalate to their Lead instead
         if agent_id.startswith("3"):
@@ -338,20 +350,64 @@ class AgentOrchestrator:
                 reporter_id=agent_id
             )
 
-        # Head/Council/Lead agents go directly through ToolCreationService.
-        # The service handles tier-based approval internally — Head auto-approves,
-        # others get a Council vote triggered.
-        # We pass a minimal ToolCreationRequest extracted from natural language.
-        # Full structured proposals come via the /tools/propose API endpoint;
-        # this path handles agent-initiated natural language tool requests.
-        return await self.escalate_to_council(
-            issue=f"Tool creation request from {agent_id}: {content}",
-            reporter_id=agent_id
+        # Parse a minimal ToolCreationRequest from natural language.
+        # This extracts a best-effort tool name from the content so the proposal
+        # can enter the proper workflow (vote or auto-activate).
+        # Agents wanting full control (code template, parameters, test cases)
+        # should call POST /tool-management/propose directly.
+        import re
+        tool_name_match = re.search(
+            r'(?:create a tool|build a tool for|make a function to|add capability to)\s+["\']?([a-zA-Z0-9_\- ]+)["\']?',
+            content,
+            re.IGNORECASE,
         )
-        # TODO Phase 6.2+: parse `content` into a structured ToolCreationRequest
-        # and call ToolCreationService(self.db).propose_tool(request) directly
-        # once agents can emit structured tool proposals.
-    
+        # Sanitize to snake_case identifier
+        raw_name = tool_name_match.group(1).strip() if tool_name_match else "unnamed_tool"
+        tool_name = re.sub(r'[^a-z0-9]+', '_', raw_name.lower()).strip('_') or "unnamed_tool"
+
+        try:
+            request = ToolCreationRequest(
+                tool_name=tool_name,
+                description=f"Agent-initiated tool proposal: {content[:200]}",
+                code_template="# Stub — replace with real implementation",
+                parameters=[],
+                authorized_tiers=[],
+                rationale=content,
+                created_by_agentium_id=agent_id,
+            )
+        except Exception as exc:
+            # Pydantic validation failure — fall back to escalation so the
+            # request is not silently dropped.
+            logger.warning(
+                "_handle_tool_creation_request: could not build ToolCreationRequest for %s: %s",
+                agent_id, exc
+            )
+            return await self.escalate_to_council(
+                issue=f"Tool creation request (parse failed) from {agent_id}: {content}",
+                reporter_id=agent_id,
+            )
+
+        tool_svc = ToolCreationService(self.db)
+        result = tool_svc.propose_tool(request)
+
+        await self._log(
+            actor=agent_id,
+            action="tool_creation_proposed",
+            desc=f"Natural-language tool proposal '{tool_name}' by {agent_id}: proposed={result.get('proposed')}",
+            level=AuditLevel.INFO if result.get("proposed") else AuditLevel.WARNING,
+        )
+
+        msg_id = f"tool_propose_{tool_name}_{datetime.utcnow().timestamp()}"
+        return RouteResult(
+            success=result.get("proposed", False),
+            message_id=msg_id,
+            routed_to="tool_creation_service",
+            constitutional_basis=[f"Tool creation by {agent_id}"],
+            metadata=result,
+            latency_ms=(datetime.utcnow() - start_time).total_seconds() * 1000,
+            error=result.get("error") if not result.get("proposed") else None,
+        )
+
     # NEW: Enhanced routing with tool ability checks
     async def _route_up_with_tools(self, msg: AgentMessage) -> RouteResult:
         """Route up with context about what tools parent can execute."""
@@ -362,33 +418,33 @@ class AgentOrchestrator:
             available_tools = tool_registry.list_tools(parent_tier)
             msg.rag_context = msg.rag_context or {}
             msg.rag_context["available_tools"] = list(available_tools.keys())
-        
+
         return await self.message_bus.route_up(msg)
-    
+
     async def _route_down_with_tools(self, msg: AgentMessage) -> RouteResult:
         """Route down with tool assignments for task execution."""
         # If task requires tools, assign them
         if hasattr(msg, 'payload') and msg.payload and "required_tools" in msg.payload:
             required_tools = msg.payload["required_tools"]
-            
+
             # Verify recipient has access to required tools
             recipient_tier = self._get_tier(msg.recipient_id)
             available_tools = tool_registry.list_tools(recipient_tier)
-            
+
             unauthorized_tools = [t for t in required_tools if t not in available_tools]
             if unauthorized_tools:
                 # Escalate to parent if tools aren't available
                 msg.content += f"\n[ESCALATION] Required tools unavailable: {unauthorized_tools}"
                 return await self.message_bus.route_up(msg)
-        
+
         return await self.message_bus.route_down(msg)
-    
+
     # ENHANCED: Idle governance integration
     async def escalate_to_council(self, issue: str, reporter_id: str) -> RouteResult:
         """Escalate issue to Council tier (1xxxx)."""
         # Wake from idle
         token_optimizer.record_activity()
-        
+
         msg = AgentMessage(
             sender_id=reporter_id,
             recipient_id="",
@@ -396,26 +452,26 @@ class AgentOrchestrator:
             content=issue,
             priority="high"
         )
-        
+
         # Enrich with constitution
         if self.vector_store:
             articles = self.vector_store.query_constitution(issue, n_results=3)
             msg.constitutional_basis = articles.get("documents", [[]])[0]
-        
+
         # NEW: Add tools needed for resolution
         resolution_tools = self._suggest_tools_for_issue(issue)
         msg.rag_context = {
             "resolution_tools": resolution_tools,
             "escalation_timestamp": datetime.utcnow().isoformat()
         }
-        
+
         return await self.message_bus.route_up(msg, auto_find_parent=True)
-    
+
     # NEW: Tool suggestion method
     def _suggest_tools_for_issue(self, issue: str) -> List[str]:
         """Suggest tools that might help resolve the issue."""
         suggestions = []
-        
+
         if "file" in issue.lower():
             suggestions.append("read_file")
         if "browser" in issue.lower() or "web" in issue.lower():
@@ -424,9 +480,9 @@ class AgentOrchestrator:
             suggestions.append("execute_command")
         if "docker" in issue.lower() or "container" in issue.lower():
             suggestions.append("list_containers")
-        
+
         return suggestions
-    
+
     # ENHANCED: With tool checking + critic review (Phase 6.2)
     async def delegate_to_task(
         self,
@@ -566,28 +622,28 @@ class AgentOrchestrator:
             return CriticType.PLAN
 
         return CriticType.OUTPUT
-    
+
     # ENHANCED: With constitution reading
     async def enrich_with_context(self, msg: AgentMessage) -> AgentMessage:
         """Inject Vector DB context before routing."""
         if not self.vector_store:
             return msg
-        
+
         agent_type = self._get_type(msg.sender_id)
         ctx = self.vector_store.query_hierarchical_context(
             agent_type=agent_type,
             task_description=msg.content,
             n_results=5
         )
-        
+
         const = self.vector_store.query_constitution(msg.content, n_results=2)
-        
+
         # NEW: Also query tool usage patterns
         tool_ctx = self.vector_store.get_collection("tool_usage").query(
             query_texts=[msg.content],
             n_results=3
         ) if self.vector_store.has_collection("tool_usage") else None
-        
+
         msg.rag_context = {
             "hierarchy": ctx,
             "constitution": const,
@@ -595,7 +651,7 @@ class AgentOrchestrator:
             "timestamp": datetime.utcnow().isoformat()
         }
         return msg
-    
+
     # NEW: WebSocket broadcasting for real-time updates
     async def _broadcast_orchestration_event(self, msg: AgentMessage, result: RouteResult):
         """Broadcast orchestration events to connected clients."""
@@ -616,33 +672,33 @@ class AgentOrchestrator:
             },
             "idle_status": token_optimizer.get_status()  # Include idle state
         }
-        
+
         await manager.broadcast(event_data)
-    
+
     # Parameter extraction from natural language
     def _extract_parameters_from_text(self, text: str, tool_params: Dict) -> Dict[str, Any]:
         """Extract parameters from natural language using regex and simple parsing."""
         params = {}
-        
+
         # URL extraction
         if "url" in tool_params and "http" in text:
             import re
             url_match = re.search(r'https?://[^\s]+', text)
             if url_match:
                 params["url"] = url_match.group(0)
-        
+
         # File path extraction
         if "filepath" in tool_params and ("/" in text or "\\" in text):
             import re
             path_match = re.search(r'(/[^\s]+|C:\\[^\s]+)', text)
             if path_match:
                 params["filepath"] = path_match.group(0)
-        
+
         # Default values
         for param_name, param_meta in tool_params.items():
             if param_name not in params and param_meta.get("default"):
                 params[param_name] = param_meta["default"]
-        
+
         return params
 
     # ------------------------------------------------------------------
@@ -767,15 +823,18 @@ class AgentOrchestrator:
                     agent_id, cb["failures"],
                 )
 
-    # REST OF YOUR EXISTING CODE...
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
     def check_permission(self, from_id: str, to_id: str) -> bool:
         """Validate routing permission."""
         return HierarchyValidator.can_route(from_id, to_id, self._get_direction(from_id, to_id))
-    
+
     def _get_agent(self, agent_id: str) -> Optional[Agent]:
         """Query agent from DB (cacheable in production)."""
         return self.db.query(Agent).filter_by(agentium_id=agent_id, is_active=True).first()
-    
+
     def _get_parent_id(self, agent_id: str) -> str:
         """Get parent agent ID from DB."""
         agent = self._get_agent(agent_id)
@@ -785,12 +844,12 @@ class AgentOrchestrator:
         tier = HierarchyValidator.get_tier(agent_id)
         parents = {3: "2xxxx", 2: "1xxxx", 1: "00001"}
         return parents.get(tier, "00001")
-    
+
     def _get_direction(self, from_id: str, to_id: str) -> str:
         """Determine routing direction."""
         from_tier = HierarchyValidator.get_tier(from_id)
         to_tier = HierarchyValidator.get_tier(to_id)
-        
+
         if to_id == "broadcast":
             return "broadcast"
         if to_tier < from_tier:
@@ -798,32 +857,48 @@ class AgentOrchestrator:
         if to_tier > from_tier:
             return "down"
         return "lateral"
-    
+
+    def _get_tier(self, agent_id: str) -> str:
+        """
+        FIX: This method was called in three places (_detect_tool_intent,
+        _route_up_with_tools, _route_down_with_tools) but was never defined
+        on the class — every call would raise AttributeError at runtime.
+
+        Returns the tier string for an agent ID by delegating to
+        HierarchyValidator.get_tier(), which maps the ID prefix to a tier
+        number and then maps that back to the string prefix used for
+        tool registry authorization checks (e.g. "0", "1", "2", "3").
+        """
+        tier_num = HierarchyValidator.get_tier(agent_id)
+        # HierarchyValidator.get_tier() returns an int (0-3).
+        # The tool registry authorized_tiers uses the string prefix character.
+        return str(tier_num)
+
     def _get_type(self, agent_id: str) -> str:
         """Map ID prefix to agent type string."""
         return {'0': 'head', '1': 'council', '2': 'lead', '3': 'task'}.get(agent_id[0], 'task')
-    
+
     async def _find_available_task(self, lead_id: str) -> Optional[str]:
         """Find available Task Agent under Lead."""
         lead = self._get_agent(lead_id)
         if not lead:
             return None
-        
+
         # NEW: Only return idle-enabled task agents if system is in idle mode
         if token_optimizer.idle_mode_active:
             for sub in lead.subordinates:
-                if (sub.agent_type == AgentType.TASK_AGENT and 
+                if (sub.agent_type == AgentType.TASK_AGENT and
                     sub.status.value == 'active' and
                     sub.idle_mode_enabled):
                     return sub.agentium_id
-        
+
         # Normal mode: any active task agent
         for sub in lead.subordinates:
             if sub.agent_type == AgentType.TASK_AGENT and sub.status.value == 'active':
                 return sub.agentium_id
-        
+
         return None
-    
+
     async def _log(self, actor: str, action: str, desc: str, level=AuditLevel.INFO, target=None):
         """Write to audit log."""
         audit = AuditLog(

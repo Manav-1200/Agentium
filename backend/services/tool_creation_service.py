@@ -6,10 +6,15 @@ Changes from original:
 - ToolStaging moved to models/entities/tool_staging.py
 - activate_tool() now creates initial ToolVersion via ToolVersioningService
 - All tool calls wrapped with ToolAnalyticsService recording
+
+Fixes (Phase 6.8):
+- list_tools: safe JSON parse guard — to_dict() may return request_json as dict or str
+- propose_tool: removed unused `persistent_council` import inside the method body
+- persistent_council import removed from propose_tool (was imported but never called)
 """
 from sqlalchemy.orm import Session
 from backend.models.schemas.tool_creation import ToolCreationRequest, ToolApprovalRequest
-from backend.models.entities.tool_staging import ToolStaging          # ← extracted entity
+from backend.models.entities.tool_staging import ToolStaging
 from backend.models.entities.voting import AmendmentVoting, AmendmentStatus
 from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
 from backend.services.tool_factory import ToolFactory
@@ -94,7 +99,9 @@ class ToolCreationService:
                 Agent.status == "active"
             ).all()
 
-            from backend.services.persistent_council import persistent_council
+            # FIX: removed the unused `from backend.services.persistent_council import persistent_council`
+            # that was imported here but never actually called. If council notification is needed,
+            # implement it explicitly via persistent_council.notify_council(...) here.
 
             voting = AmendmentVoting(
                 constitution_id=None,
@@ -324,12 +331,25 @@ class ToolCreationService:
         result = [t.to_dict() for t in tools]
 
         if authorized_for_tier:
-            result = [
-                t for t in result
-                if authorized_for_tier in (
-                    json.loads(t.get("request_json", "{}")).get("authorized_tiers", [])
-                )
-            ]
+            filtered = []
+            for t in result:
+                # FIX: to_dict() may serialize request_json as a dict (already parsed)
+                # or as a JSON string depending on the entity implementation.
+                # Guard both cases to prevent TypeError on json.loads(dict).
+                raw = t.get("request_json", {})
+                if isinstance(raw, str):
+                    try:
+                        parsed = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        parsed = {}
+                elif isinstance(raw, dict):
+                    parsed = raw
+                else:
+                    parsed = {}
+
+                if authorized_for_tier in parsed.get("authorized_tiers", []):
+                    filtered.append(t)
+            result = filtered
 
         return {"tools": result, "total": len(result)}
 

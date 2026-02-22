@@ -23,9 +23,11 @@ def upgrade() -> None:
 
         # ── Primary key & base columns ─────────────────────────────────────────
         sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('agentium_id', sa.String(20), unique=True, nullable=True),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
         sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()),
+        sa.Column('deleted_at', sa.DateTime(), nullable=True),
 
         # ── Identity ───────────────────────────────────────────────────────────
         sa.Column('name', sa.String(128), nullable=False),
@@ -68,6 +70,7 @@ def upgrade() -> None:
     )
 
     # Indexes
+    op.create_index('ix_mcp_tools_agentium_id', 'mcp_tools', ['agentium_id'], unique=True)
     op.create_index('ix_mcp_tools_name',       'mcp_tools', ['name'],       unique=True)
     op.create_index('ix_mcp_tools_server_url',  'mcp_tools', ['server_url'], unique=False)
     op.create_index('ix_mcp_tools_status',      'mcp_tools', ['status'],     unique=False)
@@ -75,8 +78,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index('ix_mcp_tools_tier',       table_name='mcp_tools')
-    op.drop_index('ix_mcp_tools_status',     table_name='mcp_tools')
-    op.drop_index('ix_mcp_tools_server_url', table_name='mcp_tools')
-    op.drop_index('ix_mcp_tools_name',       table_name='mcp_tools')
+    op.drop_index('ix_mcp_tools_tier',        table_name='mcp_tools')
+    op.drop_index('ix_mcp_tools_status',      table_name='mcp_tools')
+    op.drop_index('ix_mcp_tools_server_url',  table_name='mcp_tools')
+    op.drop_index('ix_mcp_tools_name',        table_name='mcp_tools')
+    op.drop_index('ix_mcp_tools_agentium_id', table_name='mcp_tools')
     op.drop_table('mcp_tools')
