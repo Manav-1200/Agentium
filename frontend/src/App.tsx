@@ -16,9 +16,9 @@ import { ChannelsPage } from '@/pages/ChannelsPage';
 import { ModelsPage } from '@/pages/ModelsPage';
 import { AgentsPage } from '@/pages/AgentsPage';
 import { TasksPage } from '@/pages/TasksPage';
-import { MonitoringPage } from '@/pages/MonitoringPage';
 import { ConstitutionPage } from '@/pages/ConstitutionPage';
 import { SovereignDashboard } from '@/pages/SovereignDashboard';
+import { InboxPage } from '@/pages/InboxPage';
 import { SovereignRoute } from '@/components/SovereignRoute';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Shield, Loader2 } from 'lucide-react';
@@ -53,14 +53,14 @@ function AuthLayout() {
   const toggleTheme = () => {
     const newDark = !isDark;
     setIsDark(newDark);
-        
+
     if (newDark) {
       document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
       localStorage.setItem('theme', 'light');
-        }
+    }
   };
 
   return (
@@ -186,7 +186,7 @@ export default function App() {
           style: { background: '#1f2937', color: '#fff' },
         }}
       />
-      
+
       {/* WRAP EVERYTHING WITH GLOBAL WEBSOCKET PROVIDER */}
       <GlobalWebSocketProvider>
         <Routes>
@@ -214,8 +214,8 @@ export default function App() {
             <Route path="chat" element={<ChatPage />} />
             <Route path="agents" element={<AgentsPage />} />
             <Route path="tasks" element={<TasksPage />} />
-            <Route path="monitoring" element={<MonitoringPage />} />
             <Route path="constitution" element={<ConstitutionPage />} />
+            <Route path="inbox" element={<InboxPage />} />
             <Route path="models" element={<ModelsPage />} />
             <Route path="channels" element={<ChannelsPage />} />
             <Route

@@ -2,20 +2,21 @@
 import { useAuthStore } from '@/store/authStore';
 import { useWebSocketStore } from '@/store/websocketStore';
 import { NavLink, useNavigate, Outlet } from 'react-router-dom';
-import { 
-    LayoutDashboard, 
-    Crown, 
-    Users, 
-    ClipboardList, 
-    Activity, 
-    BookOpen, 
-    Settings, 
+import {
+    LayoutDashboard,
+    Crown,
+    Users,
+    ClipboardList,
+    Activity,
+    BookOpen,
+    Settings,
     LogOut,
     Cpu,
     Radio,
     Shield,
+    Inbox,
 } from 'lucide-react';
-import {useState } from 'react';
+import { useState } from 'react';
 
 export function MainLayout() {
     const { user, logout } = useAuthStore();
@@ -27,7 +28,7 @@ export function MainLayout() {
         }
         return false;
     });
-    
+
     const handleLogout = () => {
         // Dispatch logout event for WebSocket cleanup
         window.dispatchEvent(new Event('logout'));
@@ -38,7 +39,7 @@ export function MainLayout() {
     const toggleTheme = () => {
         const newDark = !isDark;
         setIsDark(newDark);
-        
+
         if (newDark) {
             document.documentElement.classList.add('dark');
             localStorage.setItem('theme', 'dark');
@@ -50,9 +51,9 @@ export function MainLayout() {
 
     const navItems = [
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-        { 
-            path: '/chat', 
-            label: 'Command Interface', 
+        {
+            path: '/chat',
+            label: 'Command Interface',
             icon: Crown,
             badge: unreadCount > 0 ? unreadCount : undefined
         },
@@ -60,6 +61,7 @@ export function MainLayout() {
         { path: '/tasks', label: 'Tasks', icon: ClipboardList },
         { path: '/monitoring', label: 'Monitoring', icon: Activity },
         { path: '/constitution', label: 'Constitution', icon: BookOpen },
+        { path: '/inbox', label: 'Unified Inbox', icon: Inbox },
         { path: '/models', label: 'Models', icon: Cpu },
         { path: '/channels', label: 'Channels', icon: Radio },
         { path: '/settings', label: 'Settings', icon: Settings },
@@ -79,15 +81,15 @@ export function MainLayout() {
                             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
                         >
                             {/* Light Mode Logo - Blue */}
-                            <Shield 
-                                className="w-8 h-8 text-blue-600 transition-all duration-300 rotate-0 scale-100 dark:rotate-90 dark:scale-0 dark:opacity-0" 
+                            <Shield
+                                className="w-8 h-8 text-blue-600 transition-all duration-300 rotate-0 scale-100 dark:rotate-90 dark:scale-0 dark:opacity-0"
                             />
-                            
+
                             {/* Dark Mode Logo - White/Light with glow */}
-                            <Shield 
-                                className="w-8 h-8 absolute inset-0 m-auto text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.5)] transition-all duration-300 rotate-90 scale-0 opacity-0 dark:rotate-0 dark:scale-100 dark:opacity-100" 
+                            <Shield
+                                className="w-8 h-8 absolute inset-0 m-auto text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.5)] transition-all duration-300 rotate-90 scale-0 opacity-0 dark:rotate-0 dark:scale-100 dark:opacity-100"
                             />
-                            
+
                         </button>
 
                         <div>
@@ -104,10 +106,9 @@ export function MainLayout() {
                             key={item.path}
                             to={item.path}
                             className={({ isActive }) =>
-                                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                                    isActive
-                                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
-                                        : 'text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'
+                                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${isActive
+                                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'
                                 }`
                             }
                         >
