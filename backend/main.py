@@ -43,6 +43,7 @@ from backend.api.routes import webhooks as webhooks_router
 from backend.api.routes import models as model_routes
 from backend.api.routes import websocket as websocket_routes
 from backend.api.routes import auth as auth_routes
+from backend.api.routes import inbox as inbox_routes
 from backend.core.auth import get_current_user
 from backend.api import sovereign
 from backend.api.routes import tool_creation as tool_creation_routes
@@ -289,6 +290,7 @@ app.include_router(model_routes.router, prefix="/api/v1")
 app.include_router(chat_routes.router, prefix="/api/v1")
 app.include_router(channels_routes.router, prefix="/api/v1")
 app.include_router(webhooks_router.router, prefix="/api/v1")
+app.include_router(inbox_routes.router, prefix="/api/v1")
 app.include_router(websocket_routes.router, prefix="/ws")
 app.include_router(host_access.router, prefix="/api/v1")
 app.include_router(sovereign.router, prefix="/api/v1")
