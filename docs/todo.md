@@ -1546,7 +1546,7 @@ FastAPI (API Gateway) ✅ Running on port 8000
     ↓
 React Frontend ✅ Running on port 3000
     ↓
-Remote Executor (NEW) 🆕 - Docker sandbox for code execution (PENDING)
+Remote Executor (NEW) 🆕 - Docker sandbox for code execution (Done)
 ```
 
 ### Python Dependencies
@@ -1839,11 +1839,12 @@ _Status: Active Development - Phase 5 In Progress | Phase 6 Critic Agents Done_
 
 Memory optimization:
 
-1. Older chats will be removed after a certain period of time. i.e 7 days
+1. Older chats will be removed after a certain period of time. i.e 7 days, last 50 message kept and will not be removed.
+   2 Chats message with the user should be small and precise.
 2. A database of all tasks that were assigned by user and what were complited will be stored in database
 3. The database of all tasks that are complited will be removed after a certain period of time. i.e 7 days (expection: The orginal constitution that was stored will not be removed in any way)
-4. The vector database will be optimized, old knowledge will be viewed and kept uptodate and dublicated will be removed.
-5. New tasks will not be assigned to the agent if the agent is not available.
-6. Optimizatin of all system without loos of functionality, and loss of imported information.
-7. Optimization inside contaner should be priority. Outside contaner should be done carefully and deletion of files should be taken seriously. outside contaner and for that the Sovereign (User) should be asked for permission.
-8. Need to Improve on Skills creation a unified structure for skills should be setup and the format should be same.
+4. in vector database, Need to Improve on Skills creation a unified structure for skills should be setup and the format should be same.
+5. The vector database will be optimized, old knowledge will be viewed and kept uptodate and dublicated will be removed.
+6. New tasks will not be assigned to the agent if the agent is not available.
+7. Optimizatin of all system without loos of functionality, and loss of imported information.
+8. Optimization inside contaner should be priority. Outside contaner should be done carefully and deletion of files should be taken seriously. outside container and for that the Sovereign (User) should be asked for permission.

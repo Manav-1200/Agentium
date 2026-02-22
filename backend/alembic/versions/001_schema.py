@@ -1,12 +1,12 @@
-"""Agentium Complete Schema Migration
+"""Agentium Complete Schema Migration (consolidated)
 
-This is a consolidated migration that replaces all previous migrations (001 through 008).
-It creates the complete database schema in one go, avoiding the enum transaction issues
-that occur when splitting enum modifications across multiple migrations.
+This is the single canonical migration that replaces all previous migrations
+(001 through 004).  It creates the complete database schema in one go,
+including remote-execution tables and unified-inbox alignment columns.
 
 Revision ID: 001_schema
-Revises: 
-Create Date: 2026-02-21
+Revises:
+Create Date: 2026-02-22
 """
 from alembic import op
 import sqlalchemy as sa
@@ -23,12 +23,10 @@ def upgrade():
     conn = op.get_bind()
     inspector = inspect(conn)
     existing_tables = set(inspector.get_table_names())
-    
+
     # =========================================================================
-    # ENUM TYPES - Create with IF NOT EXISTS to avoid errors
+    # ENUM TYPES
     # =========================================================================
-    
-    # Create taskstatus enum safely - won't error if already exists
     op.execute("""
         DO $$
         BEGIN
@@ -45,9 +43,9 @@ def upgrade():
             END IF;
         END $$;
     """)
-    
+
     # =========================================================================
-    # 1. USERS TABLE
+    # 1. USERS
     # =========================================================================
     if 'users' not in existing_tables:
         op.create_table(
@@ -63,16 +61,16 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     # =========================================================================
-    # 2. USER MODEL CONFIGS (no FK constraint to allow NULL user_id for sovereign)
+    # 2. USER MODEL CONFIGS
     # =========================================================================
     if 'user_model_configs' not in existing_tables:
         op.create_table(
             'user_model_configs',
             sa.Column('id', sa.String(36), primary_key=True),
             sa.Column('agentium_id', sa.String(20), unique=True, nullable=True),
-            sa.Column('user_id', sa.String(36), nullable=True),  # NO FK - allows sovereign configs
+            sa.Column('user_id', sa.String(36), nullable=True),
             sa.Column('config_name', sa.String(100), nullable=False),
             sa.Column('provider', sa.String(30), nullable=False),
             sa.Column('provider_name', sa.String(50), nullable=True),
@@ -100,7 +98,6 @@ def upgrade():
             sa.Column('total_tokens', sa.Integer(), server_default='0'),
             sa.Column('estimated_cost_usd', sa.Float(), server_default='0.0'),
             sa.Column('extra_params', sa.JSON(), nullable=True),
-            # Priority & resilience columns
             sa.Column('priority', sa.Integer(), server_default='999', nullable=False),
             sa.Column('failure_count', sa.Integer(), server_default='0', nullable=False),
             sa.Column('last_failure_at', sa.DateTime(), nullable=True),
@@ -112,11 +109,11 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-        op.create_index('ix_user_model_configs_agentium_id', 'user_model_configs', ['agentium_id'], 
-                       unique=True, postgresql_where=sa.text("agentium_id IS NOT NULL"))
-    
+        op.create_index('ix_user_model_configs_agentium_id', 'user_model_configs', ['agentium_id'],
+                        unique=True, postgresql_where=sa.text("agentium_id IS NOT NULL"))
+
     # =========================================================================
-    # 3. ETHOS TABLE
+    # 3. ETHOS
     # =========================================================================
     if 'ethos' not in existing_tables:
         op.create_table(
@@ -148,9 +145,9 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     # =========================================================================
-    # 4. AGENTS TABLE (base table)
+    # 4. AGENTS
     # =========================================================================
     if 'agents' not in existing_tables:
         op.create_table(
@@ -160,7 +157,7 @@ def upgrade():
             sa.Column('agent_type', sa.String(20), nullable=False),
             sa.Column('name', sa.String(100), nullable=False),
             sa.Column('description', sa.Text(), nullable=True),
-            sa.Column('custom_capabilities', sa.Text(), nullable=True),  # Phase 3
+            sa.Column('custom_capabilities', sa.Text(), nullable=True),
             sa.Column('incarnation_number', sa.Integer(), server_default='1'),
             sa.Column('parent_id', sa.String(36), sa.ForeignKey('agents.id'), nullable=True),
             sa.Column('status', sa.String(20), server_default='initializing'),
@@ -170,7 +167,7 @@ def upgrade():
             sa.Column('system_prompt_override', sa.Text(), nullable=True),
             sa.Column('ethos_id', sa.String(36), sa.ForeignKey('ethos.id'), nullable=True),
             sa.Column('constitution_version', sa.String(10), nullable=True),
-            sa.Column('created_by_agentium_id', sa.String(10), nullable=True),  # Added in 004
+            sa.Column('created_by_agentium_id', sa.String(10), nullable=True),
             sa.Column('spawned_at_task_count', sa.Integer(), server_default='0'),
             sa.Column('tasks_completed', sa.Integer(), server_default='0'),
             sa.Column('tasks_failed', sa.Integer(), server_default='0'),
@@ -195,7 +192,7 @@ def upgrade():
         op.create_index('idx_parent_id', 'agents', ['parent_id'])
         op.create_index('idx_agents_is_persistent', 'agents', ['is_persistent'])
         op.create_index('idx_agents_last_idle', 'agents', ['last_idle_action_at'])
-    
+
     # =========================================================================
     # 5. AGENT SUBTYPE TABLES
     # =========================================================================
@@ -206,7 +203,7 @@ def upgrade():
             sa.Column('emergency_override_used_at', sa.DateTime(), nullable=True),
             sa.Column('last_constitution_update', sa.DateTime(), nullable=True),
         )
-    
+
     if 'council_members' not in existing_tables:
         op.create_table(
             'council_members',
@@ -215,7 +212,7 @@ def upgrade():
             sa.Column('votes_participated', sa.Integer(), server_default='0'),
             sa.Column('votes_abstained', sa.Integer(), server_default='0'),
         )
-    
+
     if 'lead_agents' not in existing_tables:
         op.create_table(
             'lead_agents',
@@ -225,7 +222,7 @@ def upgrade():
             sa.Column('department', sa.String(50), nullable=True),
             sa.Column('spawn_threshold', sa.Integer(), server_default='5'),
         )
-    
+
     if 'task_agents' not in existing_tables:
         op.create_table(
             'task_agents',
@@ -234,7 +231,7 @@ def upgrade():
             sa.Column('execution_timeout', sa.Integer(), server_default='300'),
             sa.Column('sandbox_enabled', sa.Boolean(), server_default='true'),
         )
-    
+
     if 'critic_agents' not in existing_tables:
         op.create_table(
             'critic_agents',
@@ -247,9 +244,9 @@ def upgrade():
             sa.Column('avg_review_time_ms', sa.Float(), server_default='0.0'),
             sa.Column('preferred_review_model', sa.String(100), nullable=True),
         )
-    
+
     # =========================================================================
-    # 6. CONSTITUTIONS TABLE
+    # 6. CONSTITUTIONS
     # =========================================================================
     if 'constitutions' not in existing_tables:
         op.create_table(
@@ -280,16 +277,15 @@ def upgrade():
         op.create_index('idx_constitution_version_number', 'constitutions', ['version_number'])
         op.create_index('idx_constitution_active', 'constitutions', ['is_active'])
         op.create_index('idx_constitution_effective', 'constitutions', ['effective_date'])
-    
+
     # =========================================================================
-    # 7. TASKS TABLE - Only create if enum exists (it should at this point)
+    # 7. TASKS
     # =========================================================================
     if 'tasks' not in existing_tables:
-        # Check if enum exists before creating table
         enum_exists = conn.execute(text(
             "SELECT 1 FROM pg_type WHERE typname = 'taskstatus'"
         )).fetchone()
-        
+
         if enum_exists:
             op.create_table(
                 'tasks',
@@ -297,24 +293,24 @@ def upgrade():
                 sa.Column('agentium_id', sa.String(20), unique=True, nullable=True),
                 sa.Column('title', sa.String(200), nullable=False),
                 sa.Column('description', sa.Text(), nullable=False),
-                sa.Column('status', postgresql.ENUM('pending', 'deliberating', 'approved', 'rejected', 'delegating',
-                                            'assigned', 'in_progress', 'review', 'completed', 'failed', 'cancelled',
-                                            'idle_pending', 'idle_running', 'idle_paused', 'idle_completed',
-                                            'PENDING', 'DELIBERATING', 'APPROVED', 'REJECTED', 'DELEGATING',
-                                            'ASSIGNED', 'IN_PROGRESS', 'REVIEW', 'COMPLETED', 'FAILED',
-                                            'CANCELLED', 'IDLE_PENDING', 'IDLE_RUNNING', 'IDLE_PAUSED',
-                                            'IDLE_COMPLETED', 'ESCALATED', name='taskstatus', create_type=False), 
-                          server_default='pending', nullable=False),
+                sa.Column('status', postgresql.ENUM(
+                    'pending', 'deliberating', 'approved', 'rejected', 'delegating',
+                    'assigned', 'in_progress', 'review', 'completed', 'failed', 'cancelled',
+                    'idle_pending', 'idle_running', 'idle_paused', 'idle_completed',
+                    'PENDING', 'DELIBERATING', 'APPROVED', 'REJECTED', 'DELEGATING',
+                    'ASSIGNED', 'IN_PROGRESS', 'REVIEW', 'COMPLETED', 'FAILED',
+                    'CANCELLED', 'IDLE_PENDING', 'IDLE_RUNNING', 'IDLE_PAUSED',
+                    'IDLE_COMPLETED', 'ESCALATED',
+                    name='taskstatus', create_type=False),
+                    server_default='pending', nullable=False),
                 sa.Column('priority', sa.Integer(), server_default='1'),
                 sa.Column('assigned_to_agent_id', sa.String(36), sa.ForeignKey('agents.id'), nullable=True),
                 sa.Column('created_by', sa.String(36), nullable=False),
                 sa.Column('started_at', sa.DateTime(), nullable=True),
                 sa.Column('completed_at', sa.DateTime(), nullable=True),
                 sa.Column('result_summary', sa.Text(), nullable=True),
-                # Phase 6.3 columns
                 sa.Column('acceptance_criteria', sa.JSON(), nullable=True),
                 sa.Column('veto_authority', sa.String(20), nullable=True),
-                # 006 columns
                 sa.Column('task_type', sa.String(50), server_default='execution'),
                 sa.Column('constitutional_basis', sa.Text(), nullable=True),
                 sa.Column('hierarchical_id', sa.String(100), nullable=True),
@@ -355,9 +351,9 @@ def upgrade():
             )
         else:
             print("WARNING: taskstatus enum does not exist, skipping tasks table creation")
-    
+
     # =========================================================================
-    # 8. SUBTASKS TABLE
+    # 8. SUBTASKS
     # =========================================================================
     if 'subtasks' not in existing_tables:
         op.create_table(
@@ -375,9 +371,9 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     # =========================================================================
-    # 9. TASK DELIBERATIONS TABLE (006)
+    # 9. TASK DELIBERATIONS
     # =========================================================================
     if 'task_deliberations' not in existing_tables:
         op.create_table(
@@ -405,16 +401,17 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     # Add FK from tasks to deliberations if both exist
     if 'tasks' in existing_tables and 'task_deliberations' in existing_tables:
         try:
-            op.create_foreign_key('tasks_deliberation_id_fkey', 'tasks', 'task_deliberations', ['deliberation_id'], ['id'])
-        except:
+            op.create_foreign_key('tasks_deliberation_id_fkey', 'tasks', 'task_deliberations',
+                                  ['deliberation_id'], ['id'])
+        except Exception:
             pass
-    
+
     # =========================================================================
-    # 10. TASK EVENTS & AUDIT LOGS (006)
+    # 10. TASK EVENTS & AUDIT LOGS
     # =========================================================================
     if 'task_events' not in existing_tables:
         op.create_table(
@@ -432,7 +429,7 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     if 'task_audit_logs' not in existing_tables:
         op.create_table(
             'task_audit_logs',
@@ -448,9 +445,9 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     # =========================================================================
-    # 11. AMENDMENT VOTING (with 006 updates)
+    # 11. AMENDMENT VOTING
     # =========================================================================
     if 'amendment_votings' not in existing_tables:
         op.create_table(
@@ -482,9 +479,9 @@ def upgrade():
         )
         op.create_index('idx_amendment_status', 'amendment_votings', ['status'])
         op.create_index('idx_amendment_constitution', 'amendment_votings', ['amendment_id'])
-    
+
     # =========================================================================
-    # 12. INDIVIDUAL VOTES (with 006 updates)
+    # 12. INDIVIDUAL VOTES
     # =========================================================================
     if 'individual_votes' not in existing_tables:
         op.create_table(
@@ -504,14 +501,14 @@ def upgrade():
             sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-        # Add check constraint
         try:
-            op.execute("ALTER TABLE individual_votes ADD CONSTRAINT check_vote_has_parent CHECK (task_deliberation_id IS NOT NULL OR amendment_voting_id IS NOT NULL)")
-        except:
+            op.execute("ALTER TABLE individual_votes ADD CONSTRAINT check_vote_has_parent "
+                       "CHECK (task_deliberation_id IS NOT NULL OR amendment_voting_id IS NOT NULL)")
+        except Exception:
             pass
-    
+
     # =========================================================================
-    # 13. VOTING RECORDS (006)
+    # 13. VOTING RECORDS
     # =========================================================================
     if 'voting_records' not in existing_tables:
         op.create_table(
@@ -536,7 +533,7 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     # =========================================================================
     # 14. AUDIT LOGS
     # =========================================================================
@@ -575,7 +572,7 @@ def upgrade():
         op.create_index('idx_audit_actor_action', 'audit_logs', ['actor_id', 'action'])
         op.create_index('idx_audit_level_category', 'audit_logs', ['level', 'category'])
         op.create_index('idx_audit_correlation', 'audit_logs', ['correlation_id'])
-    
+
     # =========================================================================
     # 15. CHANNELS
     # =========================================================================
@@ -594,9 +591,10 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     # =========================================================================
     # 16. EXTERNAL CHANNELS & MESSAGES
+    #     Includes 002_schema WhatsApp provider default + 004 user_id column
     # =========================================================================
     if 'external_channels' not in existing_tables:
         op.create_table(
@@ -616,12 +614,32 @@ def upgrade():
             sa.Column('last_message_at', sa.DateTime(), nullable=True),
             sa.Column('last_tested_at', sa.DateTime(), nullable=True),
             sa.Column('error_message', sa.Text(), nullable=True),
+            # 004: per-user isolation
+            sa.Column('user_id', sa.String(36), sa.ForeignKey('users.id'), nullable=True),
             sa.Column('is_active', sa.Boolean(), server_default='true'),
             sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
+    # 002_schema: seed WhatsApp channels with cloud_api provider default
+    op.execute("""
+        UPDATE external_channels
+        SET config = (
+            jsonb_set(
+                COALESCE(config::jsonb, '{}'::jsonb),
+                '{provider}',
+                '"cloud_api"'
+            )
+        )::json
+        WHERE channel_type = 'whatsapp'
+          AND (config IS NULL OR config->>'provider' IS NULL)
+    """)
+    op.execute("""
+        COMMENT ON COLUMN external_channels.config IS
+        'Channel configuration JSON. For WhatsApp: includes provider (cloud_api|web_bridge), credentials, and connection settings'
+    """)
+
     if 'external_messages' not in existing_tables:
         op.create_table(
             'external_messages',
@@ -660,16 +678,15 @@ def upgrade():
             sa.Column('description', sa.Text(), nullable=True),
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
         )
-        # Seed default budget values
         op.execute("""
             INSERT INTO system_settings (key, value, description, updated_at) VALUES
                 ('daily_token_limit', '100000', 'Maximum tokens per day across all API providers', NOW()),
                 ('daily_cost_limit', '5.0', 'Maximum USD cost per day across all API providers', NOW())
             ON CONFLICT (key) DO NOTHING
         """)
-    
+
     # =========================================================================
-    # 17. MODEL USAGE LOGS
+    # 18. MODEL USAGE LOGS
     # =========================================================================
     if 'model_usage_logs' not in existing_tables:
         op.create_table(
@@ -696,9 +713,10 @@ def upgrade():
         op.create_index('idx_usage_config', 'model_usage_logs', ['config_id'])
         op.create_index('idx_usage_created', 'model_usage_logs', ['created_at'])
         op.create_index('idx_usage_provider', 'model_usage_logs', ['provider'])
-    
+
     # =========================================================================
-    # 18. CONVERSATIONS & CHAT MESSAGES
+    # 19. CONVERSATIONS & CHAT MESSAGES
+    #     Includes 004 unified-inbox alignment columns
     # =========================================================================
     if 'conversations' not in existing_tables:
         op.create_table(
@@ -712,11 +730,13 @@ def upgrade():
             sa.Column('last_message_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('is_deleted', sa.Boolean(), server_default='false'),
             sa.Column('is_archived', sa.Boolean(), server_default='false'),
+            # 004: active-state flag
+            sa.Column('is_active', sa.Boolean(), server_default='true', nullable=False),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
         op.create_index('idx_conv_user_updated', 'conversations', ['user_id', 'updated_at'])
         op.create_index('idx_conv_last_message', 'conversations', ['last_message_at'])
-    
+
     if 'chat_messages' not in existing_tables:
         op.create_table(
             'chat_messages',
@@ -728,6 +748,12 @@ def upgrade():
             sa.Column('attachments', sa.JSON(), nullable=True),
             sa.Column('message_metadata', sa.JSON(), nullable=True),
             sa.Column('agent_id', sa.String(50), nullable=True),
+            # 004: unified-inbox fields
+            sa.Column('sender_channel', sa.String(50), nullable=True),
+            sa.Column('message_type', sa.String(50), server_default='text', nullable=True),
+            sa.Column('media_url', sa.Text(), nullable=True),
+            sa.Column('silent_delivery', sa.Boolean(), server_default='false', nullable=True),
+            sa.Column('external_message_id', sa.String(100), nullable=True),
             sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('is_deleted', sa.Boolean(), server_default='false'),
@@ -736,9 +762,9 @@ def upgrade():
         op.create_index('idx_chat_user_created', 'chat_messages', ['user_id', 'created_at'])
         op.create_index('idx_chat_conversation', 'chat_messages', ['conversation_id', 'created_at'])
         op.create_index('idx_chat_role', 'chat_messages', ['role'])
-    
+
     # =========================================================================
-    # 19. MONITORING TABLES (002)
+    # 20. MONITORING TABLES
     # =========================================================================
     if 'agent_health_reports' not in existing_tables:
         op.create_table(
@@ -766,7 +792,7 @@ def upgrade():
         )
         op.create_index('idx_health_monitor', 'agent_health_reports', ['monitor_agent_id'])
         op.create_index('idx_health_subject', 'agent_health_reports', ['subject_agent_id'])
-    
+
     if 'violation_reports' not in existing_tables:
         op.create_table(
             'violation_reports',
@@ -793,7 +819,7 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     if 'task_verifications' not in existing_tables:
         op.create_table(
             'task_verifications',
@@ -822,7 +848,7 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     if 'performance_metrics' not in existing_tables:
         op.create_table(
             'performance_metrics',
@@ -847,7 +873,7 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     if 'monitoring_alerts' not in existing_tables:
         op.create_table(
             'monitoring_alerts',
@@ -868,9 +894,9 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     # =========================================================================
-    # 20. CRITIQUE REVIEWS (with 6.3 columns)
+    # 21. CRITIQUE REVIEWS
     # =========================================================================
     if 'critique_reviews' not in existing_tables:
         op.create_table(
@@ -890,7 +916,6 @@ def upgrade():
             sa.Column('model_used', sa.String(100), nullable=True),
             sa.Column('output_hash', sa.String(64), nullable=True),
             sa.Column('reviewed_at', sa.DateTime(), server_default=sa.func.now()),
-            # Phase 6.3 columns
             sa.Column('criteria_results', sa.JSON(), nullable=True),
             sa.Column('criteria_evaluated', sa.Integer(), nullable=True),
             sa.Column('criteria_passed', sa.Integer(), nullable=True),
@@ -901,9 +926,9 @@ def upgrade():
         )
         op.create_index('idx_critique_task', 'critique_reviews', ['task_id'])
         op.create_index('idx_critique_critic', 'critique_reviews', ['critic_agentium_id'])
-    
+
     # =========================================================================
-    # 21. TOOL MANAGEMENT TABLES (6.1)
+    # 22. TOOL MANAGEMENT
     # =========================================================================
     if 'tool_staging' not in existing_tables:
         op.create_table(
@@ -931,7 +956,7 @@ def upgrade():
         op.create_index('idx_tool_staging_name', 'tool_staging', ['tool_name'])
         op.create_index('idx_tool_staging_proposer', 'tool_staging', ['proposed_by_agentium_id'])
         op.create_index('idx_tool_staging_status', 'tool_staging', ['status'])
-    
+
     if 'tool_versions' not in existing_tables:
         op.create_table(
             'tool_versions',
@@ -952,8 +977,9 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-        op.create_index('ix_tool_versions_name_number', 'tool_versions', ['tool_name', 'version_number'], unique=True)
-    
+        op.create_index('ix_tool_versions_name_number', 'tool_versions',
+                        ['tool_name', 'version_number'], unique=True)
+
     if 'tool_usage_logs' not in existing_tables:
         op.create_table(
             'tool_usage_logs',
@@ -973,7 +999,7 @@ def upgrade():
         )
         op.create_index('ix_tool_usage_tool_invoked', 'tool_usage_logs', ['tool_name', 'invoked_at'])
         op.create_index('ix_tool_usage_agent_tool', 'tool_usage_logs', ['called_by_agentium_id', 'tool_name'])
-    
+
     if 'tool_marketplace_listings' not in existing_tables:
         op.create_table(
             'tool_marketplace_listings',
@@ -1006,9 +1032,9 @@ def upgrade():
             sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now()),
             sa.Column('deleted_at', sa.DateTime(), nullable=True),
         )
-    
+
     # =========================================================================
-    # 22. SCHEDULED TASKS
+    # 23. SCHEDULED TASKS
     # =========================================================================
     if 'scheduled_tasks' not in existing_tables:
         op.create_table(
@@ -1037,7 +1063,7 @@ def upgrade():
         op.create_index('idx_scheduled_next_run', 'scheduled_tasks', ['next_execution_at'])
         op.create_index('idx_scheduled_owner', 'scheduled_tasks', ['owner_agentium_id'])
         op.create_index('idx_scheduled_status', 'scheduled_tasks', ['status'])
-    
+
     if 'scheduled_task_executions' not in existing_tables:
         op.create_table(
             'scheduled_task_executions',
@@ -1057,9 +1083,9 @@ def upgrade():
         )
         op.create_index('idx_sched_exec_task', 'scheduled_task_executions', ['scheduled_task_id'])
         op.create_index('idx_sched_exec_time', 'scheduled_task_executions', ['started_at'])
-    
+
     # =========================================================================
-    # 23. EXECUTION CHECKPOINTS (Phase 6.5)
+    # 24. EXECUTION CHECKPOINTS
     # =========================================================================
     if 'execution_checkpoints' not in existing_tables:
         op.create_table(
@@ -1081,37 +1107,101 @@ def upgrade():
         )
         op.create_index('idx_exec_ckpt_session', 'execution_checkpoints', ['session_id'])
         op.create_index('idx_exec_ckpt_task', 'execution_checkpoints', ['task_id'])
-    
-    print("✅ Complete schema migration finished successfully")
+
+    # =========================================================================
+    # 25. REMOTE EXECUTIONS & SANDBOXES  (from 003_add_remote_execution)
+    # =========================================================================
+    if 'remote_executions' not in existing_tables:
+        op.create_table(
+            'remote_executions',
+            sa.Column('id', sa.String(length=36), nullable=False),
+            sa.Column('agentium_id', sa.String(length=10), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.Column('updated_at', sa.DateTime(), nullable=False),
+            sa.Column('deleted_at', sa.DateTime(), nullable=True),
+            sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
+            sa.Column('execution_id', sa.String(length=50), nullable=False),
+            sa.Column('agent_id', sa.String(length=20), nullable=False),
+            sa.Column('task_id', sa.String(length=36), nullable=True),
+            sa.Column('code', sa.Text(), nullable=False),
+            sa.Column('language', sa.String(length=20), nullable=True),
+            sa.Column('dependencies', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+            sa.Column('input_data_schema', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+            sa.Column('expected_output_schema', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+            sa.Column('status', sa.String(length=20), nullable=True),
+            sa.Column('summary', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+            sa.Column('error_message', sa.Text(), nullable=True),
+            sa.Column('cpu_time_seconds', sa.Float(), nullable=True),
+            sa.Column('memory_peak_mb', sa.Float(), nullable=True),
+            sa.Column('execution_time_ms', sa.Integer(), nullable=True),
+            sa.Column('sandbox_id', sa.String(length=50), nullable=True),
+            sa.Column('sandbox_container_id', sa.String(length=100), nullable=True),
+            sa.Column('started_at', sa.DateTime(), nullable=True),
+            sa.Column('completed_at', sa.DateTime(), nullable=True),
+            sa.ForeignKeyConstraint(['agent_id'], ['agents.agentium_id']),
+            sa.ForeignKeyConstraint(['task_id'], ['tasks.id']),
+            sa.PrimaryKeyConstraint('id'),
+            sa.UniqueConstraint('execution_id'),
+        )
+        op.create_index('ix_remote_executions_execution_id', 'remote_executions', ['execution_id'])
+        op.create_index('ix_remote_executions_agent_id', 'remote_executions', ['agent_id'])
+        op.create_index('ix_remote_executions_status', 'remote_executions', ['status'])
+        op.create_index('ix_remote_executions_created_at', 'remote_executions', ['created_at'])
+
+    if 'sandboxes' not in existing_tables:
+        op.create_table(
+            'sandboxes',
+            sa.Column('id', sa.String(length=36), nullable=False),
+            sa.Column('agentium_id', sa.String(length=10), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.Column('updated_at', sa.DateTime(), nullable=False),
+            sa.Column('deleted_at', sa.DateTime(), nullable=True),
+            sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
+            sa.Column('sandbox_id', sa.String(length=50), nullable=False),
+            sa.Column('container_id', sa.String(length=100), nullable=True),
+            sa.Column('status', sa.String(length=20), nullable=True),
+            sa.Column('cpu_limit', sa.Float(), nullable=True),
+            sa.Column('memory_limit_mb', sa.Integer(), nullable=True),
+            sa.Column('timeout_seconds', sa.Integer(), nullable=True),
+            sa.Column('network_mode', sa.String(length=20), nullable=True),
+            sa.Column('allowed_hosts', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+            sa.Column('volume_mounts', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+            sa.Column('max_disk_mb', sa.Integer(), nullable=True),
+            sa.Column('current_execution_id', sa.String(length=50), nullable=True),
+            sa.Column('created_by_agent_id', sa.String(length=5), nullable=False),
+            sa.Column('last_used_at', sa.DateTime(), nullable=True),
+            sa.Column('destroyed_at', sa.DateTime(), nullable=True),
+            sa.Column('destroy_reason', sa.String(length=100), nullable=True),
+            sa.PrimaryKeyConstraint('id'),
+            sa.UniqueConstraint('sandbox_id'),
+        )
+        op.create_index('ix_sandboxes_sandbox_id', 'sandboxes', ['sandbox_id'])
+        op.create_index('ix_sandboxes_agent_id', 'sandboxes', ['created_by_agent_id'])
+        op.create_index('ix_sandboxes_status', 'sandboxes', ['status'])
+
+    print("✅ Complete schema migration (001–004 consolidated) finished successfully")
 
 
 def downgrade():
-    """
-    Downgrade is intentionally minimal. 
-    In production, you would drop tables in reverse dependency order.
-    """
-    # Tables are dropped in reverse order to handle FK constraints
     tables_to_drop = [
+        'sandboxes', 'remote_executions',
         'execution_checkpoints', 'scheduled_task_executions', 'scheduled_tasks',
         'tool_marketplace_listings', 'tool_usage_logs', 'tool_versions', 'tool_staging',
-        'critique_reviews', 'monitoring_alerts', 'performance_metrics', 
+        'critique_reviews', 'monitoring_alerts', 'performance_metrics',
         'task_verifications', 'violation_reports', 'agent_health_reports',
         'chat_messages', 'conversations', 'model_usage_logs',
-        'external_messages', 'external_channels',  # Added missing tables
+        'external_messages', 'external_channels',
         'channels', 'audit_logs', 'individual_votes', 'voting_records',
         'amendment_votings', 'task_audit_logs', 'task_events', 'task_deliberations',
         'subtasks', 'tasks', 'constitutions',
         'critic_agents', 'task_agents', 'lead_agents', 'council_members', 'head_of_council',
         'agents', 'ethos', 'user_model_configs', 'users', 'system_settings',
     ]
-    
     for table in tables_to_drop:
         try:
             op.drop_table(table)
         except Exception as e:
             print(f"Note: could not drop {table}: {e}")
-    
-    # Drop enum type
     try:
         op.execute("DROP TYPE IF EXISTS taskstatus")
     except Exception as e:

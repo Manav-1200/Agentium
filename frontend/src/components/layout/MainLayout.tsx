@@ -14,7 +14,6 @@ import {
     Cpu,
     Radio,
     Shield,
-    Inbox,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -61,7 +60,6 @@ export function MainLayout() {
         { path: '/tasks', label: 'Tasks', icon: ClipboardList },
         { path: '/monitoring', label: 'Monitoring', icon: Activity },
         { path: '/constitution', label: 'Constitution', icon: BookOpen },
-        { path: '/inbox', label: 'Unified Inbox', icon: Inbox },
         { path: '/models', label: 'Models', icon: Cpu },
         { path: '/channels', label: 'Channels', icon: Radio },
         { path: '/settings', label: 'Settings', icon: Settings },

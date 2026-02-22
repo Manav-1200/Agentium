@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { useWebSocketStore } from '@/store/websocketStore';
+import { inboxApi, UnifiedConversation, UnifiedMessage } from '@/services/inboxApi';
 import {
     Send,
     Crown,
@@ -29,7 +30,12 @@ import {
     Maximize2,
     MoreHorizontal,
     Smile,
-    Plus
+    Plus,
+    MessageCircle,
+    Smartphone,
+    Slack,
+    Mail,
+    Inbox,
 } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -64,7 +70,13 @@ interface Message {
     attachments?: Attachment[];
 }
 
+type ActiveTab = 'ai' | 'inbox';
+
 export function ChatPage() {
+    // ── Tab state ──────────────────────────────────────────────────────────────
+    const [activeTab, setActiveTab] = useState<ActiveTab>('ai');
+
+    // ── AI Chat state ──────────────────────────────────────────────────────────
     const [input, setInput] = useState('');
     const [messages, setMessages] = useState<Message[]>([]);
     const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -81,14 +93,19 @@ export function ChatPage() {
     const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
-    
-    // FIX: Track processed message IDs to prevent duplicates
     const processedMessageIds = useRef<Set<string>>(new Set());
+
+    // ── Inbox state ────────────────────────────────────────────────────────────
+    const [conversations, setConversations] = useState<UnifiedConversation[]>([]);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [inboxLoading, setInboxLoading] = useState(false);
+    const [replyContent, setReplyContent] = useState('');
+    const [isSending, setIsSending] = useState(false);
+    const inboxMessagesEndRef = useRef<HTMLDivElement>(null);
 
     const user = useAuthStore(state => state.user);
     const isAuthenticated = user?.isAuthenticated ?? false;
 
-    // Use global WebSocket store instead of local hook
     const {
         isConnected,
         isConnecting,
@@ -99,87 +116,44 @@ export function ChatPage() {
         unreadCount,
         markAsRead,
         messageHistory,
+        lastMessage,
     } = useWebSocketStore();
 
-    // Mark messages as read when entering chat page
+    // ── AI Chat effects ────────────────────────────────────────────────────────
     useEffect(() => {
         markAsRead();
     }, [markAsRead]);
 
     useEffect(() => {
-        if (isAuthenticated) {
-            loadChatHistory();
-        }
+        if (isAuthenticated) loadChatHistory();
     }, [isAuthenticated]);
 
     useEffect(() => {
-        if (isConnected) {
-            checkVoiceAvailability();
-        }
+        if (isConnected) checkVoiceAvailability();
     }, [isConnected]);
 
-    const checkVoiceAvailability = async () => {
-        const status = await voiceApi.checkStatus();
-        setVoiceAvailable(status.available);
-    };
-
-    const loadChatHistory = async () => {
-        try {
-            const history = await chatApi.getHistory(50);
-            const formattedMessages: Message[] = history.messages.map(msg => ({
-                id: msg.id,
-                role: msg.role,
-                content: msg.content,
-                timestamp: new Date(msg.created_at),
-                metadata: msg.metadata,
-                attachments: msg.attachments
-            }));
-            setMessages(formattedMessages);
-            
-            // FIX: Initialize processed IDs from history to prevent re-adding historical messages
-            formattedMessages.forEach(msg => processedMessageIds.current.add(msg.id));
-        } catch (error) {
-            console.error('Failed to load chat history:', error);
-        }
-    };
-
-    // FIX: Listen for new messages from global store with deduplication
     useEffect(() => {
         const unsubscribe = useWebSocketStore.subscribe((state, prevState) => {
-            // Only process if lastMessage actually changed and exists
-            if (state.lastMessage && 
+            if (
+                state.lastMessage &&
                 state.lastMessage !== prevState.lastMessage &&
-                state.lastMessage.type === 'message') {
-                
+                state.lastMessage.type === 'message'
+            ) {
                 const msg = state.lastMessage;
-                
-                // FIX: Generate or extract a unique ID for deduplication
                 const messageId = msg.timestamp || crypto.randomUUID();
-                
-                // FIX: Skip if we've already processed this message
-                if (processedMessageIds.current.has(messageId)) {
-                    return;
-                }
-                
-                // Mark as processed
+                if (processedMessageIds.current.has(messageId)) return;
                 processedMessageIds.current.add(messageId);
-                
                 const newMessage: Message = {
                     id: messageId,
                     role: msg.role || 'head_of_council',
                     content: msg.content,
                     timestamp: new Date(),
-                    metadata: msg.metadata
+                    metadata: msg.metadata,
                 };
-                
                 setMessages(prev => [...prev, newMessage]);
-
-                if (msg.metadata?.task_created) {
-                    toast.success(`Task ${msg.metadata.task_id} created`);
-                }
+                if (msg.metadata?.task_created) toast.success(`Task ${msg.metadata.task_id} created`);
             }
         });
-        
         return () => unsubscribe();
     }, []);
 
@@ -194,6 +168,48 @@ export function ChatPage() {
         }
     }, [input]);
 
+    // ── Inbox effects ──────────────────────────────────────────────────────────
+    useEffect(() => {
+        if (activeTab === 'inbox' && conversations.length === 0) {
+            loadConversations();
+        }
+    }, [activeTab]);
+
+    useEffect(() => {
+        const wsMsg = lastMessage as any;
+        if (wsMsg?.type === 'message_created') loadConversations();
+    }, [lastMessage]);
+
+    useEffect(() => {
+        if (selectedId) {
+            inboxMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [selectedId, conversations]);
+
+    // ── AI Chat methods ────────────────────────────────────────────────────────
+    const checkVoiceAvailability = async () => {
+        const status = await voiceApi.checkStatus();
+        setVoiceAvailable(status.available);
+    };
+
+    const loadChatHistory = async () => {
+        try {
+            const history = await chatApi.getHistory(50);
+            const formattedMessages: Message[] = history.messages.map(msg => ({
+                id: msg.id,
+                role: msg.role,
+                content: msg.content,
+                timestamp: new Date(msg.created_at),
+                metadata: msg.metadata,
+                attachments: msg.attachments,
+            }));
+            setMessages(formattedMessages);
+            formattedMessages.forEach(msg => processedMessageIds.current.add(msg.id));
+        } catch (error) {
+            console.error('Failed to load chat history:', error);
+        }
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!input.trim() && uploadedFiles.length === 0) return;
@@ -205,7 +221,7 @@ export function ChatPage() {
                 type: f.apiFile!.type,
                 size: f.apiFile!.size,
                 url: f.apiFile!.url,
-                category: f.apiFile!.category
+                category: f.apiFile!.category,
             }));
 
         const userMessage: Message = {
@@ -213,18 +229,12 @@ export function ChatPage() {
             role: 'sovereign',
             content: input.trim() || '(file attachment)',
             timestamp: new Date(),
-            attachments: attachments.length > 0 ? attachments : undefined
+            attachments: attachments.length > 0 ? attachments : undefined,
         };
         setMessages(prev => [...prev, userMessage]);
 
-        const sent = sendWsMessage(JSON.stringify({
-            content: input.trim(),
-            attachments: attachments
-        }));
-
-        if (!sent) {
-            toast.error('Failed to send message - not connected');
-        }
+        const sent = sendWsMessage(JSON.stringify({ content: input.trim(), attachments }));
+        if (!sent) toast.error('Failed to send message - not connected');
 
         setInput('');
         setUploadedFiles([]);
@@ -237,7 +247,7 @@ export function ChatPage() {
         const newFiles: UploadedFile[] = files.map(file => ({
             id: crypto.randomUUID(),
             file,
-            isUploading: true
+            isUploading: true,
         }));
 
         setUploadedFiles(prev => [...prev, ...newFiles]);
@@ -245,18 +255,12 @@ export function ChatPage() {
 
         try {
             const response = await fileApi.uploadFiles(files);
-
             setUploadedFiles(prev => {
                 const updated = [...prev];
                 response.files.forEach((apiFile, index) => {
                     const localIndex = updated.findIndex(f => f.id === newFiles[index]?.id);
                     if (localIndex !== -1) {
-                        updated[localIndex] = {
-                            ...updated[localIndex],
-                            apiFile,
-                            isUploading: false
-                        };
-
+                        updated[localIndex] = { ...updated[localIndex], apiFile, isUploading: false };
                         if (apiFile.category === 'image' && files[index]) {
                             const reader = new FileReader();
                             reader.onload = (e) => {
@@ -274,7 +278,6 @@ export function ChatPage() {
                 });
                 return updated;
             });
-
             toast.success(`${response.total_uploaded} file(s) uploaded`);
         } catch (error: any) {
             setUploadedFiles(prev =>
@@ -288,9 +291,7 @@ export function ChatPage() {
         }
     };
 
-    const removeFile = (id: string) => {
-        setUploadedFiles(prev => prev.filter(f => f.id !== id));
-    };
+    const removeFile = (id: string) => setUploadedFiles(prev => prev.filter(f => f.id !== id));
 
     const downloadFile = async (attachment: Attachment) => {
         try {
@@ -315,20 +316,15 @@ export function ChatPage() {
                 window.URL.revokeObjectURL(url);
                 toast.success('Downloaded');
             }
-        } catch (error) {
+        } catch {
             toast.error('Download failed');
         }
     };
 
     const handleVoiceButtonClick = async () => {
-        if (isRecording) {
-            stopRecording();
-            return;
-        }
-
+        if (isRecording) { stopRecording(); return; }
         const isAvailable = await voiceApi.checkAvailability();
         if (!isAvailable) return;
-
         startRecording();
     };
 
@@ -336,17 +332,11 @@ export function ChatPage() {
         try {
             const { recorder, stream } = await voiceApi.startRecording();
             const chunks: BlobPart[] = [];
-
-            recorder.ondataavailable = (e) => {
-                if (e.data.size > 0) chunks.push(e.data);
-            };
-
+            recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
             recorder.onstop = async () => {
                 const audioBlob = new Blob(chunks, { type: recorder.mimeType });
                 stream.getTracks().forEach(track => track.stop());
-
                 toast.loading('Transcribing voice...', { id: 'transcribing' });
-
                 try {
                     const result = await voiceApi.transcribe(audioBlob);
                     setInput(prev => {
@@ -355,31 +345,23 @@ export function ChatPage() {
                     });
                     toast.success('Voice transcribed', { id: 'transcribing' });
                 } catch (error: any) {
-                    if (!error.message?.includes('OpenAI provider')) {
+                    if (!error.message?.includes('OpenAI provider'))
                         toast.error(`Transcription failed: ${error.message}`, { id: 'transcribing' });
-                    }
                 }
-
                 setIsRecording(false);
                 setRecordingTime(0);
             };
-
             recorder.onerror = () => {
                 toast.error('Recording error');
                 setIsRecording(false);
                 stream.getTracks().forEach(track => track.stop());
             };
-
             recorder.start();
             setMediaRecorder(recorder);
             setAudioStream(stream);
             setIsRecording(true);
             setRecordingTime(0);
-
-            recordingIntervalRef.current = setInterval(() => {
-                setRecordingTime(prev => prev + 1);
-            }, 1000);
-
+            recordingIntervalRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
             toast.success('Recording started');
         } catch (error: any) {
             toast.error(`Microphone access denied: ${error.message}`);
@@ -399,6 +381,35 @@ export function ChatPage() {
         toast.success('Copied');
     };
 
+    // ── Inbox methods ──────────────────────────────────────────────────────────
+    const loadConversations = async () => {
+        setInboxLoading(true);
+        try {
+            const res = await inboxApi.getConversations();
+            setConversations(res.conversations);
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to load conversations');
+        } finally {
+            setInboxLoading(false);
+        }
+    };
+
+    const handleSendReply = async () => {
+        if (!selectedId || !replyContent.trim()) return;
+        setIsSending(true);
+        try {
+            await inboxApi.reply(selectedId, replyContent.trim());
+            setReplyContent('');
+            await loadConversations();
+            toast.success('Reply sent');
+        } catch (err: any) {
+            toast.error(err.response?.data?.detail || err.message || 'Failed to send reply');
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    // ── Shared helpers ─────────────────────────────────────────────────────────
     const formatFileSize = (bytes: number) => {
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -427,9 +438,18 @@ export function ChatPage() {
         return <File className="w-4 h-4" />;
     };
 
+    const getChannelIcon = (channel?: string) => {
+        switch (channel) {
+            case 'whatsapp': return <Smartphone className="w-4 h-4" />;
+            case 'slack': return <Slack className="w-4 h-4" />;
+            case 'email': return <Mail className="w-4 h-4" />;
+            case 'telegram': return <MessageCircle className="w-4 h-4" />;
+            default: return <MessageCircle className="w-4 h-4" />;
+        }
+    };
+
     const renderAttachment = (attachment: Attachment, isUser: boolean) => {
         const isImage = attachment.type?.startsWith('image/') || attachment.category === 'image';
-        const isVideo = attachment.type?.startsWith('video/') || attachment.category === 'video';
 
         if (isImage) {
             const imageUrl = attachment.url || attachment.data;
@@ -442,31 +462,20 @@ export function ChatPage() {
                         className="rounded-2xl max-w-sm max-h-80 object-cover cursor-pointer shadow-sm hover:shadow-md transition-shadow"
                         onClick={() => setImagePreview({ url: imageUrl, name: attachment.name })}
                     />
-                    <button aria-label="Download File"
-                        onClick={(e) => { e.stopPropagation(); downloadFile(attachment); }}
-                        className="absolute top-2 right-2 p-2 bg-black/50 hover:bg-black/70 text-white rounded-lg opacity-0 group-hover/img:opacity-100 transition-opacity backdrop-blur-sm"
+                    <button
+                        aria-label="Download File"
+                        onClick={() => downloadFile(attachment)}
+                        className="absolute top-2 right-2 p-1.5 bg-black/40 hover:bg-black/60 text-white rounded-lg opacity-0 group-hover/img:opacity-100 transition-all"
                     >
-                        <Download className="w-4 h-4" />
+                        <Download className="w-3.5 h-3.5" />
                     </button>
-                </div>
-            );
-        }
-
-        if (isVideo) {
-            return (
-                <div className="mt-2">
-                    <video controls className="rounded-2xl max-w-sm max-h-80 shadow-sm" preload="metadata">
-                        <source src={attachment.url || attachment.data} type={attachment.type} />
-                    </video>
                 </div>
             );
         }
 
         return (
             <div className="mt-2">
-                <div className={`flex items-center gap-3 p-3 rounded-xl max-w-sm ${
-                    isUser ? 'bg-white/10' : 'bg-gray-100 dark:bg-[#1e2535]'
-                }`}>
+                <div className={`flex items-center gap-3 p-3 rounded-xl max-w-sm ${isUser ? 'bg-white/10' : 'bg-gray-100 dark:bg-[#1e2535]'}`}>
                     <div className={`p-2 rounded-lg ${isUser ? 'bg-white/20' : 'bg-gray-200 dark:bg-[#2a3347]'}`}>
                         {getFileIcon(attachment.type || '')}
                     </div>
@@ -478,10 +487,8 @@ export function ChatPage() {
                             {formatFileSize(attachment.size || 0)}
                         </div>
                     </div>
-                    <button aria-label="Download File"
-                        onClick={() => downloadFile(attachment)}
-                        className={`p-1.5 rounded-lg transition-colors ${isUser ? 'hover:bg-white/20' : 'hover:bg-gray-200 dark:hover:bg-[#2a3347]'}`}
-                    >
+                    <button aria-label="Download File" onClick={() => downloadFile(attachment)}
+                        className={`p-1.5 rounded-lg transition-colors ${isUser ? 'hover:bg-white/20' : 'hover:bg-gray-200 dark:hover:bg-[#2a3347]'}`}>
                         <Download className="w-4 h-4" />
                     </button>
                 </div>
@@ -489,47 +496,53 @@ export function ChatPage() {
         );
     };
 
+    // ── Auth guard ─────────────────────────────────────────────────────────────
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen bg-gray-50 dark:bg-[#0f1117] flex items-center justify-center p-6 transition-colors duration-200">
+            <div className="min-h-screen bg-gray-50 dark:bg-[#0f1117] flex items-center justify-center p-6">
                 <div className="text-center max-w-md">
                     <div className="w-20 h-20 bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-3xl flex items-center justify-center mx-auto mb-6">
                         <AlertCircle className="w-10 h-10 text-red-600 dark:text-red-400" />
                     </div>
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">
-                        Authentication Required
-                    </h2>
-                    <p className="text-gray-500 dark:text-gray-400">
-                        Please log in to access the Command Interface
-                    </p>
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Authentication Required</h2>
+                    <p className="text-gray-500 dark:text-gray-400">Please log in to access the Command Interface</p>
                 </div>
             </div>
         );
     }
 
-    // Show unread badge in UI
     const showUnreadBadge = unreadCount > 0;
+    const selectedConv = conversations.find(c => c.id === selectedId);
 
+    // ── Render ─────────────────────────────────────────────────────────────────
     return (
         <div className="h-full bg-gray-50 dark:bg-[#0f1117] flex flex-col overflow-hidden transition-colors duration-200">
             <div className="w-full h-full flex flex-col">
 
-                {/* ── Header ─────────────────────────────────────────────────── */}
+                {/* ── Header ──────────────────────────────────────────────────── */}
                 <div className="flex-shrink-0 bg-white dark:bg-[#161b27] border-b border-gray-200 dark:border-[#1e2535] shadow-sm dark:shadow-none">
                     <div className="px-6 py-4 max-w-6xl mx-auto">
                         <div className="flex items-center justify-between">
+
+                            {/* Left: avatar + title (changes with tab) */}
                             <div className="flex items-center gap-4">
                                 <div className="relative">
-                                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25 dark:shadow-blue-900/40">
-                                        <Crown className="w-5 h-5 text-white" />
+                                    <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg ${
+                                        activeTab === 'ai'
+                                            ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/25 dark:shadow-blue-900/40'
+                                            : 'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/25 dark:shadow-emerald-900/40'
+                                    }`}>
+                                        {activeTab === 'ai'
+                                            ? <Crown className="w-5 h-5 text-white" />
+                                            : <Inbox className="w-5 h-5 text-white" />
+                                        }
                                     </div>
-                                    {/* Connection status dot */}
-                                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-[#161b27] transition-colors duration-300 ${
-                                        isConnected ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'
-                                    }`} />
-                                    
-                                    {/* Unread badge */}
-                                    {showUnreadBadge && (
+                                    {activeTab === 'ai' && (
+                                        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-[#161b27] transition-colors duration-300 ${
+                                            isConnected ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'
+                                        }`} />
+                                    )}
+                                    {showUnreadBadge && activeTab === 'ai' && (
                                         <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
                                             {unreadCount > 9 ? '9+' : unreadCount}
                                         </div>
@@ -537,361 +550,491 @@ export function ChatPage() {
                                 </div>
                                 <div>
                                     <h1 className="text-base font-semibold text-gray-900 dark:text-white leading-tight">
-                                        Head of Council
+                                        {activeTab === 'ai' ? 'Head of Council' : 'Unified Inbox'}
                                     </h1>
                                     <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                                        {isConnected ? (
-                                            <span className="text-green-600 dark:text-green-400 font-medium">Active now</span>
-                                        ) : isConnecting ? (
-                                            'Connecting...'
+                                        {activeTab === 'ai' ? (
+                                            isConnected ? (
+                                                <span className="text-green-600 dark:text-green-400 font-medium">Active now</span>
+                                            ) : isConnecting ? 'Connecting...' : (
+                                                <span className="text-gray-400 dark:text-gray-500">Offline</span>
+                                            )
                                         ) : (
-                                            <span className="text-gray-400 dark:text-gray-500">Offline</span>
+                                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                                                {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
+                                            </span>
                                         )}
-                                        {connectionStats.latencyMs && isConnected && (
+                                        {activeTab === 'ai' && connectionStats.latencyMs && isConnected && (
                                             <span className="text-green-600 dark:text-green-500">· {connectionStats.latencyMs}ms</span>
                                         )}
                                     </p>
                                 </div>
                             </div>
 
+                            {/* Right: tab switcher + reconnect */}
                             <div className="flex items-center gap-3">
-                                {error && (
-                                    <span className="text-sm text-red-600 dark:text-red-400 max-w-xs truncate hidden sm:block">
-                                        {error}
-                                    </span>
+                                {activeTab === 'ai' && error && (
+                                    <span className="text-sm text-red-600 dark:text-red-400 max-w-xs truncate hidden sm:block">{error}</span>
                                 )}
-                                {!isConnected && !isConnecting && (
+                                {activeTab === 'ai' && !isConnected && !isConnecting && (
                                     <button
                                         onClick={reconnect}
-                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-all duration-150 flex items-center gap-2 shadow-sm dark:shadow-blue-900/30"
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-all duration-150 flex items-center gap-2 shadow-sm"
                                     >
                                         <RefreshCw className="w-4 h-4" />
                                         Reconnect
                                     </button>
                                 )}
-                                {isConnecting && (
+                                {activeTab === 'ai' && isConnecting && (
                                     <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-gray-500">
                                         <Loader2 className="w-4 h-4 animate-spin" />
                                         Connecting...
                                     </div>
                                 )}
+
+                                {/* Tab switcher pill */}
+                                <div className="flex items-center bg-gray-100 dark:bg-[#0f1117] rounded-xl p-1 border border-gray-200 dark:border-[#1e2535]">
+                                    <button
+                                        onClick={() => setActiveTab('ai')}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                                            activeTab === 'ai'
+                                                ? 'bg-white dark:bg-[#161b27] text-blue-600 dark:text-blue-400 shadow-sm dark:shadow-[0_1px_4px_rgba(0,0,0,0.3)]'
+                                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                        }`}
+                                    >
+                                        <Crown className="w-3.5 h-3.5" />
+                                        AI Chat
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('inbox')}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                                            activeTab === 'inbox'
+                                                ? 'bg-white dark:bg-[#161b27] text-emerald-600 dark:text-emerald-400 shadow-sm dark:shadow-[0_1px_4px_rgba(0,0,0,0.3)]'
+                                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                        }`}
+                                    >
+                                        <Inbox className="w-3.5 h-3.5" />
+                                        Inbox
+                                        {conversations.length > 0 && activeTab !== 'inbox' && (
+                                            <span className="ml-0.5 bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                                                {conversations.length > 9 ? '9+' : conversations.length}
+                                            </span>
+                                        )}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* ── Messages Area ──────────────────────────────────────────── */}
-                <div className="flex-1 overflow-y-auto min-h-0 bg-gray-50 dark:bg-[#0f1117]">
-                    <div className="px-6 py-6 max-w-6xl mx-auto">
-
-                        {/* Empty state */}
-                        {messages.length === 0 && (
-                            <div className="flex items-center justify-center h-full min-h-[400px]">
-                                <div className="text-center max-w-md">
-                                    <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-500/10 dark:to-purple-500/10 border border-blue-100 dark:border-blue-500/20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm">
-                                        <Sparkles className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                {/* ── AI Chat Tab ──────────────────────────────────────────────── */}
+                {activeTab === 'ai' && (
+                    <>
+                        {/* Messages Area */}
+                        <div className="flex-1 overflow-y-auto min-h-0 bg-gray-50 dark:bg-[#0f1117]">
+                            <div className="px-6 py-6 max-w-6xl mx-auto">
+                                {messages.length === 0 && (
+                                    <div className="flex items-center justify-center h-full min-h-[400px]">
+                                        <div className="text-center max-w-md">
+                                            <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-500/10 dark:to-purple-500/10 border border-blue-100 dark:border-blue-500/20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm">
+                                                <Sparkles className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                                            </div>
+                                            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Start a Conversation</h2>
+                                            <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
+                                                Chat with the AI to manage tasks, spawn agents, and control your system
+                                            </p>
+                                            <div className="flex flex-wrap gap-2 justify-center">
+                                                {['System status', 'Create task', 'List agents', 'Help'].map((suggestion) => (
+                                                    <button
+                                                        key={suggestion}
+                                                        onClick={() => setInput(suggestion)}
+                                                        className="px-4 py-2 bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#1e2535] hover:border-blue-300 dark:hover:border-blue-500/50 hover:bg-blue-50/30 dark:hover:bg-blue-500/5 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition-all duration-150 shadow-sm"
+                                                    >
+                                                        {suggestion}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                                        Start a Conversation
-                                    </h2>
-                                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
-                                        Chat with the AI to manage tasks, spawn agents, and control your system
-                                    </p>
-                                    <div className="flex flex-wrap gap-2 justify-center">
-                                        {['System status', 'Create task', 'List agents', 'Help'].map((suggestion) => (
-                                            <button
-                                                key={suggestion}
-                                                onClick={() => setInput(suggestion)}
-                                                className="px-4 py-2 bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#1e2535] hover:border-blue-300 dark:hover:border-blue-500/50 hover:bg-blue-50/30 dark:hover:bg-blue-500/5 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition-all duration-150 shadow-sm dark:shadow-none"
-                                            >
-                                                {suggestion}
-                                            </button>
+                                )}
+
+                                <div className="space-y-6 max-w-4xl mx-auto">
+                                    {messages.map((message, index) => {
+                                        const isUser = message.role === 'sovereign';
+                                        const showAvatar = index === 0 || messages[index - 1].role !== message.role;
+                                        const isError = message.metadata?.error || message.content?.includes('⚠️');
+
+                                        return (
+                                            <div key={message.id} className="group">
+                                                <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+                                                    <div className={`flex-shrink-0 ${showAvatar ? 'visible' : 'invisible'}`}>
+                                                        <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-sm ${
+                                                            isUser
+                                                                ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/25 dark:shadow-blue-900/40'
+                                                                : isError
+                                                                ? 'bg-orange-100 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20'
+                                                                : message.role === 'system'
+                                                                ? 'bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20'
+                                                                : 'bg-purple-100 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/20'
+                                                        }`}>
+                                                            {isUser ? (
+                                                                <Crown className="w-4 h-4 text-white" />
+                                                            ) : isError ? (
+                                                                <AlertCircle className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                                                            ) : message.role === 'system' ? (
+                                                                <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                                                            ) : (
+                                                                <Bot className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className={`flex-1 ${isUser ? 'flex justify-end' : ''}`}>
+                                                        <div className={`inline-block max-w-xl ${isUser ? 'ml-12' : 'mr-12'}`}>
+                                                            <div className={`px-4 py-3 rounded-2xl ${
+                                                                isUser
+                                                                    ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/20 dark:shadow-blue-900/40'
+                                                                    : isError
+                                                                    ? 'bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 text-orange-900 dark:text-orange-300'
+                                                                    : message.role === 'system'
+                                                                    ? 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-900 dark:text-red-300'
+                                                                    : 'bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#1e2535] text-gray-900 dark:text-gray-100 shadow-sm dark:shadow-[0_2px_12px_rgba(0,0,0,0.2)]'
+                                                            }`}>
+                                                                <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                                                                {message.attachments?.map((attachment, i) => (
+                                                                    <div key={i}>{renderAttachment(attachment, isUser)}</div>
+                                                                ))}
+                                                                {message.metadata?.task_created && (
+                                                                    <div className="mt-3 pt-3 border-t border-white/20 flex items-center gap-2 text-xs">
+                                                                        <CheckCircle className="w-3.5 h-3.5" />
+                                                                        Task {message.metadata.task_id} created
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className={`flex items-center gap-2 mt-1.5 px-1 ${isUser ? 'justify-end' : ''}`}>
+                                                                <span className="text-xs text-gray-400 dark:text-gray-500">
+                                                                    {formatMessageTime(message.timestamp)}
+                                                                </span>
+                                                                {message.role !== 'system' && (
+                                                                    <button aria-label="Copy Message"
+                                                                        onClick={() => copyMessage(message.content)}
+                                                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-[#1e2535] rounded-lg transition-all duration-150"
+                                                                    >
+                                                                        <Copy className="w-3 h-3 text-gray-400 dark:text-gray-500" />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div ref={messagesEndRef} />
+                            </div>
+                        </div>
+
+                        {/* Input Area */}
+                        <div className="flex-shrink-0 bg-white dark:bg-[#161b27] border-t border-gray-200 dark:border-[#1e2535] shadow-sm dark:shadow-[0_-4px_20px_rgba(0,0,0,0.2)]">
+                            <div className="px-6 py-4 max-w-6xl mx-auto">
+                                {error && !isConnected && (
+                                    <div className="mb-3 p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl flex items-center justify-between">
+                                        <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-400">
+                                            <WifiOff className="w-4 h-4 flex-shrink-0" />
+                                            <span>{error}</span>
+                                        </div>
+                                        <button onClick={reconnect} className="text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 font-medium transition-colors">
+                                            Try Again
+                                        </button>
+                                    </div>
+                                )}
+
+                                {uploadedFiles.length > 0 && (
+                                    <div className="mb-3 flex flex-wrap gap-2">
+                                        {uploadedFiles.map((file) => (
+                                            <div key={file.id} className="relative group/file">
+                                                <div className="flex items-center gap-2 pl-3 pr-2 py-2 bg-gray-100 dark:bg-[#0f1117] border border-gray-200 dark:border-[#1e2535] rounded-xl">
+                                                    {file.preview && file.file.type.startsWith('image/') ? (
+                                                        <img src={file.preview} alt="" className="w-8 h-8 rounded-lg object-cover" />
+                                                    ) : (
+                                                        <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-[#1e2535] flex items-center justify-center text-gray-500 dark:text-gray-400">
+                                                            {getFileIcon(file.file.type)}
+                                                        </div>
+                                                    )}
+                                                    <span className="text-sm text-gray-700 dark:text-gray-300 max-w-[120px] truncate">{file.file.name}</span>
+                                                    {file.isUploading && <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />}
+                                                    <button aria-label="Remove File" onClick={() => removeFile(file.id)}
+                                                        className="p-1 hover:bg-gray-200 dark:hover:bg-[#1e2535] rounded-lg transition-colors text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
+                                                        <X className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </div>
+                                            </div>
                                         ))}
                                     </div>
+                                )}
+
+                                {isRecording && (
+                                    <div className="mb-3 flex items-center justify-between p-3 bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-500/10 dark:to-orange-500/10 border border-red-200 dark:border-red-500/20 rounded-xl">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                                                <span className="text-sm font-medium text-red-900 dark:text-red-400">Recording</span>
+                                            </div>
+                                            <span className="text-sm font-mono font-semibold text-red-900 dark:text-red-400">
+                                                {formatRecordingTime(recordingTime)}
+                                            </span>
+                                        </div>
+                                        <button onClick={stopRecording} className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors">
+                                            Stop
+                                        </button>
+                                    </div>
+                                )}
+
+                                <div className="flex items-end gap-2">
+                                    <div className="relative">
+                                        <button aria-label="Attach Files" type="button" onClick={() => setShowFileMenu(!showFileMenu)}
+                                            disabled={isRecording || !isConnected}
+                                            className="p-2.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#1e2535] rounded-xl transition-all duration-150 disabled:opacity-40">
+                                            <Plus className="w-5 h-5" />
+                                        </button>
+                                        {showFileMenu && (
+                                            <>
+                                                <div className="fixed inset-0 z-10" onClick={() => setShowFileMenu(false)} />
+                                                <div className="absolute bottom-full left-0 mb-2 w-48 bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#1e2535] rounded-xl shadow-lg dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)] overflow-hidden z-20">
+                                                    <button onClick={() => { fileInputRef.current?.click(); setShowFileMenu(false); }}
+                                                        className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 dark:hover:bg-[#1e2535] flex items-center gap-3 transition-colors duration-150">
+                                                        <ImageIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                                                        <span className="text-gray-700 dark:text-gray-300">Upload Files</span>
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                        <input aria-label="Upload Files" ref={fileInputRef} type="file" multiple onChange={handleFileSelect}
+                                            className="hidden" accept="image/*,.pdf,.doc,.docx,.txt,.mp4,.mp3" />
+                                    </div>
+
+                                    <div className="flex-1 bg-gray-100 dark:bg-[#0f1117] rounded-2xl border border-transparent dark:border-[#1e2535] focus-within:border-blue-500 dark:focus-within:border-blue-500/60 focus-within:bg-white dark:focus-within:bg-[#161b27] transition-all duration-150 shadow-none focus-within:shadow-sm dark:focus-within:shadow-[0_0_0_1px_rgba(59,130,246,0.15)]">
+                                        <textarea aria-label="Message" ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
+                                            placeholder={isConnected ? 'Type a message...' : 'Reconnecting...'}
+                                            disabled={isRecording || !isConnected}
+                                            className="w-full px-4 py-3 bg-transparent border-0 resize-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none disabled:opacity-50 text-[15px]"
+                                            rows={1} style={{ maxHeight: '150px' }} />
+                                    </div>
+
+                                    <div className="relative">
+                                        <button type="button" onClick={handleVoiceButtonClick} disabled={!isConnected}
+                                            onMouseEnter={() => voiceAvailable === false && setShowVoiceTooltip(true)}
+                                            onMouseLeave={() => setShowVoiceTooltip(false)}
+                                            className={`p-2.5 rounded-xl transition-all duration-150 disabled:opacity-40 ${
+                                                isRecording
+                                                    ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/30'
+                                                    : voiceAvailable === false
+                                                    ? 'text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10'
+                                                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#1e2535]'
+                                            }`}>
+                                            {isRecording ? <MicOff className="w-5 h-5" /> : voiceAvailable === false ? <AlertCircle className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                                        </button>
+                                        {showVoiceTooltip && voiceAvailable === false && (
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2.5 bg-gray-900 dark:bg-[#0f1117] border border-transparent dark:border-[#1e2535] text-white text-xs rounded-xl whitespace-nowrap z-50 shadow-xl">
+                                                <div className="font-medium mb-0.5">Voice features unavailable</div>
+                                                <div className="text-gray-300 dark:text-gray-400">Add OpenAI provider in Models page</div>
+                                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-[#0f1117]" />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <button aria-label="Send" onClick={handleSubmit}
+                                        disabled={(!input.trim() && uploadedFiles.length === 0) || isRecording || !isConnected}
+                                        className="p-2.5 bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 disabled:bg-gray-200 dark:disabled:bg-[#1e2535] disabled:cursor-not-allowed text-white disabled:text-gray-400 dark:disabled:text-gray-600 rounded-xl transition-all duration-150 shadow-md shadow-blue-500/25 dark:shadow-blue-900/30 disabled:shadow-none">
+                                        <Send className="w-5 h-5" />
+                                    </button>
                                 </div>
                             </div>
-                        )}
+                        </div>
+                    </>
+                )}
 
-                        {/* Messages */}
-                        <div className="space-y-6 max-w-4xl mx-auto">
-                            {messages.map((message, index) => {
-                                const isUser = message.role === 'sovereign';
-                                const showAvatar = index === 0 || messages[index - 1].role !== message.role;
-                                
-                                // FIX: Detect error messages for styling
-                                const isError = message.metadata?.error || message.content?.includes('⚠️');
-
-                                return (
-                                    <div key={message.id} className="group">
-                                        <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-
-                                            {/* Avatar */}
-                                            <div className={`flex-shrink-0 ${showAvatar ? 'visible' : 'invisible'}`}>
-                                                <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-sm ${
-                                                    isUser
-                                                        ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/25 dark:shadow-blue-900/40'
-                                                        : isError
-                                                        ? 'bg-orange-100 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20'
-                                                        : message.role === 'system'
-                                                        ? 'bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20'
-                                                        : 'bg-purple-100 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/20'
-                                                }`}>
-                                                    {isUser ? (
-                                                        <Crown className="w-4 h-4 text-white" />
-                                                    ) : isError ? (
-                                                        <AlertCircle className="w-4 h-4 text-orange-600 dark:text-orange-400" />
-                                                    ) : message.role === 'system' ? (
-                                                        <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
-                                                    ) : (
-                                                        <Bot className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Bubble */}
-                                            <div className={`flex-1 ${isUser ? 'flex justify-end' : ''}`}>
-                                                <div className={`inline-block max-w-xl ${isUser ? 'ml-12' : 'mr-12'}`}>
-                                                    <div className={`px-4 py-3 rounded-2xl ${
-                                                        isUser
-                                                            ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/20 dark:shadow-blue-900/40'
-                                                            : isError
-                                                            ? 'bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 text-orange-900 dark:text-orange-300'
-                                                            : message.role === 'system'
-                                                            ? 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-900 dark:text-red-300'
-                                                            : 'bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#1e2535] text-gray-900 dark:text-gray-100 shadow-sm dark:shadow-[0_2px_12px_rgba(0,0,0,0.2)]'
-                                                    }`}>
-                                                        <p className="text-[15px] leading-relaxed whitespace-pre-wrap">
-                                                            {message.content}
-                                                        </p>
-
-                                                        {message.attachments?.map((attachment, i) => (
-                                                            <div key={i}>{renderAttachment(attachment, isUser)}</div>
-                                                        ))}
-
-                                                        {message.metadata?.task_created && (
-                                                            <div className="mt-3 pt-3 border-t border-white/20 flex items-center gap-2 text-xs">
-                                                                <CheckCircle className="w-3.5 h-3.5" />
-                                                                Task {message.metadata.task_id} created
-                                                            </div>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Timestamp & copy */}
-                                                    <div className={`flex items-center gap-2 mt-1.5 px-1 ${isUser ? 'justify-end' : ''}`}>
-                                                        <span className="text-xs text-gray-400 dark:text-gray-500">
-                                                            {formatMessageTime(message.timestamp)}
-                                                        </span>
-                                                        {message.role !== 'system' && (
-                                                            <button aria-label="Copy Message"
-                                                                onClick={() => copyMessage(message.content)}
-                                                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-[#1e2535] rounded-lg transition-all duration-150"
-                                                            >
-                                                                <Copy className="w-3 h-3 text-gray-400 dark:text-gray-500" />
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
+                {/* ── Inbox Tab ────────────────────────────────────────────────── */}
+                {activeTab === 'inbox' && (
+                    <div className="flex-1 flex overflow-hidden">
+                        {/* Conversation list */}
+                        <div className="w-80 flex-shrink-0 bg-white dark:bg-[#161b27] border-r border-gray-200 dark:border-[#1e2535] flex flex-col">
+                            <div className="p-4 border-b border-gray-200 dark:border-[#1e2535] flex items-center justify-between">
+                                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Active Conversations</h2>
+                                {inboxLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+                            </div>
+                            <div className="flex-1 overflow-y-auto">
+                                {conversations.length === 0 && !inboxLoading ? (
+                                    <div className="p-8 text-center">
+                                        <div className="w-12 h-12 bg-gray-100 dark:bg-[#1e2535] rounded-2xl flex items-center justify-center mx-auto mb-3">
+                                            <Inbox className="w-6 h-6 text-gray-400 dark:text-gray-500" />
                                         </div>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400">No active conversations</p>
                                     </div>
-                                );
-                            })}
+                                ) : (
+                                    <div className="divide-y divide-gray-100 dark:divide-[#1e2535]">
+                                        {conversations.map(conv => {
+                                            const latestMsg = conv.messages && conv.messages.length > 0
+                                                ? conv.messages[conv.messages.length - 1]
+                                                : null;
+                                            const externalMsg = conv.messages?.find(m => m.sender_channel);
+                                            const channelType = externalMsg?.sender_channel;
+
+                                            return (
+                                                <button
+                                                    key={conv.id}
+                                                    onClick={() => setSelectedId(conv.id)}
+                                                    className={`w-full text-left px-4 py-3.5 flex items-center gap-3 transition-colors duration-150 ${
+                                                        selectedId === conv.id
+                                                            ? 'bg-emerald-50 dark:bg-emerald-500/10 border-r-2 border-emerald-500'
+                                                            : 'hover:bg-gray-50 dark:hover:bg-[#1e2535]/50'
+                                                    }`}
+                                                >
+                                                    <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-[#1e2535] flex items-center justify-center text-gray-500 dark:text-gray-400 flex-shrink-0">
+                                                        {getChannelIcon(channelType)}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center justify-between mb-0.5">
+                                                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                                                {conv.title || 'Unknown Sender'}
+                                                            </span>
+                                                            {conv.last_message_at && (
+                                                                <span className="text-[11px] text-gray-400 dark:text-gray-500 whitespace-nowrap ml-2">
+                                                                    {format(new Date(conv.last_message_at), 'h:mm a')}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                                            {latestMsg ? latestMsg.content : 'No messages'}
+                                                        </p>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
-                        <div ref={messagesEndRef} />
-                    </div>
-                </div>
-
-                {/* ── Input Area ─────────────────────────────────────────────── */}
-                <div className="flex-shrink-0 bg-white dark:bg-[#161b27] border-t border-gray-200 dark:border-[#1e2535] shadow-sm dark:shadow-[0_-4px_20px_rgba(0,0,0,0.2)]">
-                    <div className="px-6 py-4 max-w-6xl mx-auto">
-
-                        {/* Connection error banner */}
-                        {error && !isConnected && (
-                            <div className="mb-3 p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-400">
-                                    <WifiOff className="w-4 h-4 flex-shrink-0" />
-                                    <span>{error}</span>
-                                </div>
-                                <button
-                                    onClick={reconnect}
-                                    className="text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 font-medium transition-colors"
-                                >
-                                    Try Again
-                                </button>
-                            </div>
-                        )}
-
-                        {/* File attachments preview */}
-                        {uploadedFiles.length > 0 && (
-                            <div className="mb-3 flex flex-wrap gap-2">
-                                {uploadedFiles.map((file) => (
-                                    <div key={file.id} className="relative group/file">
-                                        <div className="flex items-center gap-2 pl-3 pr-2 py-2 bg-gray-100 dark:bg-[#0f1117] border border-gray-200 dark:border-[#1e2535] rounded-xl">
-                                            {file.preview && file.file.type.startsWith('image/') ? (
-                                                <img src={file.preview} alt="" className="w-8 h-8 rounded-lg object-cover" />
-                                            ) : (
-                                                <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-[#1e2535] flex items-center justify-center text-gray-500 dark:text-gray-400">
-                                                    {getFileIcon(file.file.type)}
-                                                </div>
-                                            )}
-                                            <span className="text-sm text-gray-700 dark:text-gray-300 max-w-[120px] truncate">
-                                                {file.file.name}
-                                            </span>
-                                            {file.isUploading && (
-                                                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
-                                            )}
-                                            <button aria-label="Remove File"
-                                                onClick={() => removeFile(file.id)}
-                                                className="p-1 hover:bg-gray-200 dark:hover:bg-[#1e2535] rounded-lg transition-colors text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                                            >
-                                                <X className="w-3.5 h-3.5" />
-                                            </button>
+                        {/* Message thread */}
+                        <div className="flex-1 flex flex-col bg-gray-50 dark:bg-[#0f1117]">
+                            {!selectedConv ? (
+                                <div className="flex-1 flex items-center justify-center">
+                                    <div className="text-center">
+                                        <div className="w-16 h-16 bg-gray-100 dark:bg-[#161b27] border border-gray-200 dark:border-[#1e2535] rounded-3xl flex items-center justify-center mx-auto mb-4">
+                                            <MessageCircle className="w-8 h-8 text-gray-400 dark:text-gray-500" />
                                         </div>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400">Select a conversation to view messages</p>
                                     </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* Recording indicator */}
-                        {isRecording && (
-                            <div className="mb-3 flex items-center justify-between p-3 bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-500/10 dark:to-orange-500/10 border border-red-200 dark:border-red-500/20 rounded-xl">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                                        <span className="text-sm font-medium text-red-900 dark:text-red-400">
-                                            Recording
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Thread header */}
+                                    <div className="flex-shrink-0 px-6 py-4 bg-white dark:bg-[#161b27] border-b border-gray-200 dark:border-[#1e2535] flex items-center justify-between">
+                                        <h3 className="font-semibold text-gray-900 dark:text-white">{selectedConv.title}</h3>
+                                        <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
+                                            selectedConv.is_active
+                                                ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/20'
+                                                : 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700'
+                                        }`}>
+                                            {selectedConv.is_active ? 'Active' : 'Archived'}
                                         </span>
                                     </div>
-                                    <span className="text-sm font-mono font-semibold text-red-900 dark:text-red-400">
-                                        {formatRecordingTime(recordingTime)}
-                                    </span>
-                                </div>
-                                <button
-                                    onClick={stopRecording}
-                                    className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
-                                >
-                                    Stop
-                                </button>
-                            </div>
-                        )}
 
-                        {/* Input row */}
-                        <div className="flex items-end gap-2">
+                                    {/* Messages */}
+                                    <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+                                        {selectedConv.messages?.map(msg => {
+                                            const isAdmin = msg.role === 'system' || msg.metadata?.sent_by_admin;
+                                            const isBot = msg.role === 'head_of_council';
+                                            const isUser = !isAdmin && !isBot;
 
-                            {/* Attach button */}
-                            <div className="relative">
-                                <button aria-label="Attach Files"
-                                    type="button"
-                                    onClick={() => setShowFileMenu(!showFileMenu)}
-                                    disabled={isRecording || !isConnected}
-                                    className="p-2.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#1e2535] rounded-xl transition-all duration-150 disabled:opacity-40"
-                                >
-                                    <Plus className="w-5 h-5" />
-                                </button>
-                                {showFileMenu && (
-                                    <>
-                                        <div className="fixed inset-0 z-10" onClick={() => setShowFileMenu(false)} />
-                                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#1e2535] rounded-xl shadow-lg dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)] overflow-hidden z-20">
-                                            <button
-                                                onClick={() => { fileInputRef.current?.click(); setShowFileMenu(false); }}
-                                                className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 dark:hover:bg-[#1e2535] flex items-center gap-3 transition-colors duration-150"
-                                            >
-                                                <ImageIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                                <span className="text-gray-700 dark:text-gray-300">Upload Files</span>
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-                                <input aria-label="Upload Files" ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" accept="image/*,.pdf,.doc,.docx,.txt,.mp4,.mp3" />
-                            </div>
-
-                            {/* Text input */}
-                            <div className="flex-1 bg-gray-100 dark:bg-[#0f1117] rounded-2xl border border-transparent dark:border-[#1e2535] focus-within:border-blue-500 dark:focus-within:border-blue-500/60 focus-within:bg-white dark:focus-within:bg-[#161b27] transition-all duration-150 shadow-none focus-within:shadow-sm dark:focus-within:shadow-[0_0_0_1px_rgba(59,130,246,0.15)]">
-                                <textarea aria-label="Message" ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleSubmit(e);
-                                        }
-                                    }}
-                                    placeholder={isConnected ? 'Type a message...' : 'Reconnecting...'}
-                                    disabled={isRecording || !isConnected}
-                                    className="w-full px-4 py-3 bg-transparent border-0 resize-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none disabled:opacity-50 text-[15px]"
-                                    rows={1}
-                                    style={{ maxHeight: '150px' }}
-                                />
-                            </div>
-
-                            {/* Voice button */}
-                            <div className="relative">
-                                <button
-                                    type="button"
-                                    onClick={handleVoiceButtonClick}
-                                    disabled={!isConnected}
-                                    onMouseEnter={() => voiceAvailable === false && setShowVoiceTooltip(true)}
-                                    onMouseLeave={() => setShowVoiceTooltip(false)}
-                                    className={`p-2.5 rounded-xl transition-all duration-150 disabled:opacity-40 ${
-                                        isRecording
-                                            ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/30'
-                                            : voiceAvailable === false
-                                            ? 'text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10'
-                                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#1e2535]'
-                                    }`}
-                                >
-                                    {isRecording ? <MicOff className="w-5 h-5" /> :
-                                     voiceAvailable === false ? <AlertCircle className="w-5 h-5" /> :
-                                     <Mic className="w-5 h-5" />}
-                                </button>
-
-                                {/* Voice unavailable tooltip */}
-                                {showVoiceTooltip && voiceAvailable === false && (
-                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2.5 bg-gray-900 dark:bg-[#0f1117] border border-transparent dark:border-[#1e2535] text-white text-xs rounded-xl whitespace-nowrap z-50 shadow-xl">
-                                        <div className="font-medium mb-0.5">Voice features unavailable</div>
-                                        <div className="text-gray-300 dark:text-gray-400">Add OpenAI provider in Models page</div>
-                                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-[#0f1117]" />
+                                            return (
+                                                <div key={msg.id} className={`flex max-w-[80%] ${isAdmin ? 'ml-auto' : ''}`}>
+                                                    <div className={`p-4 rounded-2xl w-full ${
+                                                        isAdmin
+                                                            ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/20 dark:shadow-blue-900/30 rounded-tr-none'
+                                                            : isBot
+                                                            ? 'bg-white dark:bg-[#161b27] border border-purple-100 dark:border-purple-800/40 text-gray-800 dark:text-gray-200 shadow-sm rounded-tl-none'
+                                                            : 'bg-white dark:bg-[#161b27] border border-gray-200 dark:border-[#1e2535] text-gray-900 dark:text-gray-100 shadow-sm rounded-tl-none'
+                                                    }`}>
+                                                        {(isUser || isBot) && (
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                {isBot ? (
+                                                                    <>
+                                                                        <Bot className="w-3.5 h-3.5 text-purple-500" />
+                                                                        <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">AI Assistant</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                                                        {getChannelIcon(msg.sender_channel)}
+                                                                        {msg.sender_channel || 'Unknown Channel'}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                        <div className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</div>
+                                                        <div className={`text-[10px] mt-2 text-right ${isAdmin ? 'text-blue-200' : 'text-gray-400 dark:text-gray-500'}`}>
+                                                            {format(new Date(msg.created_at), 'h:mm a')}
+                                                            {isAdmin && msg.metadata?.channel_routed && (
+                                                                <span className="ml-1 opacity-70">(via {msg.metadata.channel_routed})</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        <div ref={inboxMessagesEndRef} />
                                     </div>
-                                )}
-                            </div>
 
-                            {/* Send button */}
-                            <button aria-label="Send" 
-                                onClick={handleSubmit}
-                                disabled={(!input.trim() && uploadedFiles.length === 0) || isRecording || !isConnected}
-                                className="p-2.5 bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 disabled:bg-gray-200 dark:disabled:bg-[#1e2535] disabled:cursor-not-allowed text-white disabled:text-gray-400 dark:disabled:text-gray-600 rounded-xl transition-all duration-150 shadow-md shadow-blue-500/25 dark:shadow-blue-900/30 disabled:shadow-none"
-                            >
-                                <Send className="w-5 h-5" />
-                            </button>
+                                    {/* Reply input — same style as AI chat input */}
+                                    <div className="flex-shrink-0 bg-white dark:bg-[#161b27] border-t border-gray-200 dark:border-[#1e2535] shadow-sm dark:shadow-[0_-4px_20px_rgba(0,0,0,0.2)]">
+                                        <div className="px-6 py-4">
+                                            <div className="flex items-end gap-2">
+                                                <div className="flex-1 bg-gray-100 dark:bg-[#0f1117] rounded-2xl border border-transparent dark:border-[#1e2535] focus-within:border-emerald-500 dark:focus-within:border-emerald-500/60 focus-within:bg-white dark:focus-within:bg-[#161b27] transition-all duration-150 shadow-none focus-within:shadow-sm">
+                                                    <textarea
+                                                        value={replyContent}
+                                                        onChange={e => setReplyContent(e.target.value)}
+                                                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
+                                                        placeholder="Type a reply..."
+                                                        className="w-full px-4 py-3 bg-transparent border-0 resize-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none text-[15px]"
+                                                        rows={1}
+                                                        style={{ maxHeight: '150px' }}
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={handleSendReply}
+                                                    disabled={!replyContent.trim() || isSending}
+                                                    className="p-2.5 bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500 disabled:bg-gray-200 dark:disabled:bg-[#1e2535] disabled:cursor-not-allowed text-white disabled:text-gray-400 dark:disabled:text-gray-600 rounded-xl transition-all duration-150 shadow-md shadow-emerald-500/25 dark:shadow-emerald-900/30 disabled:shadow-none"
+                                                >
+                                                    {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                                                </button>
+                                            </div>
+                                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                                                Reply will be routed to the user's original channel.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
-                </div>
+                )}
             </div>
 
-            {/* ── Image Preview Modal ─────────────────────────────────────── */}
+            {/* Image Preview Modal */}
             {imagePreview && (
-                <div
-                    className="fixed inset-0 bg-black/90 dark:bg-black/95 z-50 flex items-center justify-center p-6 backdrop-blur-sm"
-                    onClick={() => setImagePreview(null)}
-                >
-                    <button aria-label="Preview" onClick={() => setImagePreview(null)}
-                        className="absolute top-6 right-6 p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors"
-                    >
+                <div className="fixed inset-0 bg-black/90 dark:bg-black/95 z-50 flex items-center justify-center p-6 backdrop-blur-sm" onClick={() => setImagePreview(null)}>
+                    <button aria-label="Close Preview" onClick={() => setImagePreview(null)} className="absolute top-6 right-6 p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors">
                         <X className="w-6 h-6" />
                     </button>
                     <div className="max-w-7xl max-h-full" onClick={(e) => e.stopPropagation()}>
-                        <img
-                            src={imagePreview.url}
-                            alt={imagePreview.name}
-                            className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl"
-                        />
+                        <img src={imagePreview.url} alt={imagePreview.name} className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl" />
                         <div className="mt-4 text-center">
                             <p className="text-white/80 text-sm mb-3">{imagePreview.name}</p>
                             <button
-                                onClick={() => {
-                                    const a = document.createElement('a');
-                                    a.href = imagePreview.url;
-                                    a.download = imagePreview.name;
-                                    a.click();
-                                }}
+                                onClick={() => { const a = document.createElement('a'); a.href = imagePreview.url; a.download = imagePreview.name; a.click(); }}
                                 className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-sm rounded-xl transition-colors border border-white/10"
                             >
                                 Download

@@ -18,7 +18,6 @@ import { AgentsPage } from '@/pages/AgentsPage';
 import { TasksPage } from '@/pages/TasksPage';
 import { ConstitutionPage } from '@/pages/ConstitutionPage';
 import { SovereignDashboard } from '@/pages/SovereignDashboard';
-import { InboxPage } from '@/pages/InboxPage';
 import { SovereignRoute } from '@/components/SovereignRoute';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Shield, Loader2 } from 'lucide-react';
@@ -215,7 +214,6 @@ export default function App() {
             <Route path="agents" element={<AgentsPage />} />
             <Route path="tasks" element={<TasksPage />} />
             <Route path="constitution" element={<ConstitutionPage />} />
-            <Route path="inbox" element={<InboxPage />} />
             <Route path="models" element={<ModelsPage />} />
             <Route path="channels" element={<ChannelsPage />} />
             <Route
