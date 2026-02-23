@@ -28,6 +28,16 @@ class ModelCapability(Enum):
     IDLE = "idle"
 
 
+# Capability priority order (highest → lowest)
+CAPABILITY_PRIORITY = [
+    ModelCapability.CODE,
+    ModelCapability.ANALYSIS,
+    ModelCapability.CREATIVE,
+    ModelCapability.SIMPLE,
+    ModelCapability.IDLE,
+]
+
+
 @dataclass
 class ModelConfig:
     """Configuration for a specific model."""
@@ -146,6 +156,101 @@ class APIManager:
         """Log model assignment for audit trail."""
         logger.info(f"📊 Agent {agentium_id} assigned {model.model_name} for {task_type}")
 
+    # ------------------------------------------------------------------
+    # Methods required by ModelAllocationService
+    # ------------------------------------------------------------------
+
+    def single_api_mode(self) -> bool:
+        """
+        Returns True when only one API model is available.
+        Used by ModelAllocationService to skip tier-aware selection.
+        """
+        available = [m for m in self.models.values() if m.is_available]
+        return len(available) == 1
+
+    def _get_best_available_model_by_capability(
+        self, target_capability: ModelCapability
+    ) -> ModelConfig:
+        """
+        Return the best available model matching target_capability.
+
+        Fallback chain:
+          1. Exact capability match (lowest load wins)
+          2. Walk up CAPABILITY_PRIORITY toward CODE until a match is found
+          3. Walk down toward IDLE until a match is found
+          4. Any available model (last resort)
+
+        Raises ValueError if no models are available at all.
+        """
+        available = [m for m in self.models.values() if m.is_available]
+        if not available:
+            raise ValueError("No available models in APIManager")
+
+        def _best_of(candidates: List[ModelConfig]) -> Optional[ModelConfig]:
+            if not candidates:
+                return None
+            return sorted(candidates, key=lambda m: m.current_load)[0]
+
+        # 1. Exact match
+        exact = [m for m in available if m.capability == target_capability]
+        if exact:
+            return _best_of(exact)
+
+        # 2. Walk capability priority list outward from target
+        target_idx = CAPABILITY_PRIORITY.index(target_capability)
+
+        # Try higher capabilities first (better quality)
+        for cap in CAPABILITY_PRIORITY[:target_idx][::-1]:
+            candidates = [m for m in available if m.capability == cap]
+            if candidates:
+                logger.info(
+                    f"No {target_capability.value} model available; "
+                    f"falling back to {cap.value}"
+                )
+                return _best_of(candidates)
+
+        # Try lower capabilities (cheaper)
+        for cap in CAPABILITY_PRIORITY[target_idx + 1:]:
+            candidates = [m for m in available if m.capability == cap]
+            if candidates:
+                logger.info(
+                    f"No {target_capability.value} model available; "
+                    f"degrading to {cap.value}"
+                )
+                return _best_of(candidates)
+
+        # 3. Absolute fallback — any available model
+        logger.warning("Capability match failed entirely; using any available model")
+        return _best_of(available)
+
+    def _get_best_local_model(self) -> ModelConfig:
+        """
+        Return the best available LOCAL / OPENAI_COMPATIBLE model.
+        Falls back to cheapest available model if no local model exists.
+
+        Raises ValueError if no models are available at all.
+        """
+        available = [m for m in self.models.values() if m.is_available]
+        if not available:
+            raise ValueError("No available models in APIManager")
+
+        local_providers = {"local", "openai_compatible", "custom"}
+        local_models = [
+            m for m in available
+            if m.provider.lower() in local_providers
+        ]
+
+        if local_models:
+            # Lowest load among local models
+            return sorted(local_models, key=lambda m: m.current_load)[0]
+
+        # No local model — fall back to cheapest overall
+        logger.warning(
+            "_get_best_local_model: no LOCAL provider found; "
+            "returning cheapest available model"
+        )
+        return sorted(available, key=lambda m: m.cost_per_1k_tokens)[0]
+
 
 # ---------------------------------------------------------------------------
 # Global instance — initialised once at startup via init_api_manager()
@@ -165,10 +270,6 @@ def init_api_manager(db: Session) -> APIManager:
     global api_manager
 
     # ── Type guard ────────────────────────────────────────────────────────────
-    # We've seen two bad call-site patterns in production:
-    #   1. init_api_manager(list_of_agents)  → agent list passed instead of db
-    #   2. init_api_manager(generator)       → get_db() not iterated
-    # In both cases we open a fresh session so startup doesn't abort.
     if not isinstance(db, Session):
         logger.error(
             f"init_api_manager received {type(db).__name__} instead of a "
@@ -191,10 +292,6 @@ def init_api_manager(db: Session) -> APIManager:
         if config_count == 0:
             logger.info("No model configs found — creating default LOCAL config")
             default_config = UserModelConfig(
-                # user_id=None → inserts NULL.
-                # The FK constraint on user_model_configs.user_id has been dropped
-                # by migration 008 so NULL is accepted without a matching users row.
-                # Never pass user_id="sovereign" — that string has no users.id row.
                 user_id=None,
                 config_name="Default Local Model",
                 provider=ProviderType.LOCAL,
