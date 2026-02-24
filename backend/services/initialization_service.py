@@ -20,7 +20,7 @@ from backend.models.entities.agents import (
 from backend.models.entities.constitution import Constitution, Ethos
 from backend.models.entities.critics import CriticAgent, CriticType
 from backend.models.entities.user import User
-from backend.models.entities.user_config import UserConfig
+from backend.models.entities.user_config import UserModelConfig as UserConfig
 from backend.models.entities.voting import IndividualVote
 from backend.services.knowledge_service import get_knowledge_service
 
