@@ -340,7 +340,7 @@ async def test_failover(
     # Get all keys for provider
     keys = db.query(UserModelConfig).filter_by(
         provider=provider,
-        is_active='Y'
+        is_active=True
     ).order_by(UserModelConfig.priority.asc()).all()
     
     attempted = 0

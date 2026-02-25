@@ -10,6 +10,9 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
+import logging
+
+logger = logging.getLogger(__name__)
 
 from backend.models.database import get_db_context
 from backend.models.entities.agents import Agent, HeadOfCouncil, CouncilMember, AgentStatus, PersistentAgentRole
@@ -144,12 +147,12 @@ class EnhancedIdleGovernanceEngine:
         self.idle_session_start = datetime.utcnow()
         self.metrics.session_start = self.idle_session_start
         
-        print("🌙 ENHANCED IDLE GOVERNANCE ENGINE STARTED")
-        print("   Persistent Council is now eternally active...")
-        print("   Scheduled tasks enabled:")
-        print(f"     - Idle detection: every {self.IDLE_DETECTION_INTERVAL / 3600} hours")
-        print(f"     - Auto-liquidation: every {self.AUTO_LIQUIDATE_INTERVAL / 3600} hours")
-        print(f"     - Resource rebalancing: every {self.REBALANCING_INTERVAL / 3600} hours")
+        logger.info("🌙 ENHANCED IDLE GOVERNANCE ENGINE STARTED")
+        logger.info("   Persistent Council is now eternally active...")
+        logger.info("   Scheduled tasks enabled:")
+        logger.info(f"     - Idle detection: every {self.IDLE_DETECTION_INTERVAL / 3600} hours")
+        logger.info(f"     - Auto-liquidation: every {self.AUTO_LIQUIDATE_INTERVAL / 3600} hours")
+        logger.info(f"     - Resource rebalancing: every {self.REBALANCING_INTERVAL / 3600} hours")
         
         # Start the main loop
         self.idle_loop_task = asyncio.create_task(self._idle_loop())
@@ -208,9 +211,9 @@ class EnhancedIdleGovernanceEngine:
             except asyncio.CancelledError:
                 pass
         
-        print("🛑 ENHANCED IDLE GOVERNANCE ENGINE STOPPED")
-        print(f"   Session duration: {(datetime.utcnow() - self.idle_session_start).total_seconds() / 3600:.2f} hours")
-        print(f"   Metrics summary: {self.metrics.to_dict()}")
+        logger.info("🛑 ENHANCED IDLE GOVERNANCE ENGINE STOPPED")
+        logger.info(f"   Session duration: {(datetime.utcnow() - self.idle_session_start).total_seconds() / 3600:.2f} hours")
+        logger.info(f"   Metrics summary: {self.metrics.to_dict()}")
         
         await self._broadcast({
             'type': 'idle_engine',
@@ -255,7 +258,7 @@ class EnhancedIdleGovernanceEngine:
                     await asyncio.sleep(self.check_interval)
                     
             except Exception as e:
-                print(f"❌ Error in idle loop: {e}")
+                logger.error(f"❌ Error in idle loop: {e}")
                 if db:
                     try:
                         db.rollback()
@@ -300,7 +303,7 @@ class EnhancedIdleGovernanceEngine:
         idle_agents = db.query(Agent).filter(
             and_(
                 Agent.is_active == True,
-                Agent.status == 'active',  # lowercase string
+                Agent.status == AgentStatus.ACTIVE,
                 Agent.is_persistent == False,  # Don't auto-terminate persistent agents
                 Agent.last_idle_action_at < threshold
             )
@@ -309,8 +312,8 @@ class EnhancedIdleGovernanceEngine:
         idle_ids = [agent.agentium_id for agent in idle_agents]
         
         if idle_ids:
-            print(f"🔍 Idle Agent Detection: Found {len(idle_ids)} agents idle for >{self.IDLE_THRESHOLD_DAYS} days")
-            print(f"   Idle agents: {', '.join(idle_ids)}")
+            logger.info(f"🔍 Idle Agent Detection: Found {len(idle_ids)} agents idle for >{self.IDLE_THRESHOLD_DAYS} days")
+            logger.info(f"   Idle agents: {', '.join(idle_ids)}")
             
             # Log the detection
             from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
@@ -341,7 +344,7 @@ class EnhancedIdleGovernanceEngine:
         idle_agents = db.query(Agent).filter(
             and_(
                 Agent.is_active == True,
-                Agent.status == 'active',  # lowercase string
+                Agent.status == AgentStatus.ACTIVE,
                 Agent.is_persistent == False,
                 Agent.last_idle_action_at < threshold
             )
@@ -354,14 +357,14 @@ class EnhancedIdleGovernanceEngine:
         head = db.query(HeadOfCouncil).filter_by(agentium_id="00001").first()
         
         if not head:
-            print("⚠️ Auto-liquidation skipped: Head of Council not found")
+            logger.warning("⚠️ Auto-liquidation skipped: Head of Council not found")
             return {"liquidated": [], "skipped": [], "reason": "no_head"}
         
         for agent in idle_agents:
             # Check if agent has any active tasks
             active_tasks = db.query(Task).filter(
                 Task.assigned_task_agent_ids.contains([agent.agentium_id]),
-                Task.status.in_(['pending', 'in_progress', 'deliberating']),  # lowercase strings
+                Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.DELIBERATING]),
                 Task.is_active == True
             ).count()
             
@@ -393,7 +396,7 @@ class EnhancedIdleGovernanceEngine:
                 self.metrics.record_idle_termination()
                 
             except Exception as e:
-                print(f"⚠️ Failed to liquidate {agent.agentium_id}: {e}")
+                logger.warning(f"⚠️ Failed to liquidate {agent.agentium_id}: {e}")
                 skipped.append({
                     "agentium_id": agent.agentium_id,
                     "reason": f"error: {str(e)}"
@@ -408,11 +411,11 @@ class EnhancedIdleGovernanceEngine:
         }
         
         if liquidated:
-            print(f"🔻 Auto-Liquidation Complete: {len(liquidated)} agents terminated")
-            print(f"   Terminated: {', '.join(liquidated)}")
+            logger.info(f"🔻 Auto-Liquidation Complete: {len(liquidated)} agents terminated")
+            logger.info(f"   Terminated: {', '.join(liquidated)}")
         
         if skipped:
-            print(f"   Skipped: {len(skipped)} agents (have active tasks or errors)")
+            logger.info(f"   Skipped: {len(skipped)} agents (have active tasks or errors)")
         
         return summary
     
@@ -424,7 +427,7 @@ class EnhancedIdleGovernanceEngine:
         # Get all active agents (excluding persistent ones)
         agents = db.query(Agent).filter(
             Agent.is_active == True,
-            Agent.status == 'active',  # lowercase string
+            Agent.status == AgentStatus.ACTIVE,
             Agent.is_persistent == False
         ).all()
         
@@ -441,7 +444,7 @@ class EnhancedIdleGovernanceEngine:
         for agent in agents:
             active_tasks = db.query(Task).filter(
                 Task.assigned_task_agent_ids.contains([agent.agentium_id]),
-                Task.status.in_(['pending', 'in_progress', 'deliberating']),  # lowercase strings
+                Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.DELIBERATING]),
                 Task.is_active == True
             ).count()
             
@@ -487,7 +490,7 @@ class EnhancedIdleGovernanceEngine:
             # Get this agent's tasks
             tasks = db.query(Task).filter(
                 Task.assigned_task_agent_ids.contains([overloaded_agent.agentium_id]),
-                Task.status.in_(['pending', 'deliberating']),  # lowercase strings - only pending/deliberating
+                Task.status.in_([TaskStatus.PENDING, TaskStatus.DELIBERATING]),
                 Task.is_active == True
             ).limit(2).all()  # Move max 2 tasks per agent
             
@@ -537,8 +540,8 @@ class EnhancedIdleGovernanceEngine:
         }
         
         if tasks_moved > 0:
-            print(f"⚖️ Resource Rebalancing Complete: {tasks_moved} tasks redistributed")
-            print(f"   Improvement: {improvement:.1f}%")
+            logger.info(f"⚖️ Resource Rebalancing Complete: {tasks_moved} tasks redistributed")
+            logger.info(f"   Improvement: {improvement:.1f}%")
         
         return summary
     
@@ -551,9 +554,9 @@ class EnhancedIdleGovernanceEngine:
         return db.query(Task).filter(
             Task.is_idle_task == False,
             Task.status.in_([
-                'pending',           # lowercase
-                'deliberating',      # lowercase
-                'in_progress'        # lowercase
+                TaskStatus.PENDING,
+                TaskStatus.DELIBERATING,
+                TaskStatus.IN_PROGRESS
             ]),
             Task.is_active == True
         ).all()
@@ -563,7 +566,7 @@ class EnhancedIdleGovernanceEngine:
         return db.query(Agent).filter(
             Agent.is_persistent == True,
             Agent.is_active == True,
-            Agent.status.in_(['active', 'idle_working'])  # lowercase strings
+            Agent.status.in_([AgentStatus.ACTIVE, AgentStatus.IDLE_WORKING])
         ).order_by(Agent.last_idle_action_at).all()
     
     async def _assign_idle_work(self, db: Session, agent: Agent):
@@ -605,7 +608,7 @@ class EnhancedIdleGovernanceEngine:
             if task:
                 task.pause_for_user_task()
         
-        print(f"⏸️ Idle work paused: {reason}")
+        logger.info(f"⏸️ Idle work paused: {reason}")
     
     async def _broadcast(self, message: Dict):
         """Broadcast status via WebSocket."""
@@ -627,10 +630,10 @@ class EnhancedIdleGovernanceEngine:
         # Count pending tasks
         pending_count = db.query(Task).filter(
             Task.status.in_([
-                'pending',           # lowercase
-                'deliberating',      # lowercase
-                'approved',          # lowercase
-                'assigned'           # lowercase
+                TaskStatus.PENDING,
+                TaskStatus.DELIBERATING,
+                TaskStatus.APPROVED,
+                TaskStatus.ASSIGNED
             ]),
             Task.is_active == True
         ).count()
@@ -645,7 +648,7 @@ class EnhancedIdleGovernanceEngine:
         }
         
         if pending_count > threshold:
-            print(f"📈 Auto-scaling triggered: {pending_count} pending tasks exceeds threshold {threshold}")
+            logger.info(f"📈 Auto-scaling triggered: {pending_count} pending tasks exceeds threshold {threshold}")
             
             # Get Head for authority
             head = db.query(HeadOfCouncil).filter_by(agentium_id="00001").first()
@@ -672,7 +675,7 @@ class EnhancedIdleGovernanceEngine:
                 
                 # In production: Request Council micro-vote and spawn agents
                 # For now, log the recommendation
-                print(f"   Council micro-vote recommended: Spawn 3 additional Task Agents (3xxxx)")
+                logger.info(f"   Council micro-vote recommended: Spawn 3 additional Task Agents (3xxxx)")
                 
                 result.update({
                     "scaled": True,
@@ -704,7 +707,7 @@ class EnhancedIdleGovernanceEngine:
             # Get task stats
             completed_idle = db.query(Task).filter_by(
                 is_idle_task=True,
-                status='idle_completed'  # lowercase
+                status=TaskStatus.IDLE_COMPLETED
             ).count()
             
             # Get capacity info

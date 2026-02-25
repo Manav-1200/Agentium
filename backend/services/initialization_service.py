@@ -5,9 +5,11 @@ Genesis protocol - bootstraps the governance system from scratch.
 
 import asyncio
 import json
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.core.vector_store import get_vector_store
@@ -23,6 +25,8 @@ from backend.models.entities.user import User
 from backend.models.entities.user_config import UserModelConfig as UserConfig
 from backend.models.entities.voting import IndividualVote
 from backend.services.knowledge_service import get_knowledge_service
+
+logger = logging.getLogger(__name__)
 
 
 class InitializationError(Exception):
@@ -104,7 +108,7 @@ class InitializationService:
         """Check if Head 00001 exists (system already bootstrapped)."""
         head_exists = self.db.query(HeadOfCouncil).filter_by(
             agentium_id="00001",
-            is_active="Y"
+            is_active=True
         ).first()
         return head_exists is not None
     
@@ -335,7 +339,7 @@ class InitializationService:
             name="Head of Council Prime",
             description="The supreme authority of Agentium. Eternal and persistent.",
             status=AgentStatus.ACTIVE,
-            is_active="Y",
+            is_active=True,
             is_persistent=True,
             idle_mode_enabled=True,
             constitution_version="v1.0.0"
@@ -371,7 +375,7 @@ class InitializationService:
                 name=f"Council Member {i+1}",
                 description=f"Founding Council Member {i+1}",
                 status=AgentStatus.ACTIVE,
-                is_active="Y",
+                is_active=True,
                 specialization=self._assign_specialization(i)
             )
             
@@ -421,7 +425,7 @@ class InitializationService:
                 user_id="SYSTEM",
                 config_name="country_name",
                 config_value=country_name,
-                is_active="Y"
+                is_active=True
             )
             self.db.add(config)
         except Exception:
@@ -457,7 +461,7 @@ class InitializationService:
             }]),
             created_by_agentium_id=head.agentium_id,
             effective_date=datetime.utcnow(),
-            is_active="Y"
+            is_active=True
         )
         
         self.db.add(constitution)
@@ -615,7 +619,7 @@ class InitializationService:
                 description=seed["description"],
                 critic_specialty=seed["critic_specialty"],
                 status=AgentStatus.ACTIVE,
-                is_active="Y",
+                is_active=True,
                 is_persistent=True,
                 idle_mode_enabled=False,   # Critics are never idle — always ready
                 constitution_version=constitution.version,
@@ -786,8 +790,8 @@ class InitializationService:
     async def _clear_existing_data(self) -> None:
         """Clear existing data."""
         try:
-            self.db.execute("TRUNCATE TABLE agents CASCADE")
-            self.db.execute("TRUNCATE TABLE constitutions CASCADE")
+            self.db.execute(text("TRUNCATE TABLE agents CASCADE"))
+            self.db.execute(text("TRUNCATE TABLE constitutions CASCADE"))
             self.db.commit()
         except Exception as e:
             self._log("ERROR", f"Clear failed: {e}")
@@ -796,7 +800,7 @@ class InitializationService:
         """Log to genesis log."""
         entry = f"[{datetime.utcnow().isoformat()}] [{level}] {message}"
         self.genesis_log.append(entry)
-        print(entry)
+        getattr(logger, level.lower(), logger.info)(message)
     
     @staticmethod
     def create_default_constitution(db: Session) -> Constitution:
@@ -838,7 +842,7 @@ class InitializationService:
             }]),
             created_by_agentium_id="00001",
             effective_date=datetime.utcnow(),
-            is_active="Y"
+            is_active=True
         )
         
         db.add(constitution)

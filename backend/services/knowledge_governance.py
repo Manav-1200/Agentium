@@ -326,7 +326,7 @@ class KnowledgeGovernanceService:
     async def _check_quorum(self, submission: KnowledgeSubmission) -> str:
         """Check if quorum reached and make decision."""
         # Get total council size
-        council_size = self.db.query(CouncilMember).filter_by(is_active="Y").count()
+        council_size = self.db.query(CouncilMember).filter_by(is_active=True).count()
         
         total_votes = submission.votes_for + submission.votes_against
         
@@ -425,7 +425,7 @@ class KnowledgeGovernanceService:
     async def _notify_council(self, submission: KnowledgeSubmission):
         """Notify Council members of new submission."""
         # In production: Send WebSocket message, email, or dashboard notification
-        council = self.db.query(CouncilMember).filter_by(is_active="Y").all()
+        council = self.db.query(CouncilMember).filter_by(is_active=True).all()
         
         for member in council:
             # Mark as reviewer

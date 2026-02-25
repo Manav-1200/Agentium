@@ -237,7 +237,7 @@ class CriticService:
         
         critic = db.query(CriticAgent).filter(
             CriticAgent.agent_type == agent_type,
-            CriticAgent.is_active == 'Y',
+            CriticAgent.is_active == True,
             CriticAgent.status.in_([AgentStatus.ACTIVE, AgentStatus.IDLE_WORKING]),
         ).order_by(
             CriticAgent.reviews_completed.asc()  # Load-balance: least busy first
@@ -544,6 +544,7 @@ Respond ONLY with a JSON object — no markdown, no preamble:
                 f"Critic type: {critic_type.value}. Reason: {reason}"
             ),
             created_at=datetime.utcnow(),
+            is_active=True,
         )
         db.add(audit)
         
@@ -607,7 +608,7 @@ Respond ONLY with a JSON object — no markdown, no preamble:
     def get_critic_stats(self, db: Session) -> Dict[str, Any]:
         """Get aggregate statistics for all critic agents."""
         critics = db.query(CriticAgent).filter(
-            CriticAgent.is_active == 'Y',
+            CriticAgent.is_active == True,
         ).all()
         
         total_reviews = sum(c.reviews_completed for c in critics)

@@ -114,7 +114,7 @@ class APIKeyManager:
             # Get all active keys for provider, ordered by priority
             keys = db_session.query(UserModelConfig).filter_by(
                 provider=provider,
-                is_active='Y'
+                is_active=True
             ).filter(
                 UserModelConfig.priority >= min_priority
             ).order_by(

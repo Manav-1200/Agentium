@@ -132,14 +132,17 @@ class AmendmentVoting(BaseEntity):
 
     def conclude(self) -> Dict[str, Any]:
         """Concluding the voting process."""
-        self.status = AmendmentStatus.PASSED # Logic to determine pass/fail
         total_votes = self.votes_for + self.votes_against + self.votes_abstain
         if total_votes == 0:
              self.status = AmendmentStatus.REJECTED
              self.final_result = "rejected"
         else:
-            percent_for = (self.votes_for / total_votes) * 100
-            if percent_for >= self.supermajority_threshold:
+            # Quorum check: at least 60% of eligible voters must participate
+            quorum_pct = (total_votes / len(self.eligible_voters)) * 100 if self.eligible_voters else 0
+            if quorum_pct < 60:
+                self.status = AmendmentStatus.REJECTED
+                self.final_result = "rejected"
+            elif (self.votes_for / total_votes) * 100 >= self.supermajority_threshold:
                  self.status = AmendmentStatus.PASSED
                  self.final_result = "passed"
             else:
@@ -235,7 +238,7 @@ class TaskDeliberation(BaseEntity):
         Record a vote from a council member.
         Returns the IndividualVote record.
         """
-        if self.status != DeliberationStatus.ACTIVE:
+        if self.status not in [DeliberationStatus.ACTIVE, DeliberationStatus.QUORUM_REACHED]:
             raise ValueError("Voting is not currently open")
         
         if council_member_id not in self.participating_members:

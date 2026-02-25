@@ -338,7 +338,7 @@ class ToolDeprecationService:
             target_id=tool_name,
             description=f"{action} on tool '{tool_name}'",
             after_state=details,
-            is_active="Y",
+            is_active=True,
             created_at=datetime.utcnow(),
         )
         self.db.add(audit)

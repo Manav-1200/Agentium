@@ -95,7 +95,7 @@ def handle_task_escalation():
                 return {"processed": 0}
             
             # Get Council members for deliberation
-            council_members = db.query(CouncilMember).filter_by(is_active="Y").all()
+            council_members = db.query(CouncilMember).filter_by(is_active=True).all()
             head = db.query(HeadOfCouncil).filter_by(agentium_id="00001").first()
             
             results = []
@@ -350,7 +350,7 @@ def auto_scale_check():
                     TaskStatus.APPROVED,
                     TaskStatus.ASSIGNED
                 ]),
-                Task.is_active == 'Y'
+                Task.is_active == True
             ).count()
             
             threshold = 10  # Configurable threshold

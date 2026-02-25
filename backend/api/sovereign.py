@@ -293,7 +293,7 @@ async def unblock_agent(
         target_id=agentium_id,
         description=f"Agent {agentium_id} unblocked by sovereign",
         after_state={"blocked": False},
-        is_active='Y',
+        is_active=True,
         created_at=datetime.utcnow()
     )
     db.add(audit)

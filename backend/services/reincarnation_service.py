@@ -107,7 +107,7 @@ class ReincarnationService:
                         db
                     )
                 except ValueError:
-                    print(f"⚠️ Invalid capability: {cap_name}")
+                    logger.warning(f"⚠️ Invalid capability: {cap_name}")
         
         # Log the spawn
         AuditLog.log(
@@ -126,7 +126,7 @@ class ReincarnationService:
             }
         )
         
-        print(f"✨ Task Agent spawned: {new_id} (parent: {parent.agentium_id})")
+        logger.info(f"✨ Task Agent spawned: {new_id} (parent: {parent.agentium_id})")
         return task_agent
     
     @staticmethod
@@ -193,7 +193,7 @@ class ReincarnationService:
             }
         )
         
-        print(f"✨ Lead Agent spawned: {new_id} (parent: {parent.agentium_id})")
+        logger.info(f"✨ Lead Agent spawned: {new_id} (parent: {parent.agentium_id})")
         return lead_agent
     
     # ═══════════════════════════════════════════════════════════
@@ -250,7 +250,7 @@ class ReincarnationService:
             parent_id=task_agent.parent_id,
             agent_type=AgentType.LEAD,
             status=AgentStatus.ACTIVE,
-            is_active='Y',
+            is_active=True,
             is_persistent=task_agent.is_persistent,
             created_by=promoted_by.agentium_id,
             constitution_version=task_agent.constitution_version,
@@ -264,7 +264,7 @@ class ReincarnationService:
         # Transfer active tasks from Task Agent to Lead Agent
         active_tasks = db.query(Task).filter(
             Task.assigned_task_agent_ids.contains([agent_id]),
-            Task.is_active == 'Y'
+            Task.is_active == True
         ).all()
         
         for task in active_tasks:
@@ -314,9 +314,9 @@ class ReincarnationService:
         
         db.commit()
         
-        print(f"🎖️ Agent promoted: {agent_id} → {new_lead_id}")
-        print(f"   Reason: {reason}")
-        print(f"   Tasks transferred: {len(active_tasks)}")
+        logger.info(f"🎖️ Agent promoted: {agent_id} → {new_lead_id}")
+        logger.info(f"   Reason: {reason}")
+        logger.info(f"   Tasks transferred: {len(active_tasks)}")
         
         return lead_agent
     
@@ -408,7 +408,7 @@ class ReincarnationService:
         active_tasks = db.query(Task).filter(
             Task.assigned_task_agent_ids.contains([agent_id]),
             Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.DELIBERATING]),
-            Task.is_active == 'Y'
+            Task.is_active == True
         ).all()
         
         for task in active_tasks:
@@ -470,7 +470,7 @@ class ReincarnationService:
         agent.status = AgentStatus.TERMINATED
         agent.terminated_at = datetime.utcnow()
         agent.termination_reason = f"Liquidated by {liquidated_by.agentium_id}. Reason: {reason}"
-        agent.is_active = 'N'
+        agent.is_active = False
         agent.current_task_id = None
         
         # Store archive in custom field if available
@@ -492,12 +492,12 @@ class ReincarnationService:
         
         db.commit()
         
-        print(f"🔻 Agent liquidated: {agent_id}")
-        print(f"   Liquidated by: {liquidated_by.agentium_id}")
-        print(f"   Reason: {reason}")
-        print(f"   Tasks reassigned: {liquidation_summary['tasks_reassigned']}")
-        print(f"   Tasks cancelled: {liquidation_summary['tasks_cancelled']}")
-        print(f"   Children reassigned: {liquidation_summary['child_agents_notified']}")
+        logger.info(f"🔻 Agent liquidated: {agent_id}")
+        logger.info(f"   Liquidated by: {liquidated_by.agentium_id}")
+        logger.info(f"   Reason: {reason}")
+        logger.info(f"   Tasks reassigned: {liquidation_summary['tasks_reassigned']}")
+        logger.info(f"   Tasks cancelled: {liquidation_summary['tasks_cancelled']}")
+        logger.info(f"   Children reassigned: {liquidation_summary['child_agents_notified']}")
         
         return liquidation_summary
     
@@ -871,7 +871,7 @@ Provide a concise summary (max 300 words) that the successor agent will inherit.
             parent_id=agent.parent_id,
             agent_type=agent_type,
             status=AgentStatus.ACTIVE,
-            is_active='Y',
+            is_active=True,
             is_persistent=agent.is_persistent,
             idle_mode_enabled=agent.idle_mode_enabled,
             created_by="REINCARNATION_SERVICE"

@@ -477,7 +477,7 @@ class TokenOptimizer:
         }
 
     def _calculate_hourly_cost(self, db: Session) -> float:
-        agents = db.query(Agent).filter_by(is_active="Y").all()
+        agents = db.query(Agent).filter_by(is_active=True).all()
         hourly_cost = 0.0
         for agent in agents:
             if not agent.preferred_config:
