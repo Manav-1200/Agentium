@@ -1918,7 +1918,7 @@ const CriticsTab: React.FC = () => {
                         <ShieldCheck className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
                         <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">No critic agents found</p>
                         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                            Critics are seeded during genesis (agents 40001, 50001, 60001)
+                            Critics are seeded during genesis (agents 70001, 80001, 90001)
                         </p>
                     </div>
                 ) : (

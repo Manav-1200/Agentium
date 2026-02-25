@@ -1197,6 +1197,7 @@ mcp==1.0.0    # Official MCP Python SDK
 **Features:**
 
 - [x] Auto-fallback to next available API key
+- [ ] Veify multipiles key from same provider can be added
 - [ ] Circuit breaker pattern for failing providers
 - [ ] Notification if ALL API keys failing
 - [ ] API key rotation without downtime
@@ -1204,8 +1205,8 @@ mcp==1.0.0    # Official MCP Python SDK
 
 **Multi-Provider Strategy:**
 
-- [ ] Primary: OpenAI
-- [ ] Secondary: Anthropic
+- [ ] Primary: Anthropic
+- [ ] Secondary: OpenAI
 - [ ] Tertiary: Groq
 - [ ] Fallback: Local models (Ollama)
 

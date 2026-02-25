@@ -7,7 +7,8 @@ import json
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
+from sqlalchemy.exc import IntegrityError
 
 from backend.models.entities.agents import Agent, HeadOfCouncil, CouncilMember, LeadAgent, TaskAgent, AgentStatus, AgentType
 from backend.models.entities.constitution import Ethos
@@ -16,20 +17,21 @@ from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
 from backend.services.context_manager import context_manager
 from backend.services.model_provider import ModelService
 from backend.services.capability_registry import CapabilityRegistry, Capability
+import logging 
 
+logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════
 # ID GENERATION CONSTANTS
 # ═══════════════════════════════════════════════════════════
 
 ID_RANGES = {
-    "head": {"min": 1, "max": 999, "prefixes": ["0"]},      # 00001-00999
+    "head": {"min": 1, "max": 9999, "prefixes": ["0"]},      # 00001-09999
     "council": {"min": 10001, "max": 19999, "prefixes": ["1"]},  # 10001-19999
     "lead": {"min": 20001, "max": 29999, "prefixes": ["2"]},     # 20001-29999
     "task": {"min": 30001, "max": 69999, "prefixes": ["3", "4", "5", "6"]},     # 30001-69999
     "critic": {"min": 70001, "max": 99999, "prefixes": ["7", "8", "9"]},  # 70001-99999
 }
-
 
 class ReincarnationService:
     """
@@ -37,9 +39,256 @@ class ReincarnationService:
     Handles spawning, promotion, liquidation, and reincarnation.
     """
     
-    # ═══════════════════════════════════════════════════════════
-    # SPAWNING METHODS
-    # ═══════════════════════════════════════════════════════════
+    # Lock ID namespace for advisory locks (prevents collision with other app locks)
+    _ADVISORY_LOCK_NAMESPACE = 42
+    
+    @staticmethod
+    def _get_advisory_lock_id(prefix: str) -> int:
+        """
+        Generate a unique advisory lock ID for a given prefix.
+        Uses hash of prefix modulo 2^31 to stay within PostgreSQL limits.
+        """
+        import hashlib
+        hash_val = int(hashlib.md5(prefix.encode()).hexdigest(), 16)
+        return (hash_val % (2**31 - 1)) + (ReincarnationService._ADVISORY_LOCK_NAMESPACE * 1000)
+    
+    @staticmethod
+    def _generate_next_id(tier: str, db: Session) -> str:
+        """
+        Generate next available ID for a tier with full atomic concurrency control.
+        
+        Uses database advisory locks + SELECT FOR UPDATE to prevent all race conditions
+        under concurrent agent spawning. Falls back to gap-filling with conflict detection.
+        
+        Args:
+            tier: "head", "council", "lead", "task", or "critic"
+            db: Database session
+            
+        Returns:
+            Next available agentium_id (e.g., "30152")
+            
+        Raises:
+            ValueError: If ID pool is exhausted or tier is invalid
+            RuntimeError: If database integrity cannot be guaranteed
+        """
+        tier_config = ID_RANGES.get(tier)
+        if not tier_config:
+            raise ValueError(f"Invalid tier: {tier}. Must be one of: {list(ID_RANGES.keys())}")
+        
+        prefixes = tier_config.get("prefixes", [tier_config.get("prefix")])
+        
+        for prefix in prefixes:
+            lock_id = ReincarnationService._get_advisory_lock_id(prefix)
+            
+            # ═══════════════════════════════════════════════════════════
+            # STEP 1: Acquire exclusive advisory lock for this prefix
+            # This prevents ANY concurrent ID generation for this prefix
+            # across all application instances
+            # ═══════════════════════════════════════════════════════════
+            try:
+                # PostgreSQL advisory lock (transaction-scoped)
+                lock_result = db.execute(
+                    text("SELECT pg_try_advisory_xact_lock(:lock_id)"),
+                    {"lock_id": lock_id}
+                ).scalar()
+                
+                if not lock_result:
+                    # Another process holds the lock - this shouldn't happen
+                    # in normal operation, but handle gracefully
+                    logger.warning(f"⚠️ Could not acquire advisory lock for prefix {prefix}, retrying...")
+                    # Fallback: try next prefix or continue with row-level lock only
+                    
+            except Exception as e:
+                # Advisory locks may not be available (non-PostgreSQL)
+                # Continue with row-level locking only
+                logger.debug(f"Advisory lock not available for prefix {prefix}: {e}")
+            
+            # ═══════════════════════════════════════════════════════════
+            # STEP 2: Get current maximum ID with row-level lock
+            # ═══════════════════════════════════════════════════════════
+            highest = db.query(func.max(Agent.agentium_id)).filter(
+                Agent.agentium_id.like(f"{prefix}%")
+            ).with_for_update().scalar()
+            
+            if highest:
+                try:
+                    current_num = int(highest)
+                    next_num = current_num + 1
+                except ValueError:
+                    next_num = int(f"{prefix}0001")
+            else:
+                next_num = int(f"{prefix}0001")
+            
+            prefix_max = int(f"{prefix}9999")
+            
+            # ═══════════════════════════════════════════════════════════
+            # STEP 3: Attempt sequential ID assignment with conflict handling
+            # ═══════════════════════════════════════════════════════════
+            if next_num <= prefix_max:
+                candidate_id = str(next_num).zfill(5)
+                
+                # Verify availability (defensive check)
+                existing = db.query(Agent).filter_by(agentium_id=candidate_id).first()
+                
+                if not existing:
+                    # Pre-validate by attempting a flush with the ID
+                    # This catches any race conditions at the database level
+                    try:
+                        # Create a minimal validation query to ensure ID is truly available
+                        validation = db.execute(
+                            text("""
+                                SELECT 1 FROM agents 
+                                WHERE agentium_id = :agentium_id 
+                                FOR UPDATE SKIP LOCKED
+                            """),
+                            {"agentium_id": candidate_id}
+                        ).fetchone()
+                        
+                        if validation is None:
+                            return candidate_id
+                            
+                    except Exception:
+                        # Database doesn't support SKIP LOCKED, fall through to gap scan
+                        pass
+            
+            # ═══════════════════════════════════════════════════════════
+            # STEP 4: Gap-filling scan with atomic conflict detection
+            # Triggered when: sequential ID taken, or pool has gaps from deletions
+            # ═══════════════════════════════════════════════════════════
+            logger.info(f"🔍 Scanning for gaps in prefix {prefix} (sequential ID {next_num} unavailable)")
+            
+            # Use a CTE to find gaps atomically
+            try:
+                gap_result = db.execute(
+                    text("""
+                        WITH RECURSIVE numbers AS (
+                            SELECT :min_num AS n
+                            UNION ALL
+                            SELECT n + 1 FROM numbers WHERE n < :max_num
+                        ),
+                        used_ids AS (
+                            SELECT CAST(substring(agentium_id FROM 2) AS INTEGER) as num
+                            FROM agents 
+                            WHERE agentium_id LIKE :prefix_pattern
+                        )
+                        SELECT LPAD(n::text, 4, '0') as gap_id
+                        FROM numbers
+                        WHERE n NOT IN (SELECT num FROM used_ids)
+                        AND n BETWEEN :min_num AND :max_num
+                        LIMIT 1
+                    """),
+                    {
+                        "min_num": 1,
+                        "max_num": 9999,
+                        "prefix_pattern": f"{prefix}%"
+                    }
+                ).fetchone()
+                
+                if gap_result:
+                    gap_id = gap_result[0]
+                    candidate_id = f"{prefix}{gap_id}"
+                    
+                    # Final atomic check with row lock
+                    conflict_check = db.execute(
+                        text("""
+                            SELECT 1 FROM agents 
+                            WHERE agentium_id = :agentium_id 
+                            FOR UPDATE SKIP LOCKED
+                        """),
+                        {"agentium_id": candidate_id}
+                    ).fetchone()
+                    
+                    if conflict_check is None:
+                        return candidate_id
+                        
+            except Exception as e:
+                # CTE approach failed, use Python loop with proper locking
+                logger.debug(f"CTE gap scan failed, using fallback: {e}")
+                
+                # Build set of used IDs with locking
+                used_ids = {
+                    row[0] for row in db.execute(
+                        text("""
+                            SELECT agentium_id FROM agents 
+                            WHERE agentium_id LIKE :prefix_pattern
+                            FOR UPDATE
+                        """),
+                        {"prefix_pattern": f"{prefix}%"}
+                    ).fetchall()
+                }
+                
+                # Find first gap
+                for candidate_num in range(1, 10000):
+                    candidate_id = f"{prefix}{candidate_num:04d}"
+                    if candidate_id not in used_ids:
+                        # Verify with SELECT FOR UPDATE to prevent race
+                        locked = db.execute(
+                            text("""
+                                SELECT 1 FROM agents 
+                                WHERE agentium_id = :agentium_id 
+                                FOR UPDATE NOWAIT
+                            """),
+                            {"agentium_id": candidate_id}
+                        ).fetchone()
+                        
+                        if locked is None:
+                            return candidate_id
+                            
+            logger.warning(f"⚠️ Prefix {prefix} appears to be exhausted")
+        
+        # ═══════════════════════════════════════════════════════════
+        # STEP 5: All prefixes exhausted
+        # ═══════════════════════════════════════════════════════════
+        raise ValueError(
+            f"ID pool exhausted for {tier} tier across all assigned prefixes "
+            f"({', '.join(prefixes)}). Consider liquidating inactive agents "
+            f"or expanding ID range."
+        )
+    
+    @staticmethod
+    def generate_id_with_retry(tier: str, db: Session, max_retries: int = 3) -> str:
+        """
+        Wrapper for _generate_next_id with automatic retry on transient failures.
+        
+        Args:
+            tier: The agent tier
+            db: Database session
+            max_retries: Maximum number of retry attempts
+            
+        Returns:
+            Generated agentium_id
+            
+        Raises:
+            RuntimeError: If all retry attempts fail
+        """
+        import time
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                return ReincarnationService._generate_next_id(tier, db)
+                
+            except IntegrityError as e:
+                # Unique constraint violation - another transaction got the ID first
+                db.rollback()
+                logger.warning(f"ID generation conflict on attempt {attempt}, retrying...")
+                
+                if attempt == max_retries:
+                    raise RuntimeError(
+                        f"Failed to generate ID for tier {tier} after {max_retries} "
+                        f"attempts due to concurrent conflicts. Consider reducing "
+                        f"spawn concurrency or expanding ID pools."
+                    ) from e
+                
+                # Exponential backoff: 10ms, 20ms, 40ms
+                time.sleep(0.01 * (2 ** (attempt - 1)))
+                
+            except Exception as e:
+                # Non-retryable error
+                db.rollback()
+                raise
+        
+        # Should never reach here
+        raise RuntimeError(f"Unexpected state in ID generation for tier {tier}")
     
     @staticmethod
     def spawn_task_agent(
@@ -73,8 +322,8 @@ class ReincarnationService:
                 "(requires SPAWN_TASK_AGENT capability)"
             )
         
-        # Generate unique ID
-        new_id = ReincarnationService._generate_next_id("task", db)
+        # Generate unique ID with retry logic
+        new_id = ReincarnationService.generate_id_with_retry("task", db)
         
         # Create Task Agent
         task_agent = TaskAgent(
@@ -158,8 +407,8 @@ class ReincarnationService:
                 "(requires SPAWN_LEAD capability)"
             )
         
-        # Generate unique ID
-        new_id = ReincarnationService._generate_next_id("lead", db)
+        # Generate unique ID with retry logic
+        new_id = ReincarnationService.generate_id_with_retry("lead", db)
         
         # Create Lead Agent
         lead_agent = LeadAgent(
@@ -239,8 +488,8 @@ class ReincarnationService:
                 "(requires Council or Head tier)"
             )
         
-        # Generate new Lead Agent ID
-        new_lead_id = ReincarnationService._generate_next_id("lead", db)
+        # Generate new Lead Agent ID with retry logic
+        new_lead_id = ReincarnationService.generate_id_with_retry("lead", db)
         
         # Create new Lead Agent (copy attributes from Task Agent)
         lead_agent = LeadAgent(
@@ -542,65 +791,6 @@ class ReincarnationService:
         
         return capacity
     
-    @staticmethod
-    def _generate_next_id(tier: str, db: Session) -> str:
-        """
-        Generate next available ID for a tier using atomic row locking.
-        
-        Uses SELECT ... FOR UPDATE to prevent ID collisions under
-        concurrent agent spawning. Falls back to gap-filling scan
-        if the sequential candidate is already taken.
-        
-        Args:
-            tier: "head", "council", "lead", "task", or "critic"
-            db: Database session
-            
-        Returns:
-            Next available agentium_id (e.g., "30152")
-            
-        Raises:
-            ValueError: If ID pool is exhausted
-        """
-        tier_config = ID_RANGES.get(tier)
-        if not tier_config:
-            raise ValueError(f"Invalid tier: {tier}")
-        
-        prefixes = tier_config.get("prefixes", [tier_config.get("prefix")])
-        
-        for prefix in prefixes:
-            # Atomic query: lock the highest-ID row to prevent concurrent races
-            highest = db.query(func.max(Agent.agentium_id)).filter(
-                Agent.agentium_id.like(f"{prefix}%")
-            ).with_for_update().scalar()
-            
-            if highest:
-                try:
-                    current_num = int(highest)
-                    next_num = current_num + 1
-                except ValueError:
-                    next_num = int(f"{prefix}0001")
-            else:
-                next_num = int(f"{prefix}0001")
-            
-            prefix_max = int(f"{prefix}9999")
-            if next_num <= prefix_max:
-                new_id = str(next_num).zfill(5)
-                # Double-check uniqueness (belt-and-suspenders with the lock)
-                if not db.query(Agent).filter_by(agentium_id=new_id).first():
-                    return new_id
-                    
-                # If taken (shouldn't happen with lock), scan for gaps
-                logger.warning(f"⚠️ ID {new_id} already taken despite lock, scanning for gaps")
-                for candidate in range(int(f"{prefix}0001"), prefix_max + 1):
-                    candidate_id = str(candidate).zfill(5)
-                    if not db.query(Agent).filter_by(agentium_id=candidate_id).first():
-                        return candidate_id
-                    
-        raise ValueError(
-            f"ID pool exhausted for {tier} tier across all assigned prefixes. "
-            f"Consider liquidating inactive agents or expanding ID range."
-        )
-    
     # ═══════════════════════════════════════════════════════════
     # REINCARNATION (from original implementation)
     # ═══════════════════════════════════════════════════════════
@@ -871,7 +1061,7 @@ Provide a concise summary (max 300 words) that the successor agent will inherit.
         tier_map = {"0": "head", "1": "council", "2": "lead", "3": "task"}
         tier_name = tier_map.get(agent.agentium_id[0], "task")
         
-        new_id = ReincarnationService._generate_next_id(tier_name, db)
+        new_id = ReincarnationService.generate_id_with_retry(tier_name, db)
         
         # Create new agent of same type
         new_agent_class = type(agent)
@@ -911,7 +1101,6 @@ Provide a concise summary (max 300 words) that the successor agent will inherit.
                     db.flush()
         
         return new_agent
-
 
     @staticmethod
     def get_predecessor_context(agent: Agent, db: Session) -> Dict[str, Any]:

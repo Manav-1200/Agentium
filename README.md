@@ -47,7 +47,7 @@ One user. One conversation. All channels. Text, image, video, audio, and files a
 
 Rigorous identification system:
 
-- **Head**: `0xxxx` (00001–00999) — The Sovereign's direct representative
+- **Head**: `0xxxx` (00001–09999) — The Sovereign's direct representative
 - **Council**: `1xxxx` (10001–19999) — Democratic deliberation layer
 - **Lead**: `2xxxx` (20001–29999) — Department coordination
 - **Task**: `3xxxx` (30001–69999) — Execution workers
@@ -211,7 +211,7 @@ docker compose up -d
 # First build takes 10–20 minutes
 
 # Watch initialization logs
-docker compose logs -f agentium-backend
+docker compose logs -f
 
 # Access the dashboard
 open http://localhost:3000
