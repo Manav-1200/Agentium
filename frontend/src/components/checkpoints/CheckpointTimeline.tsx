@@ -26,6 +26,8 @@ import {
     Loader2,
     Milestone,
     AlertCircle,
+    Search,
+    X,
 } from 'lucide-react';
 import { checkpointsService, Checkpoint, CheckpointPhase } from '../../services/checkpoints';
 
@@ -118,6 +120,7 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
     const [branchName, setBranchName] = useState('');
     const [isRestoring, setIsRestoring] = useState(false);
     const [isBranching, setIsBranching] = useState(false);
+    const [isInspectorOpen, setIsInspectorOpen] = useState(false);
 
     const meta = getPhaseMeta(checkpoint.phase);
 
@@ -229,6 +232,19 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
 
                             {/* Actions */}
                             <div className="flex flex-wrap gap-2">
+                                {/* Inspect State */}
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setIsInspectorOpen(true); }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                                        bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300
+                                        border border-slate-200 dark:border-slate-700
+                                        hover:bg-slate-100 dark:hover:bg-slate-800
+                                        transition-colors duration-150"
+                                >
+                                    <Search className="w-3 h-3" />
+                                    Inspect State
+                                </button>
+
                                 {/* Restore */}
                                 <button
                                     onClick={handleRestore}
@@ -295,6 +311,41 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
                     )}
                 </div>
             </div>
+
+            {/* Inpsector Modal */}
+            {isInspectorOpen && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+                    onClick={(e) => { e.stopPropagation(); setIsInspectorOpen(false); }}
+                >
+                    <div
+                        className="bg-white dark:bg-[#161b27] border border-slate-200 dark:border-[#1e2535] rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#1e2535]">
+                            <div>
+                                <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+                                    State Inspector
+                                </h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Checkpoint ID: {checkpoint.id}
+                                </p>
+                            </div>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setIsInspectorOpen(false); }}
+                                className="p-2 -mr-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-[#1e2535] dark:hover:text-slate-300 rounded-lg transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-6 bg-slate-50 dark:bg-[#0f1117] rounded-b-xl">
+                            <pre className="text-xs font-mono text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">
+                                {stateJson}
+                            </pre>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

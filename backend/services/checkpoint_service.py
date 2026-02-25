@@ -3,16 +3,25 @@ CheckpointService for Agentium.
 
 Handles the creation, retrieval, and application of checkpoints
 for Phase 6.5 Time-Travel and Branching functionality.
+
+Improvements (from verification review):
+  - create_checkpoint() now serialises real agent_states
+  - resume_from_checkpoint() restores full relational state
+  - compare_branches() added for execution branch diff
 """
 
 from typing import Optional, Dict, List, Any
 from datetime import datetime, timedelta
 import uuid
+import logging
 
 from sqlalchemy.orm import Session
 from backend.models.entities.checkpoint import ExecutionCheckpoint, CheckpointPhase
-from backend.models.entities.task import Task
+from backend.models.entities.task import Task, TaskStatus
+from backend.models.entities.agents import Agent, AgentStatus
 from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
+
+logger = logging.getLogger(__name__)
 
 
 class CheckpointService:
@@ -20,6 +29,10 @@ class CheckpointService:
     Manages state snapshots for tasks, allowing resumption, 
     retry from past states, and divergent branching.
     """
+
+    # ═══════════════════════════════════════════════════════════
+    # CHECKPOINT CREATION
+    # ═══════════════════════════════════════════════════════════
 
     @staticmethod
     def create_checkpoint(
@@ -31,7 +44,7 @@ class CheckpointService:
     ) -> ExecutionCheckpoint:
         """
         Takes a snapshot of complete system state for a given task.
-        Extracts subtasks, task metadata, and relevant configurations.
+        Extracts subtasks, agent assignments, and agent states.
         """
         task = db.query(Task).filter(Task.id == task_id).first()
         if not task:
@@ -39,16 +52,20 @@ class CheckpointService:
 
         # Serialize current task state
         task_snapshot = task.to_dict()
-        
-        # In a real system you would extract complex relational sub-state here
-        # e.g., fetching subtasks and agent assignments
-        
+
+        # ── Serialize assigned agent states ──────────────────────
+        agent_states = CheckpointService._capture_agent_states(db, task)
+
+        # ── Serialize subtask states ─────────────────────────────
+        subtask_snapshots = CheckpointService._capture_subtasks(db, task)
+        task_snapshot["subtask_snapshots"] = subtask_snapshots
+
         checkpoint = ExecutionCheckpoint(
             id=str(uuid.uuid4()),
             session_id=task.session_id,
             task_id=task.id,
             phase=phase,
-            agent_states={}, # Optionally extract rich agent tracking data
+            agent_states=agent_states,
             artifacts=artifacts or [],
             task_state_snapshot=task_snapshot
         )
@@ -63,12 +80,19 @@ class CheckpointService:
             action="checkpoint_created",
             target_type="checkpoint",
             target_id=checkpoint.id,
-            description=f"Automated checkpoint created for task {task_id} at phase {phase.value}"
+            description=(
+                f"Checkpoint created for task {task_id} at phase {phase.value} "
+                f"({len(agent_states)} agents, {len(subtask_snapshots)} subtasks)"
+            )
         )
         
         db.commit()
         db.refresh(checkpoint)
         return checkpoint
+
+    # ═══════════════════════════════════════════════════════════
+    # TIME TRAVEL (RESUME)
+    # ═══════════════════════════════════════════════════════════
 
     @staticmethod
     def resume_from_checkpoint(
@@ -77,9 +101,12 @@ class CheckpointService:
         actor_id: str = "user"
     ) -> Task:
         """
-        Restores a task's state to match the given checkpoint (Time Travel).
+        Restores a task's full relational state to match the given checkpoint.
+        Restores: task status, result_data, agent assignments, subtask states.
         """
-        checkpoint = db.query(ExecutionCheckpoint).filter(ExecutionCheckpoint.id == checkpoint_id).first()
+        checkpoint = db.query(ExecutionCheckpoint).filter(
+            ExecutionCheckpoint.id == checkpoint_id
+        ).first()
         if not checkpoint:
             raise ValueError(f"Checkpoint {checkpoint_id} not found.")
 
@@ -88,14 +115,30 @@ class CheckpointService:
             raise ValueError(f"Task {checkpoint.task_id} not found.")
 
         snapshot = checkpoint.task_state_snapshot
-        
-        # Restore fundamental properties
-        # For a hard restore, we revert status, results, etc.
+
+        # ── 1. Restore task core properties ──────────────────────
         if 'status' in snapshot:
-            task.set_status(snapshot['status'], actor_id=actor_id, note=f"Resumed from checkpoint {checkpoint_id}")
+            task.set_status(
+                snapshot['status'],
+                actor_id=actor_id,
+                note=f"Resumed from checkpoint {checkpoint_id}"
+            )
             
         if 'result_data' in snapshot:
             task.result_data = snapshot['result_data']
+
+        if 'assigned_task_agent_ids' in snapshot:
+            task.assigned_task_agent_ids = snapshot['assigned_task_agent_ids']
+
+        if 'completion_summary' in snapshot:
+            task.completion_summary = snapshot.get('completion_summary')
+
+        # ── 2. Restore agent states ──────────────────────────────
+        CheckpointService._restore_agent_states(db, checkpoint.agent_states)
+
+        # ── 3. Restore subtask states ────────────────────────────
+        subtask_snapshots = snapshot.get("subtask_snapshots", [])
+        CheckpointService._restore_subtasks(db, subtask_snapshots, actor_id, checkpoint_id)
 
         AuditLog.log(
             level=AuditLevel.WARNING,
@@ -105,12 +148,20 @@ class CheckpointService:
             action="checkpoint_resumed",
             target_type="task",
             target_id=task.id,
-            description=f"Task {task.id} time-travelled to checkpoint {checkpoint_id}"
+            description=(
+                f"Task {task.id} time-travelled to checkpoint {checkpoint_id} "
+                f"(restored {len(checkpoint.agent_states)} agents, "
+                f"{len(subtask_snapshots)} subtasks)"
+            )
         )
 
         db.commit()
         db.refresh(task)
         return task
+
+    # ═══════════════════════════════════════════════════════════
+    # BRANCHING
+    # ═══════════════════════════════════════════════════════════
 
     @staticmethod
     def branch_from_checkpoint(
@@ -124,13 +175,15 @@ class CheckpointService:
         Creates a clone task from a specific checkpoint's state to allow
         parallel execution strategies without altering the original flow.
         """
-        checkpoint = db.query(ExecutionCheckpoint).filter(ExecutionCheckpoint.id == checkpoint_id).first()
+        checkpoint = db.query(ExecutionCheckpoint).filter(
+            ExecutionCheckpoint.id == checkpoint_id
+        ).first()
         if not checkpoint:
             raise ValueError(f"Checkpoint {checkpoint_id} not found.")
 
         snapshot = checkpoint.task_state_snapshot
         
-        # Create a new branch task avoiding unique constraints like ID or Agentium ID
+        # Create a new branch task avoiding unique constraints
         new_task_id = str(uuid.uuid4())
         
         new_task = Task(
@@ -176,6 +229,86 @@ class CheckpointService:
         db.refresh(new_task)
         return new_task
 
+    # ═══════════════════════════════════════════════════════════
+    # BRANCH COMPARISON
+    # ═══════════════════════════════════════════════════════════
+
+    @staticmethod
+    def compare_branches(
+        db: Session,
+        checkpoint_id_a: str,
+        checkpoint_id_b: str,
+    ) -> Dict[str, Any]:
+        """
+        Compare two checkpoints (typically branches from the same parent)
+        and produce a diff summary.
+
+        Returns:
+            Dict with task_diff, agent_diff, artifact_diff, and metadata.
+        """
+        ck_a = db.query(ExecutionCheckpoint).filter(
+            ExecutionCheckpoint.id == checkpoint_id_a
+        ).first()
+        ck_b = db.query(ExecutionCheckpoint).filter(
+            ExecutionCheckpoint.id == checkpoint_id_b
+        ).first()
+
+        if not ck_a:
+            raise ValueError(f"Checkpoint {checkpoint_id_a} not found.")
+        if not ck_b:
+            raise ValueError(f"Checkpoint {checkpoint_id_b} not found.")
+
+        snap_a = ck_a.task_state_snapshot or {}
+        snap_b = ck_b.task_state_snapshot or {}
+
+        # ── Task-level diff ──────────────────────────────────────
+        task_diff = {}
+        all_keys = set(list(snap_a.keys()) + list(snap_b.keys()))
+        # Skip internal / noisy keys
+        skip_keys = {"subtask_snapshots", "id", "created_at", "updated_at"}
+        for key in sorted(all_keys - skip_keys):
+            val_a = snap_a.get(key)
+            val_b = snap_b.get(key)
+            if val_a != val_b:
+                task_diff[key] = {"branch_a": val_a, "branch_b": val_b}
+
+        # ── Agent-state diff ─────────────────────────────────────
+        agents_a = ck_a.agent_states or {}
+        agents_b = ck_b.agent_states or {}
+        agent_diff = {}
+        all_agent_ids = set(list(agents_a.keys()) + list(agents_b.keys()))
+        for aid in sorted(all_agent_ids):
+            state_a = agents_a.get(aid, {})
+            state_b = agents_b.get(aid, {})
+            if state_a != state_b:
+                agent_diff[aid] = {"branch_a": state_a, "branch_b": state_b}
+
+        # ── Artifact diff ────────────────────────────────────────
+        arts_a = set(str(a) for a in (ck_a.artifacts or []))
+        arts_b = set(str(a) for a in (ck_b.artifacts or []))
+        artifact_diff = {
+            "only_in_a": sorted(arts_a - arts_b),
+            "only_in_b": sorted(arts_b - arts_a),
+            "common": sorted(arts_a & arts_b),
+        }
+
+        return {
+            "checkpoint_a": checkpoint_id_a,
+            "checkpoint_b": checkpoint_id_b,
+            "branch_a_name": ck_a.branch_name,
+            "branch_b_name": ck_b.branch_name,
+            "same_parent": ck_a.parent_checkpoint_id == ck_b.parent_checkpoint_id,
+            "task_diff": task_diff,
+            "agent_diff": agent_diff,
+            "artifact_diff": artifact_diff,
+            "phase_a": ck_a.phase.value if ck_a.phase else None,
+            "phase_b": ck_b.phase.value if ck_b.phase else None,
+        }
+
+    # ═══════════════════════════════════════════════════════════
+    # CLEANUP
+    # ═══════════════════════════════════════════════════════════
+
     @staticmethod
     def cleanup_old_checkpoints(db: Session, max_age_days: int = 90) -> int:
         """
@@ -204,3 +337,112 @@ class CheckpointService:
             db.commit()
             
         return count
+
+    # ═══════════════════════════════════════════════════════════
+    # INTERNAL HELPERS
+    # ═══════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _capture_agent_states(db: Session, task: Task) -> Dict[str, Any]:
+        """
+        Serialize the current state of every agent assigned to this task.
+        Captures: status, current_task_id, ethos summary, capabilities.
+        """
+        agent_states: Dict[str, Any] = {}
+        assigned_ids = task.assigned_task_agent_ids or []
+
+        # Also include the supervisor
+        all_ids = list(set(assigned_ids + ([task.supervisor_id] if task.supervisor_id else [])))
+
+        for agentium_id in all_ids:
+            agent = db.query(Agent).filter_by(agentium_id=agentium_id, is_active=True).first()
+            if not agent:
+                continue
+
+            agent_states[agentium_id] = {
+                "status": agent.status.value if agent.status else None,
+                "current_task_id": agent.current_task_id,
+                "agent_type": agent.agent_type.value if agent.agent_type else None,
+                "is_persistent": agent.is_persistent,
+                "ethos_summary": (
+                    agent.ethos.content[:500] if hasattr(agent, 'ethos') and agent.ethos else None
+                ),
+                "custom_capabilities": agent.custom_capabilities if hasattr(agent, 'custom_capabilities') else None,
+                "last_idle_action_at": (
+                    agent.last_idle_action_at.isoformat() if agent.last_idle_action_at else None
+                ),
+            }
+
+        return agent_states
+
+    @staticmethod
+    def _capture_subtasks(db: Session, task: Task) -> List[Dict[str, Any]]:
+        """Serialize all subtasks of the given parent task."""
+        subtasks = db.query(Task).filter(
+            Task.parent_task_id == task.id,
+            Task.is_active == True
+        ).all()
+
+        return [
+            {
+                "id": str(st.id),
+                "status": st.status.value if st.status else None,
+                "description": st.description,
+                "assigned_task_agent_ids": st.assigned_task_agent_ids,
+                "result_data": st.result_data,
+                "completion_summary": st.completion_summary,
+            }
+            for st in subtasks
+        ]
+
+    @staticmethod
+    def _restore_agent_states(db: Session, agent_states: Dict[str, Any]):
+        """Restore agent statuses and current_task assignments from snapshot."""
+        for agentium_id, state in (agent_states or {}).items():
+            agent = db.query(Agent).filter_by(agentium_id=agentium_id, is_active=True).first()
+            if not agent:
+                logger.warning(f"⚠️ Agent {agentium_id} not found during checkpoint restore, skipping")
+                continue
+
+            saved_status = state.get("status")
+            if saved_status:
+                try:
+                    agent.status = AgentStatus(saved_status)
+                except ValueError:
+                    pass
+
+            saved_task = state.get("current_task_id")
+            agent.current_task_id = saved_task
+
+    @staticmethod
+    def _restore_subtasks(
+        db: Session,
+        subtask_snapshots: List[Dict[str, Any]],
+        actor_id: str,
+        checkpoint_id: str,
+    ):
+        """Restore subtask statuses and result data from snapshot."""
+        for snap in subtask_snapshots:
+            subtask = db.query(Task).filter(Task.id == snap.get("id")).first()
+            if not subtask:
+                continue
+
+            saved_status = snap.get("status")
+            if saved_status:
+                try:
+                    subtask.set_status(
+                        saved_status,
+                        actor_id=actor_id,
+                        note=f"Restored from checkpoint {checkpoint_id}"
+                    )
+                except Exception:
+                    pass
+
+            if "result_data" in snap:
+                subtask.result_data = snap["result_data"]
+
+            if "assigned_task_agent_ids" in snap:
+                subtask.assigned_task_agent_ids = snap["assigned_task_agent_ids"]
+
+            if "completion_summary" in snap:
+                subtask.completion_summary = snap.get("completion_summary")

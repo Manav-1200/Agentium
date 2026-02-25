@@ -990,13 +990,28 @@ mcp==1.0.0    # Official MCP Python SDK
 
 - [x] Visual timeline of execution phases (per-checkpoint cards with phase color coding)
 - [x] Click to restore/branch from checkpoint (inline expand with Restore + Branch from here)
+- [x] "Inspect State" button and modal for full JSON visualization
 - [ ] Compare different execution branches (diff view)
 - [ ] Export/import checkpoint states
 - [ ] Checkpoint cleanup management
 
 **Notes:** Uses `checkpointsService` (not raw api calls), toast notifications, full Tailwind dark-mode styling matching app design system. **Wired as the "Checkpoints" tab inside `TasksPage.tsx`** — accessible at `/tasks` → Checkpoints tab.
 
-### 7.7 Multi-Channel Interface ✅
+### 7.7 Financial Burn Rate Dashboard ✅ (COMPLETE)
+
+**File:** `frontend/src/components/dashboard/FinancialBurnDashboard.tsx` ✅
+
+**Features:**
+
+- [x] Combines token usage and completion stats
+- [x] Integrates `/admin/budget` and `/admin/budget/history` backend APIs
+- [x] Renders real-time metrics showing tokens used vs limits
+- [x] Detailed provider breakdown and 7-day spend history
+- [x] Fully responsive Tailwind UI with dark-mode support
+
+**Notes:** Integrated as the "Financial & Burn Rate" tab inside `SovereignDashboard.tsx`.
+
+### 7.8 Multi-Channel Interface ✅
 
 **File:** `frontend/src/pages/ChannelsPage.tsx` ✅
 

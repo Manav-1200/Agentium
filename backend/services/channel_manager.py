@@ -137,13 +137,21 @@ class RateLimiter:
                 }
             return self._buckets[channel_id]
     
-    def acquire(self, channel_id: str, config: RateLimitConfig) -> tuple[bool, Optional[int]]:
+    def acquire(self, channel_id: str, config: RateLimitConfig, channel_config: Optional[Dict[str, Any]] = None) -> tuple[bool, Optional[int]]:
         """
         Attempt to acquire rate limit token.
+        Checks for channel-specific overrides in `channel_config`, falls back to base `config`.
         Returns (success, retry_after_seconds).
         """
         bucket = self._get_bucket(channel_id, config)
         now = time.time()
+        
+        # Apply custom limits from channel config if present
+        req_per_min = config.requests_per_minute
+        req_per_hour = config.requests_per_hour
+        if channel_config:
+            req_per_min = int(channel_config.get('rate_limit_minute', req_per_min))
+            req_per_hour = int(channel_config.get('rate_limit_hour', req_per_hour))
         
         with self._lock:
             # Clean old window entries
@@ -151,11 +159,11 @@ class RateLimiter:
             bucket['hour_window'] = [t for t in bucket['hour_window'] if now - t < 3600]
             
             # Check limits
-            if len(bucket['minute_window']) >= config.requests_per_minute:
+            if len(bucket['minute_window']) >= req_per_min:
                 retry_after = 60 - int(now - bucket['minute_window'][0])
                 return False, max(retry_after, 1)
             
-            if len(bucket['hour_window']) >= config.requests_per_hour:
+            if len(bucket['hour_window']) >= req_per_hour:
                 retry_after = 3600 - int(now - bucket['hour_window'][0])
                 return False, max(retry_after, 1)
             
@@ -165,14 +173,22 @@ class RateLimiter:
             
             return True, None
     
-    def get_status(self, channel_id: str) -> Dict[str, Any]:
+    def get_status(self, channel_id: str, channel_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Get current rate limit status."""
         bucket = self._buckets.get(channel_id, {})
+        base_config = bucket.get('config', RateLimitConfig())
+        
+        req_per_min = base_config.requests_per_minute
+        req_per_hour = base_config.requests_per_hour
+        if channel_config:
+            req_per_min = int(channel_config.get('rate_limit_minute', req_per_min))
+            req_per_hour = int(channel_config.get('rate_limit_hour', req_per_hour))
+            
         return {
             'minute_usage': len(bucket.get('minute_window', [])),
             'hour_usage': len(bucket.get('hour_window', [])),
-            'minute_limit': bucket.get('config', RateLimitConfig()).requests_per_minute,
-            'hour_limit': bucket.get('config', RateLimitConfig()).requests_per_hour,
+            'minute_limit': req_per_min,
+            'hour_limit': req_per_hour,
         }
 
 
@@ -899,7 +915,7 @@ class ChannelManager:
 
         # Rate limiting check
         rate_config = PLATFORM_RATE_LIMITS.get(channel.channel_type, RateLimitConfig())
-        allowed, retry_after = rate_limiter.acquire(channel_id, rate_config)
+        allowed, retry_after = rate_limiter.acquire(channel_id, rate_config, channel.config)
         
         if not allowed:
             # Record rate limit hit

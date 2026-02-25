@@ -208,6 +208,8 @@ Agentium/
 │   │   │   ├── tasks/              # Task UI
 │   │   │   │   ├── CreateTaskModal.tsx
 │   │   │   │   └── TaskCard.tsx
+│   │   │   ├── dashboard/          # Dashboard components
+│   │   │   │   └── FinancialBurnDashboard.tsx
 │   │   │   ├── BudgetControl.tsx
 │   │   │   ├── ConnectionStatus.tsx
 │   │   │   ├── FlatMapAuthBackground.tsx

@@ -184,45 +184,82 @@ class Agent(BaseEntity):
           - Agent creation (Workflow §1.4-§1.5)
           - Post-task recalibration (Workflow §5.5)
 
-        Returns True if alignment succeeded.
+        Returns True if alignment succeeded (via DB or gracefully degraded).
         """
         from backend.models.entities.constitution import Constitution, Ethos
+        import os
 
-        constitution = db.query(Constitution).filter_by(
-            is_active=True
-        ).order_by(Constitution.effective_date.desc()).first()
+        try:
+            constitution = db.query(Constitution).filter_by(
+                is_active=True
+            ).order_by(Constitution.effective_date.desc()).first()
 
-        if not constitution:
-            return False
+            if not constitution:
+                return False
 
-        if not self.ethos_id:
-            return False
+            if not self.ethos_id:
+                return False
 
-        ethos = db.query(Ethos).filter_by(id=self.ethos_id).first()
-        if not ethos:
-            return False
+            ethos = db.query(Ethos).filter_by(id=self.ethos_id).first()
+            if not ethos:
+                return False
 
-        # Build constitutional references from the articles
-        articles = constitution.get_articles_dict()
-        references = []
-        for article_num, article_data in articles.items():
-            references.append({
-                "article": article_num,
-                "title": article_data.get("title", ""),
-                "summary": article_data.get("content", "")[:200],
-                "version": constitution.version,
-            })
+            # Build constitutional references from the articles
+            articles = constitution.get_articles_dict()
+            references = []
+            for article_num, article_data in articles.items():
+                references.append({
+                    "article": article_num,
+                    "title": article_data.get("title", ""),
+                    "summary": article_data.get("content", "")[:200],
+                    "version": constitution.version,
+                })
 
-        # Write constitutional references into Ethos
-        ethos.set_constitutional_references(references)
+            # Write constitutional references into Ethos
+            ethos.set_constitutional_references(references)
 
-        # Update agent tracking
-        self.last_constitution_read_at = datetime.utcnow()
-        self.constitution_read_count = (self.constitution_read_count or 0) + 1
-        self.constitution_version = constitution.version
+            # Update agent tracking
+            self.last_constitution_read_at = datetime.utcnow()
+            self.constitution_read_count = (self.constitution_read_count or 0) + 1
+            self.constitution_version = constitution.version
 
-        db.flush()
-        return True
+            db.flush()
+            return True
+        
+        except Exception as db_exception:
+            print(f"[Graceful Degradation] DB/Vector Store failed during constitution alignment: {db_exception}")
+            # ── GRACEFUL FALLBACK TO TEXT FILE ──
+            fallback_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                "docs", "constitution", "core.md"
+            )
+            
+            try:
+                # If we have an ethos we can update it without a DB flush by using the object directly
+                ethos = db.query(Ethos).filter_by(id=self.ethos_id).first() if self.ethos_id else None
+                
+                with open(fallback_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    
+                fallback_refs = [{
+                    "article": "Fallback Core",
+                    "title": "Emergency Constitution",
+                    "summary": content[:500],
+                    "version": "vFallback"
+                }]
+                
+                if ethos:
+                    ethos.set_constitutional_references(fallback_refs)
+                    db.flush()
+                    
+                self.last_constitution_read_at = datetime.utcnow()
+                self.constitution_read_count = (self.constitution_read_count or 0) + 1
+                self.constitution_version = "vFallback"
+                return True
+                
+            except Exception as fallback_exc:
+                print(f"[FATAL] Constitution fallback also failed: {fallback_exc}")
+                return False
 
     # -----------------------------------------------------------------------
     # Workflow §2 — Plan-to-Ethos with Retry

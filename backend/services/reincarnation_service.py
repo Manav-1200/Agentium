@@ -545,10 +545,14 @@ class ReincarnationService:
     @staticmethod
     def _generate_next_id(tier: str, db: Session) -> str:
         """
-        Generate next available ID for a tier.
+        Generate next available ID for a tier using atomic row locking.
+        
+        Uses SELECT ... FOR UPDATE to prevent ID collisions under
+        concurrent agent spawning. Falls back to gap-filling scan
+        if the sequential candidate is already taken.
         
         Args:
-            tier: "head", "council", "lead", or "task"
+            tier: "head", "council", "lead", "task", or "critic"
             db: Database session
             
         Returns:
@@ -564,9 +568,10 @@ class ReincarnationService:
         prefixes = tier_config.get("prefixes", [tier_config.get("prefix")])
         
         for prefix in prefixes:
+            # Atomic query: lock the highest-ID row to prevent concurrent races
             highest = db.query(func.max(Agent.agentium_id)).filter(
                 Agent.agentium_id.like(f"{prefix}%")
-            ).scalar()
+            ).with_for_update().scalar()
             
             if highest:
                 try:
@@ -580,9 +585,16 @@ class ReincarnationService:
             prefix_max = int(f"{prefix}9999")
             if next_num <= prefix_max:
                 new_id = str(next_num).zfill(5)
-                # Check uniqueness before returning
+                # Double-check uniqueness (belt-and-suspenders with the lock)
                 if not db.query(Agent).filter_by(agentium_id=new_id).first():
                     return new_id
+                    
+                # If taken (shouldn't happen with lock), scan for gaps
+                logger.warning(f"⚠️ ID {new_id} already taken despite lock, scanning for gaps")
+                for candidate in range(int(f"{prefix}0001"), prefix_max + 1):
+                    candidate_id = str(candidate).zfill(5)
+                    if not db.query(Agent).filter_by(agentium_id=candidate_id).first():
+                        return candidate_id
                     
         raise ValueError(
             f"ID pool exhausted for {tier} tier across all assigned prefixes. "

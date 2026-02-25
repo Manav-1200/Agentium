@@ -223,24 +223,54 @@ class KnowledgeService:
                         }
                     )
 
-        # 4. Sovereign preferences (all tiers)
-        prefs = self.vector_store.get_collection("sovereign_prefs").query(
-            query_texts=[query_text],
-            n_results=2,
-        )
-        if prefs["documents"] and prefs["documents"][0]:
-            context["knowledge_segments"].append(
-                {
-                    "type": "sovereign_preference",
-                    "content": prefs["documents"][0][0],
-                    "relevance": 0.95,
-                    "source": (
-                        prefs["metadatas"][0][0]
-                        if prefs.get("metadatas")
-                        else {}
-                    ),
-                }
+        # 4. Critic Case Law (historical failures to avoid)
+        try:
+            case_law = self.vector_store.get_collection("critic_case_law").query(
+                query_texts=[query_text],
+                n_results=2,
             )
+            if case_law.get("documents") and case_law["documents"][0]:
+                for i, doc in enumerate(case_law["documents"][0]):
+                    distance = case_law["distances"][0][i] if case_law.get("distances") else 0.5
+                    # Only include highly relevant case law to avoid polluting context
+                    if distance < 0.4:  
+                        context["knowledge_segments"].append(
+                            {
+                                "type": "case_law_warning",
+                                "content": doc,
+                                "relevance": max(0.0, 1.0 - distance),
+                                "metadata": (
+                                    case_law["metadatas"][0][i]
+                                    if case_law.get("metadatas")
+                                    else {}
+                                ),
+                            }
+                        )
+        except ValueError:
+            # Collection may not exist yet on fresh deploy
+            pass
+
+        # 5. Sovereign preferences (all tiers)
+        try:
+            prefs = self.vector_store.get_collection("sovereign_prefs").query(
+                query_texts=[query_text],
+                n_results=2,
+            )
+            if prefs.get("documents") and prefs["documents"][0]:
+                context["knowledge_segments"].append(
+                    {
+                        "type": "sovereign_preference",
+                        "content": prefs["documents"][0][0],
+                        "relevance": 0.95,
+                        "source": (
+                            prefs["metadatas"][0][0]
+                            if prefs.get("metadatas")
+                            else {}
+                        ),
+                    }
+                )
+        except ValueError:
+            pass
 
         return context
 

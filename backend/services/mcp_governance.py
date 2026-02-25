@@ -206,15 +206,18 @@ class MCPGovernanceService:
         params: Dict[str, Any],
         has_head_approval_token: bool = False,
         tool_name: Optional[str] = None,
+        async_callback_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute an MCP tool through the full governance pipeline:
         1. Load and validate tool state (approved, not revoked/disabled)
         2. Constitutional Guard tier check
-        3. Execute via MCPClient
+        3. Execute via MCPClient (async if callback provided)
         4. Append to audit_log
         5. Update health counters
         """
+        import asyncio
+        import httpx
         tool = self._get_tool_or_404(tool_id)
 
         # ── State guard ────────────────────────────────────────────────────────
@@ -239,6 +242,46 @@ class MCPGovernanceService:
         # ── Execute ────────────────────────────────────────────────────────────
         target_tool = tool_name or (tool.capabilities[0] if tool.capabilities else tool.name)
 
+        # If async callback is provided, we spawn a background task and return SUSPENDED
+        if async_callback_url:
+            # We need a new session for the background task since the current one might close
+            # But for simplicity in this implementation, we just pass the necessary data
+            _tool_id = tool.id
+            _server_url = tool.server_url
+            _name = tool.name
+            
+            async def _background_mcp_execution():
+                result_payload = {}
+                try:
+                    async with MCPClient(_server_url) as client:
+                        call_res = await client.call_tool(target_tool, params)
+                        result_payload = call_res
+                except Exception as e:
+                    result_payload = {"success": False, "error": str(e), "tool": target_tool}
+                    
+                # Fire the webhook callback
+                try:
+                    async with httpx.AsyncClient() as http:
+                        await http.post(async_callback_url, json={
+                            "agent_id": agent_id,
+                            "tool_id": _tool_id,
+                            "target_tool": target_tool,
+                            "result": result_payload
+                        })
+                except Exception as e:
+                    logger.error(f"Failed to fire MCP async callback to {async_callback_url}: {e}")
+            
+            asyncio.create_task(_background_mcp_execution())
+            
+            return {
+                "success": True,
+                "tool": target_tool,
+                "status": "SUSPENDED",
+                "message": f"Execution started asynchronously. Webhook will be sent to {async_callback_url}.",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+        # Original synchronous execution path
         try:
             async with MCPClient(tool.server_url) as client:
                 result = await client.call_tool(target_tool, params)

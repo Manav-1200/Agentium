@@ -20,9 +20,11 @@ import {
     HardDrive,
     Zap,
     Wrench,
+    DollarSign,
 } from 'lucide-react';
 import { hostAccessApi } from '@/services/hostAccessApi';
 import { MCPToolRegistry } from '@/components/mcp/MCPToolRegistry';
+import { FinancialBurnDashboard } from '@/components/dashboard/FinancialBurnDashboard';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -51,7 +53,7 @@ interface CommandLog {
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type TabId = 'system' | 'mcp-tools';
+type TabId = 'system' | 'mcp-tools' | 'financial-burn';
 
 interface Tab {
     id: TabId;
@@ -72,6 +74,12 @@ const TABS: Tab[] = [
         label: 'MCP Tool Registry',
         icon: Wrench,
         description: 'Constitutional MCP server governance',
+    },
+    {
+        id: 'financial-burn',
+        label: 'Financial & Burn Rate',
+        icon: DollarSign,
+        description: 'Token usage, cost burn rate, and completion stats',
     },
 ];
 
@@ -167,7 +175,7 @@ export function SovereignDashboard() {
         switch (status) {
             case 'executed': return 'bg-green-100 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/20';
             case 'rejected': return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20';
-            default:         return 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20';
+            default: return 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20';
         }
     };
 
@@ -261,6 +269,11 @@ export function SovereignDashboard() {
             {/* ── MCP Tools Tab ────────────────────────────────────────────── */}
             {activeTab === 'mcp-tools' && (
                 <MCPToolRegistry />
+            )}
+
+            {/* ── Financial & Burn Rate Tab ────────────────────────────────── */}
+            {activeTab === 'financial-burn' && (
+                <FinancialBurnDashboard />
             )}
 
             {/* ── System Control Tab ───────────────────────────────────────── */}

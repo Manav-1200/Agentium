@@ -219,8 +219,46 @@ class CriticService:
             'max_retries': self.DEFAULT_MAX_RETRIES,
             'review_duration_ms': round(duration_ms, 1),
             'cached': False,
+            'consensus_reached': True, # By default
         }
         
+        # 12.5. Critic Consensus Protocol & Case Law Indexing
+        if verdict == CriticVerdict.REJECT:
+            # Secondary check for consensus if this is the first rejection
+            if retry_count == 0:
+                secondary_critic = self._get_available_critic(db, critic_type, exclude_id=critic.id)
+                if secondary_critic:
+                    logger.info(f"Consensus Protocol triggered: Secondary critic {secondary_critic.agentium_id} evaluating.")
+                    sec_verdict, _, _ = await self._execute_review(db, secondary_critic, task_id, output_content, critic_type)
+                    if sec_verdict == CriticVerdict.PASS:
+                        # Conflicting views - Escalate to Senior Critic or pass conditionally
+                        logger.warning("Critic Consensus Failure: Critics disagree. Deferring to conditional pass.")
+                        result['verdict'] = CriticVerdict.PASS.value
+                        result['consensus_reached'] = False
+                        verdict = CriticVerdict.PASS
+                        
+            # If it's a hard rejection, index as Constitutional Case Law
+            if verdict == CriticVerdict.REJECT:
+                try:
+                    from backend.services.knowledge_service import get_knowledge_service
+                    knowledge = get_knowledge_service()
+                    case_law_content = (
+                        f"REJECTED OUTPUT CASE LAW\n"
+                        f"Task: {task.description if task else 'Unknown'}\n"
+                        f"Reason for rejection: {reason}\n"
+                        f"Critic Actionable Feedback: {suggestions}\n"
+                        f"Do NOT repeat the mistakes found in this output pattern."
+                    )
+                    knowledge.store_or_revise_knowledge(
+                        content=case_law_content,
+                        collection_name="critic_case_law",
+                        doc_id=f"case_law_{task_id}_{int(time.time())}",
+                        metadata={"critic_type": critic_type.value, "task_id": task_id}
+                    )
+                    logger.info(f"Indexed Case Law for rejected task {task_id}")
+                except Exception as e:
+                    logger.error(f"Failed to index case law: {e}")
+
         # 13. Handle escalation
         if verdict == CriticVerdict.ESCALATE:
             result['escalation'] = await self._escalate_to_council(
@@ -230,16 +268,21 @@ class CriticService:
         return result
 
     def _get_available_critic(
-        self, db: Session, critic_type: CriticType
+        self, db: Session, critic_type: CriticType, exclude_id: Optional[str] = None
     ) -> Optional[CriticAgent]:
         """Find an available critic agent of the specified type."""
         agent_type = CRITIC_TYPE_TO_AGENT_TYPE[critic_type]
         
-        critic = db.query(CriticAgent).filter(
+        query = db.query(CriticAgent).filter(
             CriticAgent.agent_type == agent_type,
             CriticAgent.is_active == True,
             CriticAgent.status.in_([AgentStatus.ACTIVE, AgentStatus.IDLE_WORKING]),
-        ).order_by(
+        )
+        
+        if exclude_id:
+            query = query.filter(CriticAgent.id != exclude_id)
+            
+        critic = query.order_by(
             CriticAgent.reviews_completed.asc()  # Load-balance: least busy first
         ).first()
         

@@ -106,6 +106,28 @@ class HierarchyValidator:
             return f"{prefix_map[tier]}xxxx"
         return "00000"
 
+# ═══════════════════════════════════════════════════════════
+# CRITIC ROUTING NOTE
+# ═══════════════════════════════════════════════════════════
+#
+# Critic agents (tiers 4, 5, 6 — Code/Output/Plan critics) are
+# INTENTIONALLY excluded from the standard HierarchyValidator
+# routing rules.  They operate OUTSIDE the democratic chain:
+#
+#   • Critics do NOT route messages through the hierarchy.
+#   • Critic visibility is governed solely by ContextRayTracer:
+#     - They can only see message types: execution, critique,
+#       critique_result, notification, heartbeat.
+#   • Critic verdicts (PASS/REJECT/ESCALATE) are recorded via
+#     AuditLog, not via the MessageBus routing pipeline.
+#   • Sibling isolation applies: one critic CANNOT see another
+#     critic's review output unless explicitly allowed via
+#     visible_to patterns.
+#
+# This design ensures orthogonal failure modes — a compromised
+# planning layer cannot influence critic judgement.
+# ═══════════════════════════════════════════════════════════
+
 
 class ContextRayTracer:
     """
@@ -496,6 +518,18 @@ class MessageBus:
                         # Convert back to AgentMessage
                         msg_data = dict(fields)
                         msg_data['message_id'] = msg_data.get('message_id', msg_id)
+                        
+                        # ── DLQ Threshold Check ──
+                        fail_key = f"message:fails:{msg_id}"
+                        fails = int(await self._redis.get(fail_key) or 0)
+                        if fails > 3:
+                            # Route to Dead-Letter Queue
+                            await self._redis.xadd("agent:dlq:stream", fields)
+                            await self._redis.xdel(stream_key, msg_id)
+                            await self._redis.delete(fail_key)
+                            print(f"[DLQ] Moved message {msg_id} to DLQ stream after {fails} failures.")
+                            continue
+
                         # Deserialise visible_to from JSON string
                         if 'visible_to' in msg_data and isinstance(msg_data['visible_to'], str):
                             try:
@@ -519,6 +553,43 @@ class MessageBus:
         key = f"agent:{receipt.recipient_id}:processed"
         await self._redis.sadd(key, receipt.message_id)
         await self._redis.expire(key, 86400)  # Keep 24h
+
+    async def record_failure(self, message_id: str) -> int:
+        """Record processing failure for a message. Returns current fail count."""
+        fail_key = f"message:fails:{message_id}"
+        fails = await self._redis.incr(fail_key)
+        await self._redis.expire(fail_key, 86400)  # Keep track for 24h
+        return fails
+
+    async def replay_dlq(self, count: int = 100) -> int:
+        """
+        Replay messages from the DLQ back to their original recipient streams.
+        Useful for admin recovery after fixing a systemic parsing error.
+        """
+        stream_key = "agent:dlq:stream"
+        try:
+            messages = await self._redis.xread({stream_key: '0-0'}, count=count)
+        except Exception:
+            return 0
+            
+        replayed = 0
+        if messages:
+            for stream, entries in messages:
+                for msg_id, fields in entries:
+                    msg_data = dict(fields)
+                    recipient_id = msg_data.get(b'recipient_id') or msg_data.get('recipient_id')
+                    
+                    if isinstance(recipient_id, bytes):
+                        recipient_id = recipient_id.decode('utf-8')
+                        
+                    if recipient_id:
+                        # Re-publish to the original recipient's inbox
+                        await self._redis.xadd(f"agent:{recipient_id}:inbox", fields)
+                        # Remove from DLQ
+                        await self._redis.xdel(stream_key, msg_id)
+                        replayed += 1
+                        
+        return replayed
     
     async def _get_parent_id(self, agent_id: str) -> Optional[str]:
         """
