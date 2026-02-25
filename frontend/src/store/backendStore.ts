@@ -1,68 +1,186 @@
 import { create } from 'zustand';
 import axios from 'axios';
 import { BackendStatus } from '@/types';
+import { channelMetricsApi } from '@/services/channelMetrics';
+import type { 
+  AllChannelsMetricsResponse, 
+  ChannelMetricsResponse,
+  ChannelHealthStatus 
+} from '@/types';
 
 interface BackendState {
-    status: BackendStatus;
-    checkConnection: () => Promise<void>;
-    startPolling: () => void;
-    stopPolling: () => void;
-    pollingInterval?: NodeJS.Timeout;
+  // Connection status
+  status: BackendStatus;
+  checkConnection: () => Promise<void>;
+  startPolling: () => void;
+  stopPolling: () => void;
+  pollingInterval?: NodeJS.Timeout;
+  
+  // Channel Metrics (Phase 4 + Phase 7)
+  channelMetrics: AllChannelsMetricsResponse | null;
+  currentChannelMetrics: Record<string, ChannelMetricsResponse>;
+  isLoadingChannelMetrics: boolean;
+  isLoadingSingleChannel: Record<string, boolean>;
+  fetchChannelMetrics: () => Promise<void>;
+  fetchSingleChannelMetrics: (channelId: string) => Promise<ChannelMetricsResponse | null>;
+  resetChannelCircuit: (channelId: string) => Promise<boolean>;
+  getChannelHealthStatus: (channelId: string) => ChannelHealthStatus | null;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 export const useBackendStore = create<BackendState>()((set, get) => ({
-    status: {
-        status: 'connecting',
-        lastChecked: new Date()
-    },
+  // ═══════════════════════════════════════════════════════════
+  // CONNECTION STATUS
+  // ═══════════════════════════════════════════════════════════
+  
+  status: {
+    status: 'connecting',
+    lastChecked: new Date()
+  },
 
-    checkConnection: async () => {
-        const startTime = Date.now();
+  checkConnection: async () => {
+    const startTime = Date.now();
 
-        try {
-            const response = await axios.get(`${API_URL}/health`, {
-                timeout: 5000
-            });
+    try {
+      const response = await axios.get(`${API_URL}/health`, {
+        timeout: 5000
+      });
 
-            const latency = Date.now() - startTime;
+      const latency = Date.now() - startTime;
 
-            set({
-                status: {
-                    status: 'connected',
-                    version: response.data.version,
-                    lastChecked: new Date(),
-                    latency
-                }
-            });
-        } catch (error) {
-            set({
-                status: {
-                    status: 'disconnected',
-                    lastChecked: new Date()
-                }
-            });
+      set({
+        status: {
+          status: 'connected',
+          version: response.data.version,
+          lastChecked: new Date(),
+          latency
         }
-    },
-
-    startPolling: () => {
-        // Check immediately
-        get().checkConnection();
-
-        // Then every 10 seconds
-        const interval = setInterval(() => {
-            get().checkConnection();
-        }, 10000);
-
-        set({ pollingInterval: interval });
-    },
-
-    stopPolling: () => {
-        const { pollingInterval } = get();
-        if (pollingInterval) {
-            clearInterval(pollingInterval);
-            set({ pollingInterval: undefined });
+      });
+    } catch (error) {
+      set({
+        status: {
+          status: 'disconnected',
+          lastChecked: new Date()
         }
+      });
     }
+  },
+
+  startPolling: () => {
+    // Check immediately
+    get().checkConnection();
+
+    // Then every 10 seconds
+    const interval = setInterval(() => {
+      get().checkConnection();
+    }, 10000);
+
+    set({ pollingInterval: interval });
+  },
+
+  stopPolling: () => {
+    const { pollingInterval } = get();
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      set({ pollingInterval: undefined });
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // CHANNEL METRICS (Phase 4 + Phase 7)
+  // ═══════════════════════════════════════════════════════════
+
+  channelMetrics: null,
+  currentChannelMetrics: {},
+  isLoadingChannelMetrics: false,
+  isLoadingSingleChannel: {},
+
+  /**
+   * Fetch metrics for all channels (dashboard widget)
+   */
+  fetchChannelMetrics: async () => {
+    // Prevent duplicate requests
+    if (get().isLoadingChannelMetrics) return;
+    
+    set({ isLoadingChannelMetrics: true });
+    
+    try {
+      const data = await channelMetricsApi.getAllChannelsMetrics();
+      set({ 
+        channelMetrics: data, 
+        isLoadingChannelMetrics: false 
+      });
+    } catch (error) {
+      console.error('Failed to fetch channel metrics:', error);
+      set({ isLoadingChannelMetrics: false });
+    }
+  },
+
+  /**
+   * Fetch metrics for a specific channel
+   */
+  fetchSingleChannelMetrics: async (channelId: string) => {
+    // Set loading state for this specific channel
+    set(state => ({
+      isLoadingSingleChannel: {
+        ...state.isLoadingSingleChannel,
+        [channelId]: true
+      }
+    }));
+
+    try {
+      const data = await channelMetricsApi.getChannelMetrics(channelId);
+      
+      set(state => ({
+        currentChannelMetrics: {
+          ...state.currentChannelMetrics,
+          [channelId]: data
+        },
+        isLoadingSingleChannel: {
+          ...state.isLoadingSingleChannel,
+          [channelId]: false
+        }
+      }));
+
+      return data;
+    } catch (error) {
+      console.error(`Failed to fetch metrics for channel ${channelId}:`, error);
+      
+      set(state => ({
+        isLoadingSingleChannel: {
+          ...state.isLoadingSingleChannel,
+          [channelId]: false
+        }
+      }));
+      
+      return null;
+    }
+  },
+
+  /**
+   * Reset circuit breaker for a channel
+   */
+  resetChannelCircuit: async (channelId: string) => {
+    try {
+      await channelMetricsApi.resetChannel(channelId);
+      
+      // Refresh metrics after reset
+      await get().fetchSingleChannelMetrics(channelId);
+      await get().fetchChannelMetrics();
+      
+      return true;
+    } catch (error) {
+      console.error(`Failed to reset channel ${channelId}:`, error);
+      return false;
+    }
+  },
+
+  /**
+   * Get health status for a specific channel (from cache)
+   */
+  getChannelHealthStatus: (channelId: string) => {
+    const metrics = get().currentChannelMetrics[channelId];
+    return metrics?.health_status || null;
+  }
 }));

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useBackendStore } from '@/store/backendStore';
 import { useAuthStore } from '@/store/authStore';
 import APIKeyHealth from '@/components/monitoring/APIKeyHealth';
+
 import {
     Users,
     CheckCircle,
@@ -14,6 +15,7 @@ import {
 import { Link } from 'react-router-dom';
 import BudgetControl from '@/components/BudgetControl';
 import { api } from '@/services/api';
+import { ChannelHealthWidget } from '@/components/dashboard/ChannelHealthWidget';
 
 interface Stats {
     totalAgents: number;
@@ -177,6 +179,9 @@ export function Dashboard() {
             </div>
             <div className="mb-8">
             <APIKeyHealth />
+            </div>
+            <div className="mb-8">
+            <ChannelHealthWidget />
             </div>
 
             {/* ── Bottom Panels ──────────────────────────────────────────── */}

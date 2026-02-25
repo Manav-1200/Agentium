@@ -1086,7 +1086,7 @@ const PreferenceValueEditor: React.FC<{
                 >
                     No
                 </button>
-                <button
+                <button aria-label="Cancel"
                     onClick={onCancel}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
@@ -1675,7 +1675,7 @@ const PreferencesTab: React.FC = () => {
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         Category
                                     </label>
-                                    <select
+                                    <select aria-label="Category"
                                         value={newPref.category}
                                         onChange={(e) => setNewPref({ ...newPref, category: e.target.value })}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
@@ -1691,7 +1691,7 @@ const PreferencesTab: React.FC = () => {
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         Data Type
                                     </label>
-                                    <select
+                                    <select aria-label="Data Type"
                                         value={newPref.dataType}
                                         onChange={(e) => setNewPref({ ...newPref, dataType: e.target.value })}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg

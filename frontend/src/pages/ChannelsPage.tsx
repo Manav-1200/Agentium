@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
+import { channelMetricsApi } from '@/services/channelMetrics';
 import {
     Smartphone,
     Slack,
@@ -23,6 +24,9 @@ import {
     QrCode,
     Server,
     AlertTriangle,
+    Activity,
+    XCircle,
+    Clock,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -45,6 +49,46 @@ type ChannelTypeSlug =
 
 type ChannelStatus = 'pending' | 'active' | 'error' | 'disconnected';
 type WhatsAppProvider = 'cloud_api' | 'web_bridge';
+type CircuitBreakerState = 'closed' | 'half_open' | 'open';
+type ChannelHealthStatus = 'healthy' | 'warning' | 'critical';
+
+interface ChannelMetrics {
+    channel_id: string;
+    total_requests: number;
+    successful_requests: number;
+    failed_requests: number;
+    success_rate: number;
+    circuit_breaker_state: CircuitBreakerState;
+    consecutive_failures: number;
+    rate_limit_hits: number;
+    avg_response_time_ms?: number;
+    last_failure_at?: string;
+    last_rate_limit_at?: string;
+    created_at: string;
+    updated_at: string;
+}
+
+interface ChannelMetricsResponse {
+    channel_id: string;
+    channel_name: string;
+    channel_type: string;
+    status: string;
+    metrics: ChannelMetrics;
+    health_status: ChannelHealthStatus;
+}
+
+interface MessageLog {
+    id: string;
+    channel_id: string;
+    sender_id: string;
+    sender_name?: string;
+    content: string;
+    status: 'received' | 'processing' | 'responded' | 'failed';
+    error_count: number;
+    last_error?: string;
+    created_at: string;
+    responded_at?: string;
+}
 
 interface Channel {
     id: string;
@@ -102,7 +146,7 @@ interface ChannelTypeDefinition {
     color: ColorKey;
     fields: ChannelField[];
     note?: string;
-    providerSelector?: boolean; // For WhatsApp dual-mode
+    providerSelector?: boolean;
 }
 
 // ─── Color palette ────────────────────────────────────────────────────────────
@@ -132,8 +176,6 @@ const whatsAppCloudFields: ChannelField[] = [
     { name: 'app_secret',      label: 'App Secret',      type: 'password', placeholder: 'Optional', help: 'For webhook signature verification' },
 ];
 
-// web_bridge needs no user-supplied fields — bridge_url and bridge_token
-// are injected from the backend env (WHATSAPP_BRIDGE_URL / WHATSAPP_BRIDGE_TOKEN).
 const whatsAppBridgeFields: ChannelField[] = [];
 
 // ─── Channel type definitions ─────────────────────────────────────────────────
@@ -146,7 +188,7 @@ const channelTypes: ChannelTypeDefinition[] = [
         description: 'Cloud API or Web Bridge (QR)',
         color: 'green',
         providerSelector: true,
-        fields: [], // Dynamic based on provider selection
+        fields: [],
         note: 'Choose between official Meta Cloud API (business) or Web Bridge (personal/development)',
     },
     {
@@ -283,22 +325,236 @@ const statusConfig: Record<string, { dot: string; badge: string; label: string }
 
 const getStatus = (s: string) => statusConfig[s] ?? { dot: 'bg-gray-400', badge: 'bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400', label: s };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHANNEL METRICS SECTION COMPONENT (Phase 4)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function ChannelMetricsSection({ channelId }: { channelId: string }) {
+    const [showLogs, setShowLogs] = useState(false);
+    const queryClient = useQueryClient();
+    
+    const { data: metricsData, isLoading } = useQuery({
+        queryKey: ['channel-metrics', channelId],
+        queryFn: () => channelMetricsApi.getChannelMetrics(channelId),
+        refetchInterval: 10000,
+        staleTime: 5000,
+    });
+
+    const resetMutation = useMutation({
+        mutationFn: () => channelMetricsApi.resetChannel(channelId),
+        onSuccess: () => {
+            toast.success('Channel reset successfully');
+            queryClient.invalidateQueries({ queryKey: ['channel-metrics', channelId] });
+        },
+        onError: () => toast.error('Failed to reset channel'),
+    });
+
+    if (isLoading) {
+        return (
+            <div className="pt-4 border-t border-gray-100 dark:border-[#1e2535]">
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading health metrics...
+                </div>
+            </div>
+        );
+    }
+
+    if (!metricsData) return null;
+
+    const { metrics, health_status } = metricsData;
+    
+    const getHealthColors = () => {
+        switch (health_status) {
+            case 'healthy': 
+                return {
+                    bg: 'bg-green-50 dark:bg-green-500/10',
+                    border: 'border-green-200 dark:border-green-500/20',
+                    text: 'text-green-700 dark:text-green-400',
+                    indicator: 'bg-green-500'
+                };
+            case 'warning': 
+                return {
+                    bg: 'bg-yellow-50 dark:bg-yellow-500/10',
+                    border: 'border-yellow-200 dark:border-yellow-500/20',
+                    text: 'text-yellow-700 dark:text-yellow-400',
+                    indicator: 'bg-yellow-500'
+                };
+            case 'critical': 
+                return {
+                    bg: 'bg-red-50 dark:bg-red-500/10',
+                    border: 'border-red-200 dark:border-red-500/20',
+                    text: 'text-red-700 dark:text-red-400',
+                    indicator: 'bg-red-500'
+                };
+        }
+    };
+
+    const getCircuitColors = () => {
+        switch (metrics.circuit_breaker_state) {
+            case 'closed': 
+                return 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400 border-green-200 dark:border-green-500/20';
+            case 'half_open': 
+                return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/20';
+            case 'open': 
+                return 'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400 border-red-200 dark:border-red-500/20 animate-pulse';
+        }
+    };
+
+    const colors = getHealthColors();
+
+    return (
+        <div className="pt-4 border-t border-gray-100 dark:border-[#1e2535] space-y-4">
+            {/* Header with Health Status and Circuit Breaker */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <div className={`w-2.5 h-2.5 rounded-full ${colors.indicator}`} />
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                        Health Metrics
+                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${colors.bg} ${colors.border} ${colors.text} uppercase font-medium`}>
+                        {health_status}
+                    </span>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-1 rounded-full border font-semibold ${getCircuitColors()}`}>
+                        Circuit: {metrics.circuit_breaker_state.toUpperCase()}
+                    </span>
+                    {metrics.circuit_breaker_state === 'open' && (
+                        <button
+                            onClick={() => resetMutation.mutate()}
+                            disabled={resetMutation.isPending}
+                            className="p-1.5 text-xs bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors"
+                            title="Reset circuit breaker"
+                        >
+                            <RefreshCw className={`w-3 h-3 ${resetMutation.isPending ? 'animate-spin' : ''}`} />
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* Metrics Grid */}
+            <div className={`grid grid-cols-4 gap-3 p-3 rounded-xl border ${colors.bg} ${colors.border}`}>
+                <div className="text-center">
+                    <div className={`text-lg font-bold ${colors.text}`}>
+                        {metrics.success_rate.toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Success</div>
+                </div>
+                <div className="text-center">
+                    <div className={`text-lg font-bold ${metrics.failed_requests > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {metrics.failed_requests}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Failures</div>
+                </div>
+                <div className="text-center">
+                    <div className={`text-lg font-bold ${metrics.rate_limit_hits > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {metrics.rate_limit_hits}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Rate Limits</div>
+                </div>
+                <div className="text-center">
+                    <div className={`text-lg font-bold ${metrics.consecutive_failures > 2 ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {metrics.consecutive_failures}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Consecutive</div>
+                </div>
+            </div>
+
+            {/* Toggle Logs Button */}
+            <button
+                onClick={() => setShowLogs(!showLogs)}
+                className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+            >
+                {showLogs ? 'Hide' : 'Show'} Message Logs
+                <ChevronRight className={`w-4 h-4 transition-transform ${showLogs ? 'rotate-90' : ''}`} />
+            </button>
+
+            {/* Message Logs */}
+            {showLogs && <MessageLogViewer channelId={channelId} />}
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MESSAGE LOG VIEWER COMPONENT (Phase 4)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function MessageLogViewer({ channelId }: { channelId: string }) {
+    const { data, isLoading } = useQuery({
+        queryKey: ['channel-logs', channelId],
+        queryFn: () => channelMetricsApi.getChannelLogs(channelId, 50),
+    });
+
+    const getStatusIcon = (status: string) => {
+        switch (status) {
+            case 'responded': return <CheckCircle className="w-4 h-4 text-green-500" />;
+            case 'failed': return <XCircle className="w-4 h-4 text-red-500" />;
+            case 'processing': return <Clock className="w-4 h-4 text-yellow-500 animate-spin" />;
+            default: return <Activity className="w-4 h-4 text-gray-400" />;
+        }
+    };
+
+    if (isLoading) return <div className="text-sm text-gray-500">Loading logs...</div>;
+
+    return (
+        <div className="border border-gray-200 dark:border-[#1e2535] rounded-xl overflow-hidden">
+            <div className="bg-gray-50 dark:bg-[#0f1117] px-4 py-2 border-b border-gray-200 dark:border-[#1e2535]">
+                <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Recent Messages</h4>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+                {!data || data.messages.length === 0 ? (
+                    <div className="p-4 text-sm text-gray-500 text-center">No messages yet</div>
+                ) : (
+                    <table className="w-full text-sm">
+                        <thead className="bg-gray-50 dark:bg-[#0f1117] text-xs text-gray-500">
+                            <tr>
+                                <th className="px-4 py-2 text-left">Status</th>
+                                <th className="px-4 py-2 text-left">Sender</th>
+                                <th className="px-4 py-2 text-left">Content</th>
+                                <th className="px-4 py-2 text-left">Time</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-[#1e2535]">
+                            {data.messages.map((msg) => (
+                                <tr key={msg.id} className="hover:bg-gray-50 dark:hover:bg-[#0f1117]">
+                                    <td className="px-4 py-2">{getStatusIcon(msg.status)}</td>
+                                    <td className="px-4 py-2 text-gray-900 dark:text-gray-100">{msg.sender_name || msg.sender_id}</td>
+                                    <td className="px-4 py-2 text-gray-600 dark:text-gray-400 truncate max-w-xs">
+                                        {msg.content}
+                                    </td>
+                                    <td className="px-4 py-2 text-xs text-gray-400">
+                                        {format(new Date(msg.created_at), 'MMM d, HH:mm')}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN PAGE COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function ChannelsPage() {
     const queryClient = useQueryClient();
-    const [showAddModal, setShowAddModal]         = useState(false);
-    const [selectedType, setSelectedType]         = useState<ChannelTypeSlug | null>(null);
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [selectedType, setSelectedType] = useState<ChannelTypeSlug | null>(null);
     const [whatsappProvider, setWhatsappProvider] = useState<WhatsAppProvider>('cloud_api');
-    const [qrCodeData, setQrCodeData]             = useState<string | null>(null);
+    const [qrCodeData, setQrCodeData] = useState<string | null>(null);
     const [pollingChannelId, setPollingChannelId] = useState<string | null>(null);
     const pollingChannelIdRef = useRef<string | null>(null);
     const [showProviderSwitch, setShowProviderSwitch] = useState<string | null>(null);
-    const [editingSenders, setEditingSenders] = useState<string | null>(null); // channel id being edited
+    const [editingSenders, setEditingSenders] = useState<string | null>(null);
     const [senderInput, setSenderInput] = useState('');
-    const [qrStep, setQrStep]                             = useState(false);   // true = show QR screen
+    const [qrStep, setQrStep] = useState(false);
 
-    // ── fetch ─────────────────────────────────────────────────────────────────
+    // ── fetch channels ─────────────────────────────────────────────────────────
     const { data: channelsData, isLoading, error } = useQuery({
         queryKey: ['channels'],
         queryFn: async () => {
@@ -327,7 +583,6 @@ export function ChannelsPage() {
             queryClient.invalidateQueries({ queryKey: ['channels'] });
             toast.success('Channel created successfully');
             
-            // If WhatsApp Web Bridge, start polling for QR
             if (data.type === 'whatsapp' && data.config?.provider === 'web_bridge') {
                 setPollingChannelId(data.id);
                 pollingChannelIdRef.current = data.id;
@@ -374,7 +629,6 @@ export function ChannelsPage() {
             toast.success(`Switched to ${data.provider === 'cloud_api' ? 'Cloud API' : 'Web Bridge'}`);
             queryClient.invalidateQueries({ queryKey: ['channels'] });
             setShowProviderSwitch(null);
-            // If switched to web_bridge, open the QR modal for this channel
             if (data.provider === 'web_bridge' && data.channel_id) {
                 setShowAddModal(true);
                 setSelectedType('whatsapp');
@@ -388,7 +642,7 @@ export function ChannelsPage() {
         onError: (err: any) => toast.error(err.response?.data?.detail || 'Failed to switch provider'),
     });
 
-    // ── QR polling (WhatsApp Web Bridge) ─────────────────────────────────────
+    // ── QR polling ────────────────────────────────────────────────────────────
     const pollForQR = async (channelId: string) => {
         try {
             const response = await api.get(`/api/v1/channels/${channelId}/qr`);
@@ -403,7 +657,7 @@ export function ChannelsPage() {
 
             if (data.qr_code) {
                 setQrCodeData(data.qr_code);
-                setQrStep(true);   // transition to QR screen
+                setQrStep(true);
             }
 
             if (pollingChannelIdRef.current === channelId) {
@@ -436,7 +690,6 @@ export function ChannelsPage() {
         const formEl = e.target as HTMLFormElement;
         const fd = new FormData(formEl);
         
-        // Get fields based on type
         let fields: ChannelField[] = [];
         if (selectedType === 'whatsapp') {
             fields = whatsappProvider === 'cloud_api' ? whatsAppCloudFields : whatsAppBridgeFields;
@@ -447,12 +700,9 @@ export function ChannelsPage() {
         
         const config: Record<string, string> = {};
         
-        // Add provider for WhatsApp
         if (selectedType === 'whatsapp') {
             config.provider = whatsappProvider;
             if (whatsappProvider === 'web_bridge') {
-                // bridge_url & bridge_token come from backend env vars —
-                // signal the backend to use its defaults by passing the sentinel.
                 config.bridge_url   = 'env://whatsapp-bridge';
                 config.bridge_token = 'env://WHATSAPP_BRIDGE_TOKEN';
             }
@@ -564,7 +814,6 @@ export function ChannelsPage() {
                         const Icon    = typeDef?.Icon ?? MessageCircle;
                         const status  = getStatus(channel.status);
                         
-                        // WhatsApp provider badge
                         const isWhatsApp = channel.type === 'whatsapp';
                         const provider = channel.config?.provider || 'cloud_api';
                         const isBridge = provider === 'web_bridge';
@@ -578,7 +827,6 @@ export function ChannelsPage() {
                                 <div className="p-5 border-b border-gray-100 dark:border-[#1e2535]">
                                     <div className="flex items-start justify-between">
                                         <div className="flex items-center gap-3">
-                                            {/* Icon */}
                                             <div className={`w-11 h-11 rounded-xl ${colors.bg} ${colors.darkBg} flex items-center justify-center flex-shrink-0`}>
                                                 <Icon className={`w-5 h-5 ${colors.text} ${colors.darkText}`} />
                                             </div>
@@ -740,7 +988,6 @@ export function ChannelsPage() {
 
                                             {editingSenders === channel.id ? (
                                                 <div className="space-y-2">
-                                                    {/* existing numbers */}
                                                     <div className="flex flex-wrap gap-1.5">
                                                         {(channel.config?.allowed_senders || []).map(num => (
                                                             <span key={num} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 rounded-full text-xs font-mono">
@@ -752,7 +999,6 @@ export function ChannelsPage() {
                                                             </span>
                                                         ))}
                                                     </div>
-                                                    {/* add new number */}
                                                     <div className="flex gap-2">
                                                         <input
                                                             value={senderInput}
@@ -808,6 +1054,9 @@ export function ChannelsPage() {
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* ═══ CHANNEL HEALTH METRICS (Phase 4) ═══ */}
+                                    <ChannelMetricsSection channelId={channel.id} />
                                 </div>
                             </div>
                         );
@@ -837,7 +1086,7 @@ export function ChannelsPage() {
                         </div>
 
                         <div className="p-6">
-                            {/* Step 3: QR Code — shown after form submit for web_bridge */}
+                            {/* Step 3: QR Code */}
                             {qrStep ? (
                                 <div className="flex flex-col items-center gap-6 py-4">
                                     <div className="text-center">
@@ -962,7 +1211,6 @@ export function ChannelsPage() {
                                                 </button>
                                             </div>
                                             
-                                            {/* web_bridge info */}
                                             {whatsappProvider === 'web_bridge' && (
                                                 <div className="mt-3 space-y-2">
                                                     <div className="p-2.5 bg-green-50 dark:bg-green-500/5 border border-green-200 dark:border-green-500/20 rounded-lg flex items-start gap-2">
@@ -999,7 +1247,6 @@ export function ChannelsPage() {
 
                                         {/* Dynamic fields based on type/provider */}
                                         {selectedType === 'whatsapp' ? (
-                                            // WhatsApp fields based on provider
                                             (whatsappProvider === 'cloud_api' ? whatsAppCloudFields : whatsAppBridgeFields).map(field => (
                                                 <div key={field.name}>
                                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
@@ -1019,7 +1266,6 @@ export function ChannelsPage() {
                                                 </div>
                                             ))
                                         ) : (
-                                            // Other channel types
                                             channelTypes
                                                 .find(t => t.id === selectedType)
                                                 ?.fields.map(field => (

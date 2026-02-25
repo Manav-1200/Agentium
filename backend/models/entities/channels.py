@@ -175,3 +175,61 @@ class ExternalMessage(BaseEntity):
             'timestamp': self.created_at.isoformat()
         })
         return base
+
+    class CircuitBreakerState(str, enum.Enum):
+    CLOSED = "closed"
+    HALF_OPEN = "half_open"
+    OPEN = "open"
+
+class ChannelMetrics(BaseEntity):
+    """
+    Health and performance metrics for external channels.
+    Tracks success rates, failures, circuit breaker state.
+    """
+    
+    __tablename__ = 'channel_metrics'
+    
+    channel_id = Column(String(36), ForeignKey('external_channels.id'), nullable=False, unique=True)
+    
+    # Success/Failure tracking
+    total_requests = Column(Integer, default=0)
+    successful_requests = Column(Integer, default=0)
+    failed_requests = Column(Integer, default=0)
+    
+    # Circuit breaker
+    circuit_breaker_state = Column(Enum(CircuitBreakerState), default=CircuitBreakerState.CLOSED)
+    consecutive_failures = Column(Integer, default=0)
+    last_failure_at = Column(DateTime, nullable=True)
+    
+    # Rate limiting
+    rate_limit_hits = Column(Integer, default=0)
+    last_rate_limit_at = Column(DateTime, nullable=True)
+    
+    # Performance
+    avg_response_time_ms = Column(Integer, nullable=True)
+    
+    # Relationship
+    channel = relationship("ExternalChannel", backref="metrics", uselist=False)
+    
+    @property
+    def success_rate(self) -> float:
+        if self.total_requests == 0:
+            return 100.0
+        return (self.successful_requests / self.total_requests) * 100
+    
+    def to_dict(self) -> Dict[str, Any]:
+        base = super().to_dict()
+        base.update({
+            'channel_id': self.channel_id,
+            'total_requests': self.total_requests,
+            'successful_requests': self.successful_requests,
+            'failed_requests': self.failed_requests,
+            'success_rate': round(self.success_rate, 2),
+            'circuit_breaker_state': self.circuit_breaker_state.value,
+            'consecutive_failures': self.consecutive_failures,
+            'rate_limit_hits': self.rate_limit_hits,
+            'avg_response_time_ms': self.avg_response_time_ms,
+            'last_failure_at': self.last_failure_at.isoformat() if self.last_failure_at else None,
+            'last_rate_limit_at': self.last_rate_limit_at.isoformat() if self.last_rate_limit_at else None,
+        })
+        return base

@@ -37,6 +37,7 @@ from backend.services.channel_manager import (
 from backend.services.channels.whatsapp_unified import UnifiedWhatsAppAdapter, WhatsAppProvider
 from backend.core.auth import get_current_active_user
 from backend.core.config import settings
+from backend.models.entities.channels import ChannelMetrics, CircuitBreakerState
 
 router = APIRouter(tags=["Channels"])
 
@@ -853,3 +854,86 @@ async def reset_channel(
         "channel_id": channel_id,
         "new_status": ChannelStatus.PENDING.value
     }
+
+# ═══════════════════════════════════════════════════════════
+# METRICS ENDPOINTS (Phase 4 + Phase 7)
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/channels/{channel_id}/metrics")
+async def get_channel_metrics(
+    channel_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get detailed health metrics for a specific channel."""
+    channel = _get_channel_or_404(channel_id, db)
+    
+    # Get or create metrics
+    metrics = db.query(ChannelMetrics).filter_by(channel_id=channel_id).first()
+    if not metrics:
+        metrics = ChannelMetrics(channel_id=channel_id)
+        db.add(metrics)
+        db.commit()
+        db.refresh(metrics)
+    
+    return {
+        "channel_id": channel_id,
+        "channel_name": channel.name,
+        "channel_type": channel.channel_type.value,
+        "status": channel.status.value,
+        "metrics": metrics.to_dict(),
+        "health_status": _calculate_health_status(metrics)
+    }
+
+
+@router.get("/channels/metrics")
+async def get_all_channels_metrics(
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get metrics for all channels (for dashboard widget)."""
+    channels = db.query(ExternalChannel).all()
+    
+    results = []
+    for channel in channels:
+        metrics = db.query(ChannelMetrics).filter_by(channel_id=channel.id).first()
+        if not metrics:
+            metrics = ChannelMetrics(channel_id=channel.id)
+            db.add(metrics)
+            db.commit()
+        
+        results.append({
+            "channel_id": channel.id,
+            "channel_name": channel.name,
+            "channel_type": channel.channel_type.value,
+            "status": channel.status.value,
+            "metrics": metrics.to_dict(),
+            "health_status": _calculate_health_status(metrics)
+        })
+    
+    # Commit once after all creations
+    db.commit()
+    
+    return {
+        "channels": results,
+        "summary": {
+            "total": len(results),
+            "healthy": sum(1 for r in results if r["health_status"] == "healthy"),
+            "warning": sum(1 for r in results if r["health_status"] == "warning"),
+            "critical": sum(1 for r in results if r["health_status"] == "critical"),
+            "circuit_open": sum(1 for r in results if r["metrics"]["circuit_breaker_state"] == "open")
+        }
+    }
+
+
+def _calculate_health_status(metrics: ChannelMetrics) -> str:
+    """Calculate overall health status based on metrics."""
+    if metrics.circuit_breaker_state == CircuitBreakerState.OPEN:
+        return "critical"
+    if metrics.consecutive_failures >= 3:
+        return "warning"
+    if metrics.success_rate < 90 and metrics.total_requests > 10:
+        return "warning"
+    if metrics.rate_limit_hits > 5:
+        return "warning"
+    return "healthy"

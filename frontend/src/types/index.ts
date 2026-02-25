@@ -12,6 +12,59 @@ export interface BackendStatus {
     latency?: number;
 }
 
+// Channel Metrics Types (Phase 4 + Phase 7)
+export type CircuitBreakerState = 'closed' | 'half_open' | 'open';
+export type ChannelHealthStatus = 'healthy' | 'warning' | 'critical';
+
+export interface ChannelMetrics {
+  channel_id: string;
+  total_requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  success_rate: number;
+  circuit_breaker_state: CircuitBreakerState;
+  consecutive_failures: number;
+  rate_limit_hits: number;
+  avg_response_time_ms?: number;
+  last_failure_at?: string;
+  last_rate_limit_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChannelMetricsResponse {
+  channel_id: string;
+  channel_name: string;
+  channel_type: string;
+  status: string;
+  metrics: ChannelMetrics;
+  health_status: ChannelHealthStatus;
+}
+
+export interface AllChannelsMetricsResponse {
+  channels: ChannelMetricsResponse[];
+  summary: {
+    total: number;
+    healthy: number;
+    warning: number;
+    critical: number;
+    circuit_open: number;
+  };
+}
+
+export interface MessageLog {
+  id: string;
+  channel_id: string;
+  sender_id: string;
+  sender_name?: string;
+  content: string;
+  status: 'received' | 'processing' | 'responded' | 'failed';
+  error_count: number;
+  last_error?: string;
+  created_at: string;
+  responded_at?: string;
+}
+
 // Provider Types
 export type ProviderType =
     | 'openai'
