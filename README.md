@@ -55,7 +55,7 @@ Rigorous identification system:
 - **Output Critic**: `8xxxx` (80001–89999) — Output validation (user intent alignment)
 - **Plan Critic**: `9xxxx` (90001–99999) — Plan validation (DAG soundness)
 
-> Critics operate **outside** the democratic chain. They have absolute veto authority but no voting rights. Rejected tasks retry within the same team (max 5 retries) before escalating to Council.
+> Critics operate **outside** the democratic chain. They have veto authority with checks and balances implimented but no voting rights. Rejected tasks retry within the same team (max 5 retries) before escalating to Council.
 
 ### 🔄 Self-Governing Lifecycle
 
