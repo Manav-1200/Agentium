@@ -351,7 +351,7 @@ async def get_all_users(
 
 @router.post("/admin/users/{user_id}/approve")
 async def approve_user(
-    user_id: int,
+    user_id: str,
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -367,7 +367,7 @@ async def approve_user(
 
 @router.post("/admin/users/{user_id}/reject")
 async def reject_user(
-    user_id: int,
+    user_id: str,
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -383,7 +383,7 @@ async def reject_user(
 
 @router.delete("/admin/users/{user_id}")
 async def delete_user(
-    user_id: int,
+    user_id: str,
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -399,7 +399,7 @@ async def delete_user(
 
 @router.post("/admin/users/{user_id}/change-password")
 async def change_user_password(
-    user_id: int,
+    user_id: str,
     new_password: str,
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),

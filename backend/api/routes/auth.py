@@ -24,7 +24,7 @@ class SignupRequest(BaseModel):
 class SignupResponse(BaseModel):
     success: bool
     message: str
-    user_id: Optional[int] = None
+    user_id: Optional[str] = None 
 
 class LoginRequest(BaseModel):
     username: str
