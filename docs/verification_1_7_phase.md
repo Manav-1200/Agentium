@@ -6,26 +6,6 @@
 
 # 🚨 High-Priority Missing Features
 
-## 3️⃣ A/B Model Testing Framework
-
-**Phase 5**
-
-**Status:** ❌ Not implemented
-
-### Missing:
-
-- Execute same task against multiple models
-- Compare:
-  - Cost
-  - Latency
-  - Output quality
-  - Critic verdicts
-- Automatic best-model selection logic
-- Historical experiment tracking
-- Experiment result storage
-
----
-
 # ⚠️ Medium Priority (Backend Exists, Frontend Missing)
 
 ## 4️⃣ Provider Performance Metrics Dashboard
