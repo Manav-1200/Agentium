@@ -43,6 +43,48 @@ interface BudgetHistory {
     }>;
 }
 
+/**
+ * Normalize the /admin/budget API response into the expected BudgetStatus shape.
+ *
+ * The API may return a flat object (all fields at the top level) instead of
+ * the nested { current_limits: {}, usage: {} } structure the component expects.
+ * This function handles both shapes gracefully.
+ */
+function normalizeBudgetStatus(data: any): BudgetStatus {
+    // Already nested correctly
+    if (data?.usage && data?.current_limits) {
+        return data as BudgetStatus;
+    }
+
+    // Flat response — reconstruct the nested shape
+    return {
+        can_modify: data?.can_modify ?? false,
+        current_limits: {
+            daily_token_limit: data?.daily_token_limit ?? data?.current_limits?.daily_token_limit ?? 0,
+            daily_cost_limit:  data?.daily_cost_limit  ?? data?.current_limits?.daily_cost_limit  ?? 0,
+        },
+        usage: {
+            tokens_used_today:       data?.tokens_used_today       ?? 0,
+            tokens_remaining:        data?.tokens_remaining        ?? 0,
+            cost_used_today_usd:     data?.cost_used_today_usd     ?? 0,
+            cost_remaining_usd:      data?.cost_remaining_usd      ?? 0,
+            cost_percentage_used:    data?.cost_percentage_used    ?? 0,
+            cost_percentage_tokens:  data?.cost_percentage_tokens  ?? 0,
+        },
+    };
+}
+
+function normalizeBudgetHistory(data: any): BudgetHistory {
+    return {
+        period_days:     data?.period_days     ?? 7,
+        total_tokens:    data?.total_tokens    ?? 0,
+        total_requests:  data?.total_requests  ?? 0,
+        total_cost_usd:  data?.total_cost_usd  ?? 0,
+        daily_breakdown: data?.daily_breakdown ?? {},
+        by_provider:     data?.by_provider     ?? {},
+    };
+}
+
 export const FinancialBurnDashboard: React.FC = () => {
     const [status, setStatus] = useState<BudgetStatus | null>(null);
     const [history, setHistory] = useState<BudgetHistory | null>(null);
@@ -53,12 +95,13 @@ export const FinancialBurnDashboard: React.FC = () => {
         const fetchDashboardData = async () => {
             try {
                 setIsLoading(true);
+                setError(null);
                 const [statusRes, historyRes] = await Promise.all([
-                    api.get('/admin/budget'),
-                    api.get('/admin/budget/history?days=7')
+                    api.get('/api/v1/admin/budget'),
+                    api.get('/api/v1/admin/budget/history?days=7')
                 ]);
-                setStatus(statusRes.data);
-                setHistory(historyRes.data);
+                setStatus(normalizeBudgetStatus(statusRes.data));
+                setHistory(normalizeBudgetHistory(historyRes.data));
             } catch (err: any) {
                 console.error("Failed to fetch financial data:", err);
                 setError(err?.response?.data?.detail || "Failed to load financial data");
@@ -91,6 +134,17 @@ export const FinancialBurnDashboard: React.FC = () => {
 
     if (!status || !history) return null;
 
+    // Guard: if usage is still undefined after normalization, show a safe empty state
+    if (!status.usage || !status.current_limits) {
+        return (
+            <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl p-6 text-center text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="w-10 h-10 mx-auto mb-3 opacity-80" />
+                <h3 className="text-lg font-semibold mb-1">Unexpected data format</h3>
+                <p className="text-sm">The budget API returned an unrecognised response shape. Check the console for the raw response.</p>
+            </div>
+        );
+    }
+
     const { usage, current_limits } = status;
 
     const getBarColor = (percentage: number) => {
@@ -111,18 +165,18 @@ export const FinancialBurnDashboard: React.FC = () => {
                             <DollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                         </div>
                         <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                            ${usage.cost_used_today_usd.toFixed(2)}
+                            ${(usage.cost_used_today_usd ?? 0).toFixed(2)}
                         </span>
                     </div>
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-3">Today's Spend</p>
                     <div className="w-full bg-slate-100 dark:bg-[#1e2535] rounded-full h-1.5 overflow-hidden">
                         <div
-                            className={`${getBarColor(usage.cost_percentage_used)} h-full transition-all duration-500`}
-                            style={{ width: `${Math.min(usage.cost_percentage_used, 100)}%` }}
+                            className={`${getBarColor(usage.cost_percentage_used ?? 0)} h-full transition-all duration-500`}
+                            style={{ width: `${Math.min(usage.cost_percentage_used ?? 0, 100)}%` }}
                         />
                     </div>
                     <p className="text-xs text-slate-400 dark:text-slate-500 mt-2 flex justify-between">
-                        <span>{usage.cost_percentage_used.toFixed(1)}% of limit</span>
+                        <span>{(usage.cost_percentage_used ?? 0).toFixed(1)}% of limit</span>
                         <span>Max ${current_limits.daily_cost_limit}</span>
                     </p>
                 </div>
@@ -134,19 +188,19 @@ export const FinancialBurnDashboard: React.FC = () => {
                             <Zap className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                         </div>
                         <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                            {(usage.tokens_used_today / 1000).toFixed(1)}k
+                            {((usage.tokens_used_today ?? 0) / 1000).toFixed(1)}k
                         </span>
                     </div>
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-3">Tokens Used Today</p>
                     <div className="w-full bg-slate-100 dark:bg-[#1e2535] rounded-full h-1.5 overflow-hidden">
                         <div
-                            className={`${getBarColor(usage.cost_percentage_tokens)} h-full transition-all duration-500`}
-                            style={{ width: `${Math.min(usage.cost_percentage_tokens, 100)}%` }}
+                            className={`${getBarColor(usage.cost_percentage_tokens ?? 0)} h-full transition-all duration-500`}
+                            style={{ width: `${Math.min(usage.cost_percentage_tokens ?? 0, 100)}%` }}
                         />
                     </div>
                     <p className="text-xs text-slate-400 dark:text-slate-500 mt-2 flex justify-between">
-                        <span>{usage.cost_percentage_tokens.toFixed(1)}% of limit</span>
-                        <span>Max {(current_limits.daily_token_limit / 1000).toFixed(0)}k</span>
+                        <span>{(usage.cost_percentage_tokens ?? 0).toFixed(1)}% of limit</span>
+                        <span>Max {((current_limits.daily_token_limit ?? 0) / 1000).toFixed(0)}k</span>
                     </p>
                 </div>
 
@@ -157,28 +211,28 @@ export const FinancialBurnDashboard: React.FC = () => {
                             <TrendingUp className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                         </div>
                         <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                            ${history.total_cost_usd.toFixed(2)}
+                            ${(history.total_cost_usd ?? 0).toFixed(2)}
                         </span>
                     </div>
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">7-Day Total Spend</p>
                     <p className="text-xs text-slate-400 dark:text-slate-500">
-                        Avg ${(history.total_cost_usd / history.period_days).toFixed(2)} / day
+                        Avg ${((history.total_cost_usd ?? 0) / (history.period_days || 1)).toFixed(2)} / day
                     </p>
                 </div>
 
-                {/* 7-Day Completion Stats (Requests) */}
+                {/* 7-Day Total Requests */}
                 <div className="bg-white dark:bg-[#161b27] p-6 rounded-xl border border-slate-200 dark:border-[#1e2535] shadow-sm hover:shadow-md transition-shadow">
                     <div className="flex items-center justify-between mb-4">
                         <div className="w-11 h-11 rounded-lg bg-orange-100 dark:bg-orange-500/10 flex items-center justify-center">
                             <Activity className="w-5 h-5 text-orange-600 dark:text-orange-400" />
                         </div>
                         <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                            {history.total_requests}
+                            {history.total_requests ?? 0}
                         </span>
                     </div>
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">7-Day Total Requests</p>
                     <p className="text-xs text-slate-400 dark:text-slate-500">
-                        {((history.total_tokens / history.total_requests) || 0).toFixed(0)} avg tokens per req
+                        {(history.total_requests ? (history.total_tokens / history.total_requests) : 0).toFixed(0)} avg tokens per req
                     </p>
                 </div>
             </div>
@@ -208,13 +262,13 @@ export const FinancialBurnDashboard: React.FC = () => {
                                         {provider}
                                     </td>
                                     <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                                        ${stats.cost_usd.toFixed(4)}
+                                        ${(stats.cost_usd ?? 0).toFixed(4)}
                                     </td>
                                     <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                                        {stats.tokens.toLocaleString()}
+                                        {(stats.tokens ?? 0).toLocaleString()}
                                     </td>
                                     <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                                        {stats.requests.toLocaleString()}
+                                        {(stats.requests ?? 0).toLocaleString()}
                                     </td>
                                 </tr>
                             ))}
@@ -229,7 +283,6 @@ export const FinancialBurnDashboard: React.FC = () => {
                     </table>
                 </div>
             </div>
-
         </div>
     );
 };
