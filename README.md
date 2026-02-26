@@ -8,7 +8,7 @@
 
 **Agentium** transforms AI task execution into a structured digital democracy. Unlike monolithic AI assistants, Agentium operates as a self-governing ecosystem where AI agents function like a parliamentary system — complete with a **Head of Council** (Executive), **Council Members** (Legislature), **Lead Agents** (Directors), **Task Agents** (Executors), and **Critic Agents** (Independent Judiciary) — all bound by a **Constitution** and managed through democratic voting.
 
-Built for those who believe AI should be **transparent, accountable, and sovereign**, Agentium runs entirely on your infrastructure with local-first architecture.
+Built for those who believe AI should be **transparent, accountable, and sovereign**, Agentium runs entirely on your infrastructure with local-first architecture. Agentium can spawn up to **100,000 AI Agents** with proper control and management, and handle up to **10,000 concurrent tasks** provided by the user — all at once.
 
 ## ![Image](./docs/dashboard.png)
 
