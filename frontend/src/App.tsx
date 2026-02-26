@@ -24,6 +24,7 @@ import { Shield, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { MonitoringPage } from '@/pages/MonitoringPage';
 import { VotingPage } from '@/pages/VotingPage';
+import { MessageLogPage } from '@/pages/MessageLogPage';
 
 // Full-screen spinner shown while checkAuth() is in-flight on page load
 function AppLoader() {
@@ -220,6 +221,7 @@ export default function App() {
             <Route path="constitution" element={<ConstitutionPage />} />
             <Route path="models" element={<ModelsPage />} />
             <Route path="channels" element={<ChannelsPage />} />
+            <Route path="message-log" element={<MessageLogPage />} />
             <Route
               path="sovereign"
               element={

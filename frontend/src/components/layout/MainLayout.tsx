@@ -15,6 +15,7 @@ import {
     Radio,
     Shield,
     Gavel,
+    Inbox,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -51,20 +52,20 @@ export function MainLayout() {
     };
 
     type NavItem = {
-    path: string;
-    label: string;
-    icon: React.ComponentType<{ className?: string }>;
-    badge?: number;
-    variant?: 'default' | 'danger';
+        path: string;
+        label: string;
+        icon: React.ComponentType<{ className?: string }>;
+        badge?: number;
+        variant?: 'default' | 'danger';
     };
 
-    const navItems = [
+    const navItems: NavItem[] = [
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
         {
             path: '/chat',
             label: 'Command Interface',
             icon: Crown,
-            badge: unreadCount > 0 ? unreadCount : undefined
+            badge: unreadCount > 0 ? unreadCount : undefined,
         },
         { path: '/agents', label: 'Agents', icon: Users },
         { path: '/tasks', label: 'Tasks', icon: ClipboardList },
@@ -73,8 +74,11 @@ export function MainLayout() {
         { path: '/constitution', label: 'Constitution', icon: BookOpen },
         { path: '/models', label: 'Models', icon: Cpu },
         { path: '/channels', label: 'Channels', icon: Radio },
+        { path: '/message-log', label: 'Message Log', icon: Inbox },
         { path: '/settings', label: 'Settings', icon: Settings },
-        ...(isSovereign ? [{ path: '/sovereign', label: 'Sovereign Control', icon: Shield, variant: 'danger' }] : []),
+        ...(isSovereign
+            ? [{ path: '/sovereign', label: 'Sovereign Control', icon: Shield, variant: 'danger' as const }]
+            : []),
     ];
 
     return (
@@ -99,7 +103,6 @@ export function MainLayout() {
                             <Shield
                                 className="w-8 h-8 absolute inset-0 m-auto text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.5)] transition-all duration-300 rotate-90 scale-0 opacity-0 dark:rotate-0 dark:scale-100 dark:opacity-100"
                             />
-
                         </button>
 
                         <div>
@@ -116,28 +119,29 @@ export function MainLayout() {
                             {item.variant === 'danger' && (
                                 <div className="my-2 border-t border-gray-200 dark:border-[#1e2535]" />
                             )}
-                        <NavLink
-                            to={item.path}
-                            className={({ isActive }) =>
-                                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
-                                    item.variant === 'danger'
-                                        ? isActive
-                                            ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300 border border-red-200 dark:border-red-500/20'
-                                            : 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 bg-red-50/50 dark:bg-red-500/5'
-                                        : isActive
-                                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
-                                            : 'text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'
-                                }`
-                            }
-                        >
-                            <item.icon className={`w-4 h-4 flex-shrink-0 ${item.variant === 'danger' ? 'text-red-500' : ''}`} />
-                            <span className="flex-1">{item.label}</span>
-                            {item.badge && (
-                                <span className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
-                                    {item.badge > 9 ? '9+' : item.badge}
-                                </span>
-                            )}
-                        </NavLink>
+                            <NavLink
+                                to={item.path}
+                                end={item.path === '/'}
+                                className={({ isActive }) =>
+                                    `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+                                        item.variant === 'danger'
+                                            ? isActive
+                                                ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300 border border-red-200 dark:border-red-500/20'
+                                                : 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 bg-red-50/50 dark:bg-red-500/5'
+                                            : isActive
+                                                ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
+                                                : 'text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'
+                                    }`
+                                }
+                            >
+                                <item.icon className={`w-4 h-4 flex-shrink-0 ${item.variant === 'danger' ? 'text-red-500' : ''}`} />
+                                <span className="flex-1">{item.label}</span>
+                                {item.badge !== undefined && (
+                                    <span className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                                        {item.badge > 9 ? '9+' : item.badge}
+                                    </span>
+                                )}
+                            </NavLink>
                         </div>
                     ))}
                 </nav>

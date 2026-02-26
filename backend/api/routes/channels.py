@@ -935,3 +935,248 @@ def _calculate_health_status(metrics: ChannelMetrics) -> str:
     if metrics.rate_limit_hits > 5:
         return "warning"
     return "healthy"
+
+# ═══════════════════════════════════════════════════════════
+# CROSS-CHANNEL MESSAGE LOG
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/channels/messages/log")
+async def get_message_log(
+    # Filters
+    channel_id: Optional[str] = Query(None, description="Filter by channel ID"),
+    channel_type: Optional[str] = Query(None, description="Filter by channel type (whatsapp, slack, etc.)"),
+    agent_id: Optional[str] = Query(None, description="Filter by assigned agent ID"),
+    status: Optional[str] = Query(None, description="Filter by status: received, processing, responded, failed"),
+    success: Optional[bool] = Query(None, description="True=success only, False=failures only"),
+    date_from: Optional[str] = Query(None, description="ISO date string, e.g. 2024-01-01T00:00:00"),
+    date_to: Optional[str] = Query(None, description="ISO date string, e.g. 2024-12-31T23:59:59"),
+    search: Optional[str] = Query(None, description="Full-text search in message content or sender"),
+    # Pagination
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Cross-channel message log with rich filtering.
+    Returns messages across all channels with audit context.
+    """
+    from sqlalchemy import or_, and_
+
+    query = db.query(ExternalMessage)
+
+    # Channel filter
+    if channel_id:
+        query = query.filter(ExternalMessage.channel_id == channel_id)
+
+    # Channel type filter — join to ExternalChannel
+    if channel_type:
+        try:
+            ct = ChannelType(channel_type)
+            query = query.join(ExternalChannel, ExternalMessage.channel_id == ExternalChannel.id)
+            query = query.filter(ExternalChannel.channel_type == ct)
+        except ValueError:
+            pass
+
+    # Agent filter (messages assigned to a task handled by agent)
+    if agent_id:
+        query = query.filter(ExternalMessage.assigned_agent_id == agent_id)
+
+    # Status filter
+    if status:
+        query = query.filter(ExternalMessage.status == status)
+
+    # Success/failure shorthand
+    if success is True:
+        query = query.filter(ExternalMessage.status == "responded")
+    elif success is False:
+        query = query.filter(
+            or_(
+                ExternalMessage.status == "failed",
+                ExternalMessage.error_count > 0
+            )
+        )
+
+    # Date range
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from)
+            query = query.filter(ExternalMessage.created_at >= dt_from)
+        except ValueError:
+            pass
+
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to)
+            query = query.filter(ExternalMessage.created_at <= dt_to)
+        except ValueError:
+            pass
+
+    # Full-text search
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                ExternalMessage.content.ilike(search_term),
+                ExternalMessage.sender_id.ilike(search_term),
+                ExternalMessage.sender_name.ilike(search_term),
+            )
+        )
+
+    total = query.count()
+
+    messages = (
+        query
+        .order_by(ExternalMessage.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    # Enrich with channel metadata
+    channel_cache: dict = {}
+    result = []
+    for msg in messages:
+        if msg.channel_id not in channel_cache:
+            ch = db.query(ExternalChannel).filter_by(id=msg.channel_id).first()
+            channel_cache[msg.channel_id] = ch
+
+        ch = channel_cache.get(msg.channel_id)
+        msg_dict = msg.to_dict()
+        msg_dict["channel_name"] = ch.name if ch else "Unknown"
+        msg_dict["channel_type"] = ch.channel_type.value if ch else "unknown"
+        result.append(msg_dict)
+
+    # Aggregate stats for the current filter
+    all_for_stats = query  # re-use filtered query before pagination
+    failed_count = (
+        db.query(ExternalMessage)
+        .filter(
+            ExternalMessage.channel_id.in_([c.id for c in db.query(ExternalChannel).all()])
+            if not channel_id else ExternalMessage.channel_id == channel_id
+        )
+        .filter(ExternalMessage.status == "failed")
+        .count()
+    )
+
+    return {
+        "messages": result,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "stats": {
+            "total_in_filter": total,
+            "has_more": (offset + limit) < total,
+        }
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# REPLAY FAILED MESSAGE
+# ═══════════════════════════════════════════════════════════
+
+@router.post("/channels/messages/{message_id}/replay")
+async def replay_message(
+    message_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Replay a failed or errored message through the channel pipeline.
+    Re-queues it for processing as if it were just received.
+    """
+    message = db.query(ExternalMessage).filter_by(id=message_id).first()
+    if not message:
+        raise HTTPException(status_code=404, detail=f"Message {message_id} not found")
+
+    channel = db.query(ExternalChannel).filter_by(id=message.channel_id).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Parent channel not found")
+
+    if channel.status != ChannelStatus.ACTIVE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot replay: channel is {channel.status.value}. Activate the channel first."
+        )
+
+    # Reset message error state
+    message.status = "received"
+    message.error_count = 0
+    message.last_error = None
+    db.commit()
+
+    # Re-process through ChannelManager
+    try:
+        await ChannelManager._create_task_for_message(message, channel, db)
+        message.status = "processing"
+        db.commit()
+        return {
+            "success": True,
+            "message_id": message_id,
+            "new_status": "processing",
+            "detail": "Message re-queued for processing."
+        }
+    except Exception as e:
+        message.error_count += 1
+        message.last_error = str(e)
+        message.status = "failed"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Replay failed: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════
+# BULK REPLAY FAILED MESSAGES
+# ═══════════════════════════════════════════════════════════
+
+class BulkReplayRequest(BaseModel):
+    channel_id: Optional[str] = None  # If None, replay across all channels
+    limit: int = Field(50, ge=1, le=200, description="Max messages to replay")
+
+
+@router.post("/channels/messages/replay-failed")
+async def replay_failed_messages(
+    request: BulkReplayRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Replay all failed messages, optionally scoped to a single channel.
+    Runs in the background and returns immediately with a count.
+    """
+    query = db.query(ExternalMessage).filter(
+        ExternalMessage.status == "failed"
+    )
+    if request.channel_id:
+        query = query.filter(ExternalMessage.channel_id == request.channel_id)
+
+    failed_messages = query.order_by(ExternalMessage.created_at.desc()).limit(request.limit).all()
+    message_ids = [m.id for m in failed_messages]
+
+    async def _replay_batch(ids: list):
+        for mid in ids:
+            try:
+                with get_db_context() as batch_db:
+                    msg = batch_db.query(ExternalMessage).filter_by(id=mid).first()
+                    if not msg:
+                        continue
+                    ch = batch_db.query(ExternalChannel).filter_by(id=msg.channel_id).first()
+                    if not ch or ch.status != ChannelStatus.ACTIVE:
+                        continue
+                    msg.status = "received"
+                    msg.error_count = 0
+                    msg.last_error = None
+                    batch_db.commit()
+                    await ChannelManager._create_task_for_message(msg, ch, batch_db)
+                    msg.status = "processing"
+                    batch_db.commit()
+            except Exception as e:
+                print(f"[ReplayBatch] Failed to replay {mid}: {e}")
+
+    background_tasks.add_task(_replay_batch, message_ids)
+
+    return {
+        "success": True,
+        "queued": len(message_ids),
+        "detail": f"Replaying {len(message_ids)} failed message(s) in background."
+    }

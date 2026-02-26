@@ -1,1373 +1,677 @@
-import { useState, useEffect, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/services/api';
-import { channelMetricsApi } from '@/services/channelMetrics';
+// src/pages/ChannelsPage.tsx
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { api, Channel, ChannelTypeSlug, ChannelStatus } from '@/services/api';
+import toast from 'react-hot-toast';
 import {
-    Smartphone,
-    Slack,
-    Mail,
-    MessageCircle,
+    Radio,
     Plus,
     RefreshCw,
-    Trash2,
-    ChevronRight,
     Loader2,
-    X,
-    Copy,
-    CheckCircle,
-    Radio,
-    Hash,
-    Globe,
-    Users,
-    Send,
-    Grid,
-    QrCode,
-    Server,
-    AlertTriangle,
-    Activity,
+    CheckCircle2,
     XCircle,
     Clock,
+    AlertTriangle,
+    Trash2,
+    Settings,
+    Send,
+    Activity,
+    Inbox,
+    ChevronDown,
+    ChevronUp,
+    Zap,
+    RotateCcw,
+    ExternalLink,
+    Wifi,
+    WifiOff,
+    MessageSquare,
+    ArrowUpRight,
 } from 'lucide-react';
-import { format } from 'date-fns';
-import toast from 'react-hot-toast';
-import { QRCodeSVG } from 'qrcode.react';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Channel type config ──────────────────────────────────────────────────────
 
-type ChannelTypeSlug =
-    | 'whatsapp'
-    | 'slack'
-    | 'telegram'
-    | 'email'
-    | 'discord'
-    | 'signal'
-    | 'google_chat'
-    | 'teams'
-    | 'zalo'
-    | 'matrix'
-    | 'imessage';
-
-type ChannelStatus = 'pending' | 'active' | 'error' | 'disconnected';
-type WhatsAppProvider = 'cloud_api' | 'web_bridge';
-type CircuitBreakerState = 'closed' | 'half_open' | 'open';
-type ChannelHealthStatus = 'healthy' | 'warning' | 'critical';
-
-interface ChannelMetrics {
-    channel_id: string;
-    total_requests: number;
-    successful_requests: number;
-    failed_requests: number;
-    success_rate: number;
-    circuit_breaker_state: CircuitBreakerState;
-    consecutive_failures: number;
-    rate_limit_hits: number;
-    avg_response_time_ms?: number;
-    last_failure_at?: string;
-    last_rate_limit_at?: string;
-    created_at: string;
-    updated_at: string;
-}
-
-interface ChannelMetricsResponse {
-    channel_id: string;
-    channel_name: string;
-    channel_type: string;
-    status: string;
-    metrics: ChannelMetrics;
-    health_status: ChannelHealthStatus;
-}
-
-interface MessageLog {
-    id: string;
-    channel_id: string;
-    sender_id: string;
-    sender_name?: string;
-    content: string;
-    status: 'received' | 'processing' | 'responded' | 'failed';
-    error_count: number;
-    last_error?: string;
-    created_at: string;
-    responded_at?: string;
-}
-
-interface Channel {
-    id: string;
-    name: string;
-    type: ChannelTypeSlug;
-    status: ChannelStatus;
-    config: {
-        phone_number?: string;
-        has_credentials: boolean;
-        webhook_url?: string;
-        homeserver_url?: string;
-        oa_id?: string;
-        backend?: string;
-        number?: string;
-        bb_url?: string;
-        provider?: WhatsAppProvider;
-        bridge_url?: string;
-        allowed_senders?: string[];
-    };
-    routing: {
-        default_agent?: string;
-        auto_create_tasks: boolean;
-        require_approval: boolean;
-    };
-    stats: {
-        received: number;
-        sent: number;
-        last_message?: string;
-    };
-}
-
-interface ChannelFormData {
-    name: string;
-    type: ChannelTypeSlug;
-    config: Record<string, string>;
-    default_agent_id?: string;
-    auto_create_tasks: boolean;
-    require_approval: boolean;
-}
-
-interface ChannelField {
-    name: string;
-    label: string;
-    type: string;
-    placeholder: string;
-    required?: boolean;
-    help?: string;
-}
-
-interface ChannelTypeDefinition {
-    id: ChannelTypeSlug;
-    name: string;
-    Icon: React.FC<{ className?: string }>;
-    description: string;
-    color: ColorKey;
-    fields: ChannelField[];
-    note?: string;
-    providerSelector?: boolean;
-}
-
-// ─── Color palette ────────────────────────────────────────────────────────────
-
-type ColorKey = 'green' | 'purple' | 'blue' | 'red' | 'indigo' | 'gray' | 'cyan' | 'teal' | 'orange' | 'pink' | 'slate';
-
-const colorMap: Record<ColorKey, { bg: string; darkBg: string; text: string; darkText: string }> = {
-    green:  { bg: 'bg-green-100',  darkBg: 'dark:bg-green-500/10',  text: 'text-green-600',  darkText: 'dark:text-green-400'  },
-    purple: { bg: 'bg-purple-100', darkBg: 'dark:bg-purple-500/10', text: 'text-purple-600', darkText: 'dark:text-purple-400' },
-    blue:   { bg: 'bg-blue-100',   darkBg: 'dark:bg-blue-500/10',   text: 'text-blue-600',   darkText: 'dark:text-blue-400'   },
-    red:    { bg: 'bg-red-100',    darkBg: 'dark:bg-red-500/10',    text: 'text-red-600',    darkText: 'dark:text-red-400'    },
-    indigo: { bg: 'bg-indigo-100', darkBg: 'dark:bg-indigo-500/10', text: 'text-indigo-600', darkText: 'dark:text-indigo-400' },
-    gray:   { bg: 'bg-gray-100',   darkBg: 'dark:bg-gray-500/10',   text: 'text-gray-600',   darkText: 'dark:text-gray-400'   },
-    cyan:   { bg: 'bg-cyan-100',   darkBg: 'dark:bg-cyan-500/10',   text: 'text-cyan-600',   darkText: 'dark:text-cyan-400'   },
-    teal:   { bg: 'bg-teal-100',   darkBg: 'dark:bg-teal-500/10',   text: 'text-teal-600',   darkText: 'dark:text-teal-400'   },
-    orange: { bg: 'bg-orange-100', darkBg: 'dark:bg-orange-500/10', text: 'text-orange-600', darkText: 'dark:text-orange-400' },
-    pink:   { bg: 'bg-pink-100',   darkBg: 'dark:bg-pink-500/10',   text: 'text-pink-600',   darkText: 'dark:text-pink-400'   },
-    slate:  { bg: 'bg-slate-100',  darkBg: 'dark:bg-slate-500/10',  text: 'text-slate-600',  darkText: 'dark:text-slate-400'  },
+const CHANNEL_ICONS: Record<string, string> = {
+    whatsapp: '💬',
+    slack: '🔷',
+    telegram: '✈️',
+    email: '✉️',
+    discord: '🎮',
+    signal: '🔒',
+    google_chat: '💠',
+    teams: '🟦',
+    zalo: '🟩',
+    matrix: '🔳',
+    imessage: '🍎',
+    custom: '🔗',
 };
 
-// ─── WhatsApp Provider Fields ────────────────────────────────────────────────
-
-const whatsAppCloudFields: ChannelField[] = [
-    { name: 'phone_number_id', label: 'Phone Number ID', type: 'text',     placeholder: '123456789012345', required: true, help: 'From Meta Business Manager' },
-    { name: 'access_token',    label: 'Access Token',    type: 'password', placeholder: 'EAAxxxxx...',     required: true, help: 'Permanent token from Meta' },
-    { name: 'verify_token',    label: 'Verify Token',    type: 'text',     placeholder: 'my_verify_secret', help: 'Custom secret for webhook verification' },
-    { name: 'app_secret',      label: 'App Secret',      type: 'password', placeholder: 'Optional', help: 'For webhook signature verification' },
-];
-
-const whatsAppBridgeFields: ChannelField[] = [];
-
-// ─── Channel type definitions ─────────────────────────────────────────────────
-
-const channelTypes: ChannelTypeDefinition[] = [
-    {
-        id: 'whatsapp',
-        name: 'WhatsApp',
-        Icon: Smartphone,
-        description: 'Cloud API or Web Bridge (QR)',
-        color: 'green',
-        providerSelector: true,
-        fields: [],
-        note: 'Choose between official Meta Cloud API (business) or Web Bridge (personal/development)',
-    },
-    {
-        id: 'slack',
-        name: 'Slack',
-        Icon: Slack,
-        description: 'Slack Bot API integration',
-        color: 'purple',
-        fields: [
-            { name: 'bot_token',      label: 'Bot Token',      type: 'password', placeholder: 'xoxb-...', required: true },
-            { name: 'signing_secret', label: 'Signing Secret', type: 'password', placeholder: 'abc123...' },
-        ],
-    },
-    {
-        id: 'telegram',
-        name: 'Telegram',
-        Icon: Send,
-        description: 'Telegram Bot API',
-        color: 'blue',
-        fields: [
-            { name: 'bot_token', label: 'Bot Token', type: 'password', placeholder: '123456789:ABC-DEF...', required: true },
-        ],
-    },
-    {
-        id: 'email',
-        name: 'Email (SMTP)',
-        Icon: Mail,
-        description: 'SMTP send / IMAP receive',
-        color: 'red',
-        fields: [
-            { name: 'smtp_host',   label: 'SMTP Host',  type: 'text',     placeholder: 'smtp.gmail.com', required: true },
-            { name: 'smtp_port',   label: 'Port',       type: 'number',   placeholder: '587' },
-            { name: 'smtp_user',   label: 'Username',   type: 'email',    placeholder: 'user@domain.com', required: true },
-            { name: 'smtp_pass',   label: 'Password',   type: 'password', placeholder: '••••••••',        required: true },
-            { name: 'from_email',  label: 'From Email', type: 'email',    placeholder: 'noreply@domain.com' },
-        ],
-    },
-    {
-        id: 'discord',
-        name: 'Discord',
-        Icon: Hash,
-        description: 'Discord Bot API',
-        color: 'indigo',
-        fields: [
-            { name: 'bot_token',       label: 'Bot Token',        type: 'password', placeholder: 'MTIz...', required: true },
-            { name: 'application_id',  label: 'Application ID',   type: 'text',     placeholder: '123456789012345678' },
-        ],
-    },
-    {
-        id: 'signal',
-        name: 'Signal',
-        Icon: Radio,
-        description: 'signal-cli JSON-RPC daemon',
-        color: 'gray',
-        note: 'Requires signal-cli installed and registered on the server.',
-        fields: [
-            { name: 'number',    label: 'Registered Number', type: 'tel',    placeholder: '+14155552671', required: true },
-            { name: 'rpc_host', label: 'RPC Host',           type: 'text',   placeholder: '127.0.0.1' },
-            { name: 'rpc_port', label: 'RPC Port',           type: 'number', placeholder: '7583' },
-        ],
-    },
-    {
-        id: 'google_chat',
-        name: 'Google Chat',
-        Icon: MessageCircle,
-        description: 'Google Chat Bot API',
-        color: 'cyan',
-        fields: [
-            { name: 'webhook_url', label: 'Incoming Webhook URL (simple)', type: 'text', placeholder: 'https://chat.googleapis.com/v1/spaces/...' },
-            { name: 'room_id',     label: 'Default Space/Room ID',         type: 'text', placeholder: 'spaces/AAAAxxxxxxx' },
-        ],
-        note: 'For full two-way: paste Service Account JSON in config after creation.',
-    },
-    {
-        id: 'teams',
-        name: 'Microsoft Teams',
-        Icon: Users,
-        description: 'Teams Incoming Webhook or Bot Framework',
-        color: 'teal',
-        fields: [
-            { name: 'webhook_url',   label: 'Incoming Webhook URL',      type: 'text',     placeholder: 'https://xxxxx.webhook.office.com/webhookb2/...' },
-            { name: 'tenant_id',     label: 'Tenant ID (Bot only)',      type: 'text',     placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
-            { name: 'client_id',     label: 'Client ID (Bot only)',      type: 'text',     placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
-            { name: 'client_secret', label: 'Client Secret (Bot only)',  type: 'password', placeholder: '••••••••' },
-        ],
-    },
-    {
-        id: 'zalo',
-        name: 'Zalo',
-        Icon: Globe,
-        description: 'Zalo Official Account API',
-        color: 'orange',
-        fields: [
-            { name: 'access_token', label: 'OA Access Token', type: 'password', placeholder: 'zalotoken...', required: true },
-            { name: 'oa_id',        label: 'OA ID',           type: 'text',     placeholder: '1234567890' },
-        ],
-    },
-    {
-        id: 'matrix',
-        name: 'Matrix',
-        Icon: Grid,
-        description: 'Matrix Client-Server API',
-        color: 'pink',
-        fields: [
-            { name: 'homeserver_url', label: 'Homeserver URL',  type: 'text',     placeholder: 'https://matrix.org', required: true },
-            { name: 'access_token',   label: 'Access Token',    type: 'password', placeholder: 'syt_...', required: true },
-            { name: 'room_id',        label: 'Default Room ID', type: 'text',     placeholder: '!abcdef:matrix.org' },
-        ],
-    },
-    {
-        id: 'imessage',
-        name: 'iMessage',
-        Icon: MessageCircle,
-        description: 'macOS only — AppleScript or BlueBubbles',
-        color: 'slate',
-        note: '⚠️ Requires macOS server with Messages.app (AppleScript) or BlueBubbles.',
-        fields: [
-            { name: 'backend',     label: 'Backend',          type: 'text',     placeholder: 'applescript  or  bluebubbles' },
-            { name: 'bb_url',      label: 'BlueBubbles URL',  type: 'text',     placeholder: 'http://localhost:1234' },
-            { name: 'bb_password', label: 'BlueBubbles Pass', type: 'password', placeholder: '••••••••' },
-        ],
-    },
-];
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const statusConfig: Record<string, { dot: string; badge: string; label: string }> = {
-    active:       { dot: 'bg-green-500',  badge: 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400',       label: 'Active'       },
-    connected:    { dot: 'bg-green-500',  badge: 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400',       label: 'Connected'    },
-    disconnected: { dot: 'bg-gray-400',   badge: 'bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400',           label: 'Disconnected' },
-    error:        { dot: 'bg-red-500',    badge: 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400',               label: 'Error'        },
-    pending:      { dot: 'bg-yellow-500', badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-400',   label: 'Pending'      },
+const STATUS_CONFIG: Record<ChannelStatus, { label: string; color: string; bg: string; border: string; dot: string }> = {
+    active:       { label: 'Active',       color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/20', dot: 'bg-emerald-400' },
+    pending:      { label: 'Pending',      color: 'text-yellow-400',  bg: 'bg-yellow-400/10',  border: 'border-yellow-400/20',  dot: 'bg-yellow-400' },
+    error:        { label: 'Error',        color: 'text-red-400',     bg: 'bg-red-400/10',     border: 'border-red-400/20',     dot: 'bg-red-400' },
+    disconnected: { label: 'Disconnected', color: 'text-gray-400',    bg: 'bg-gray-400/10',    border: 'border-gray-400/20',    dot: 'bg-gray-400' },
 };
 
-const getStatus = (s: string) => statusConfig[s] ?? { dot: 'bg-gray-400', badge: 'bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400', label: s };
+const CHANNEL_TYPE_OPTIONS: ChannelTypeSlug[] = [
+    'whatsapp', 'slack', 'telegram', 'email', 'discord',
+    'signal', 'google_chat', 'teams', 'zalo', 'matrix', 'imessage', 'custom',
+];
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CHANNEL METRICS SECTION COMPONENT (Phase 4)
-// ═══════════════════════════════════════════════════════════════════════════════
+// ─── Create channel modal ─────────────────────────────────────────────────────
 
-function ChannelMetricsSection({ channelId }: { channelId: string }) {
-    const [showLogs, setShowLogs] = useState(false);
-    const queryClient = useQueryClient();
-    
-    const { data: metricsData, isLoading } = useQuery({
-        queryKey: ['channel-metrics', channelId],
-        queryFn: () => channelMetricsApi.getChannelMetrics(channelId),
-        refetchInterval: 10000,
-        staleTime: 5000,
-    });
-
-    const resetMutation = useMutation({
-        mutationFn: () => channelMetricsApi.resetChannel(channelId),
-        onSuccess: () => {
-            toast.success('Channel reset successfully');
-            queryClient.invalidateQueries({ queryKey: ['channel-metrics', channelId] });
-        },
-        onError: () => toast.error('Failed to reset channel'),
-    });
-
-    if (isLoading) {
-        return (
-            <div className="pt-4 border-t border-gray-100 dark:border-[#1e2535]">
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading health metrics...
-                </div>
-            </div>
-        );
-    }
-
-    if (!metricsData) return null;
-
-    const { metrics, health_status } = metricsData;
-    
-    const getHealthColors = () => {
-        switch (health_status) {
-            case 'healthy': 
-                return {
-                    bg: 'bg-green-50 dark:bg-green-500/10',
-                    border: 'border-green-200 dark:border-green-500/20',
-                    text: 'text-green-700 dark:text-green-400',
-                    indicator: 'bg-green-500'
-                };
-            case 'warning': 
-                return {
-                    bg: 'bg-yellow-50 dark:bg-yellow-500/10',
-                    border: 'border-yellow-200 dark:border-yellow-500/20',
-                    text: 'text-yellow-700 dark:text-yellow-400',
-                    indicator: 'bg-yellow-500'
-                };
-            case 'critical': 
-                return {
-                    bg: 'bg-red-50 dark:bg-red-500/10',
-                    border: 'border-red-200 dark:border-red-500/20',
-                    text: 'text-red-700 dark:text-red-400',
-                    indicator: 'bg-red-500'
-                };
-        }
-    };
-
-    const getCircuitColors = () => {
-        switch (metrics.circuit_breaker_state) {
-            case 'closed': 
-                return 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400 border-green-200 dark:border-green-500/20';
-            case 'half_open': 
-                return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/20';
-            case 'open': 
-                return 'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400 border-red-200 dark:border-red-500/20 animate-pulse';
-        }
-    };
-
-    const colors = getHealthColors();
-
-    return (
-        <div className="pt-4 border-t border-gray-100 dark:border-[#1e2535] space-y-4">
-            {/* Header with Health Status and Circuit Breaker */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <div className={`w-2.5 h-2.5 rounded-full ${colors.indicator}`} />
-                    <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                        Health Metrics
-                    </span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border ${colors.bg} ${colors.border} ${colors.text} uppercase font-medium`}>
-                        {health_status}
-                    </span>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                    <span className={`text-xs px-2 py-1 rounded-full border font-semibold ${getCircuitColors()}`}>
-                        Circuit: {metrics.circuit_breaker_state.toUpperCase()}
-                    </span>
-                    {metrics.circuit_breaker_state === 'open' && (
-                        <button
-                            onClick={() => resetMutation.mutate()}
-                            disabled={resetMutation.isPending}
-                            className="p-1.5 text-xs bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors"
-                            title="Reset circuit breaker"
-                        >
-                            <RefreshCw className={`w-3 h-3 ${resetMutation.isPending ? 'animate-spin' : ''}`} />
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            {/* Metrics Grid */}
-            <div className={`grid grid-cols-4 gap-3 p-3 rounded-xl border ${colors.bg} ${colors.border}`}>
-                <div className="text-center">
-                    <div className={`text-lg font-bold ${colors.text}`}>
-                        {metrics.success_rate.toFixed(1)}%
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Success</div>
-                </div>
-                <div className="text-center">
-                    <div className={`text-lg font-bold ${metrics.failed_requests > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                        {metrics.failed_requests}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Failures</div>
-                </div>
-                <div className="text-center">
-                    <div className={`text-lg font-bold ${metrics.rate_limit_hits > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                        {metrics.rate_limit_hits}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Rate Limits</div>
-                </div>
-                <div className="text-center">
-                    <div className={`text-lg font-bold ${metrics.consecutive_failures > 2 ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                        {metrics.consecutive_failures}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Consecutive</div>
-                </div>
-            </div>
-
-            {/* Toggle Logs Button */}
-            <button
-                onClick={() => setShowLogs(!showLogs)}
-                className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
-            >
-                {showLogs ? 'Hide' : 'Show'} Message Logs
-                <ChevronRight className={`w-4 h-4 transition-transform ${showLogs ? 'rotate-90' : ''}`} />
-            </button>
-
-            {/* Message Logs */}
-            {showLogs && <MessageLogViewer channelId={channelId} />}
-        </div>
-    );
+interface CreateModalProps {
+    onClose: () => void;
+    onCreated: () => void;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MESSAGE LOG VIEWER COMPONENT (Phase 4)
-// ═══════════════════════════════════════════════════════════════════════════════
+function CreateChannelModal({ onClose, onCreated }: CreateModalProps) {
+    const [name, setName] = useState('');
+    const [type, setType] = useState<ChannelTypeSlug>('whatsapp');
+    const [autoCreateTasks, setAutoCreateTasks] = useState(true);
+    const [requireApproval, setRequireApproval] = useState(false);
+    const [configText, setConfigText] = useState('{}');
+    const [saving, setSaving] = useState(false);
+    const [configError, setConfigError] = useState('');
 
-function MessageLogViewer({ channelId }: { channelId: string }) {
-    const { data, isLoading } = useQuery({
-        queryKey: ['channel-logs', channelId],
-        queryFn: () => channelMetricsApi.getChannelLogs(channelId, 50),
-    });
-
-    const getStatusIcon = (status: string) => {
-        switch (status) {
-            case 'responded': return <CheckCircle className="w-4 h-4 text-green-500" />;
-            case 'failed': return <XCircle className="w-4 h-4 text-red-500" />;
-            case 'processing': return <Clock className="w-4 h-4 text-yellow-500 animate-spin" />;
-            default: return <Activity className="w-4 h-4 text-gray-400" />;
-        }
-    };
-
-    if (isLoading) return <div className="text-sm text-gray-500">Loading logs...</div>;
-
-    return (
-        <div className="border border-gray-200 dark:border-[#1e2535] rounded-xl overflow-hidden">
-            <div className="bg-gray-50 dark:bg-[#0f1117] px-4 py-2 border-b border-gray-200 dark:border-[#1e2535]">
-                <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Recent Messages</h4>
-            </div>
-            <div className="max-h-64 overflow-y-auto">
-                {!data || data.messages.length === 0 ? (
-                    <div className="p-4 text-sm text-gray-500 text-center">No messages yet</div>
-                ) : (
-                    <table className="w-full text-sm">
-                        <thead className="bg-gray-50 dark:bg-[#0f1117] text-xs text-gray-500">
-                            <tr>
-                                <th className="px-4 py-2 text-left">Status</th>
-                                <th className="px-4 py-2 text-left">Sender</th>
-                                <th className="px-4 py-2 text-left">Content</th>
-                                <th className="px-4 py-2 text-left">Time</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 dark:divide-[#1e2535]">
-                            {data.messages.map((msg) => (
-                                <tr key={msg.id} className="hover:bg-gray-50 dark:hover:bg-[#0f1117]">
-                                    <td className="px-4 py-2">{getStatusIcon(msg.status)}</td>
-                                    <td className="px-4 py-2 text-gray-900 dark:text-gray-100">{msg.sender_name || msg.sender_id}</td>
-                                    <td className="px-4 py-2 text-gray-600 dark:text-gray-400 truncate max-w-xs">
-                                        {msg.content}
-                                    </td>
-                                    <td className="px-4 py-2 text-xs text-gray-400">
-                                        {format(new Date(msg.created_at), 'MMM d, HH:mm')}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
-            </div>
-        </div>
-    );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// MAIN PAGE COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export function ChannelsPage() {
-    const queryClient = useQueryClient();
-    const [showAddModal, setShowAddModal] = useState(false);
-    const [selectedType, setSelectedType] = useState<ChannelTypeSlug | null>(null);
-    const [whatsappProvider, setWhatsappProvider] = useState<WhatsAppProvider>('cloud_api');
-    const [qrCodeData, setQrCodeData] = useState<string | null>(null);
-    const [pollingChannelId, setPollingChannelId] = useState<string | null>(null);
-    const pollingChannelIdRef = useRef<string | null>(null);
-    const [showProviderSwitch, setShowProviderSwitch] = useState<string | null>(null);
-    const [editingSenders, setEditingSenders] = useState<string | null>(null);
-    const [senderInput, setSenderInput] = useState('');
-    const [qrStep, setQrStep] = useState(false);
-
-    // ── fetch channels ─────────────────────────────────────────────────────────
-    const { data: channelsData, isLoading, error } = useQuery({
-        queryKey: ['channels'],
-        queryFn: async () => {
-            try {
-                const response = await api.get('/api/v1/channels/');
-                let data = response.data;
-                if (!data) return [] as Channel[];
-                if (typeof data === 'object' && !Array.isArray(data) && data.channels) data = data.channels;
-                if (!Array.isArray(data)) return [] as Channel[];
-                return data as Channel[];
-            } catch {
-                toast.error('Failed to load channels');
-                return [] as Channel[];
-            }
-        },
-        initialData: [] as Channel[],
-        refetchOnWindowFocus: true,
-    });
-
-    const channels: Channel[] = Array.isArray(channelsData) ? channelsData : [];
-
-    // ── mutations ─────────────────────────────────────────────────────────────
-    const createMutation = useMutation({
-        mutationFn: (data: ChannelFormData) => api.post('/api/v1/channels/', data).then(r => r.data),
-        onSuccess: (data: Channel & { webhook_url?: string }) => {
-            queryClient.invalidateQueries({ queryKey: ['channels'] });
-            toast.success('Channel created successfully');
-            
-            if (data.type === 'whatsapp' && data.config?.provider === 'web_bridge') {
-                setPollingChannelId(data.id);
-                pollingChannelIdRef.current = data.id;
-                setQrStep(true);
-                pollForQR(data.id);
-            } else {
-                closeModal();
-            }
-        },
-        onError: (err: any) => toast.error(err.response?.data?.detail || 'Failed to create channel'),
-    });
-
-    const deleteMutation = useMutation({
-        mutationFn: (id: string) => api.delete(`/api/v1/channels/${id}`),
-        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['channels'] }); toast.success('Channel deleted'); },
-    });
-
-    const updateSendersMutation = useMutation({
-        mutationFn: ({ id, senders }: { id: string; senders: string[] }) =>
-            api.put(`/api/v1/channels/${id}`, { config: { allowed_senders: senders } }).then(r => r.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['channels'] });
-            setEditingSenders(null);
-            setSenderInput('');
-            toast.success('Allowed senders updated');
-        },
-        onError: () => toast.error('Failed to update allowed senders'),
-    });
-
-    const testMutation = useMutation({
-        mutationFn: (id: string) => api.post(`/api/v1/channels/${id}/test`).then(r => r.data),
-        onSuccess: (data: any) => {
-            if (data.success) toast.success('Connection successful!');
-            else toast.error(`Connection failed: ${data.error ?? 'Unknown error'}`);
-            queryClient.invalidateQueries({ queryKey: ['channels'] });
-        },
-        onError: (err: any) => toast.error(err.response?.data?.detail || 'Test failed'),
-    });
-
-    const switchProviderMutation = useMutation({
-        mutationFn: ({ id, provider }: { id: string; provider: WhatsAppProvider }) => 
-            api.post(`/api/v1/channels/${id}/whatsapp/switch-provider?new_provider=${provider}`).then(r => r.data),
-        onSuccess: (data) => {
-            toast.success(`Switched to ${data.provider === 'cloud_api' ? 'Cloud API' : 'Web Bridge'}`);
-            queryClient.invalidateQueries({ queryKey: ['channels'] });
-            setShowProviderSwitch(null);
-            if (data.provider === 'web_bridge' && data.channel_id) {
-                setShowAddModal(true);
-                setSelectedType('whatsapp');
-                setWhatsappProvider('web_bridge');
-                setPollingChannelId(data.channel_id);
-                pollingChannelIdRef.current = data.channel_id;
-                setQrStep(true);
-                pollForQR(data.channel_id);
-            }
-        },
-        onError: (err: any) => toast.error(err.response?.data?.detail || 'Failed to switch provider'),
-    });
-
-    // ── QR polling ────────────────────────────────────────────────────────────
-    const pollForQR = async (channelId: string) => {
+    const handleSubmit = async () => {
+        // Validate JSON config
+        let config: Record<string, unknown> = {};
         try {
-            const response = await api.get(`/api/v1/channels/${channelId}/qr`);
-            const data = response.data;
+            config = JSON.parse(configText);
+            setConfigError('');
+        } catch {
+            setConfigError('Invalid JSON configuration');
+            return;
+        }
 
-            if (data.authenticated === true || data.status === 'active') {
-                toast.success('WhatsApp connected successfully!');
-                closeModal();
-                queryClient.invalidateQueries({ queryKey: ['channels'] });
-                return;
-            }
+        if (!name.trim()) {
+            toast.error('Channel name is required');
+            return;
+        }
 
-            if (data.qr_code) {
-                setQrCodeData(data.qr_code);
-                setQrStep(true);
-            }
-
-            if (pollingChannelIdRef.current === channelId) {
-                setTimeout(() => pollForQR(channelId), 10000);
-            }
-        } catch (err) {
-            console.error('QR polling error:', err);
-            if (pollingChannelIdRef.current === channelId) {
-                setTimeout(() => pollForQR(channelId), 10000);
-            }
+        setSaving(true);
+        try {
+            await api.post('/channels/', {
+                name: name.trim(),
+                type,
+                config,
+                auto_create_tasks: autoCreateTasks,
+                require_approval: requireApproval,
+            });
+            toast.success('Channel created successfully');
+            onCreated();
+            onClose();
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail ?? 'Failed to create channel');
+        } finally {
+            setSaving(false);
         }
     };
 
-    useEffect(() => () => setPollingChannelId(null), []);
-
-    const closeModal = () => {
-        setShowAddModal(false);
-        setSelectedType(null);
-        setQrCodeData(null);
-        setPollingChannelId(null);
-        pollingChannelIdRef.current = null;
-        setWhatsappProvider('cloud_api');
-        setQrStep(false);
-    };
-
-    const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        if (!selectedType) return;
-        
-        const formEl = e.target as HTMLFormElement;
-        const fd = new FormData(formEl);
-        
-        let fields: ChannelField[] = [];
-        if (selectedType === 'whatsapp') {
-            fields = whatsappProvider === 'cloud_api' ? whatsAppCloudFields : whatsAppBridgeFields;
-        } else {
-            const typeDef = channelTypes.find(t => t.id === selectedType);
-            fields = typeDef?.fields || [];
-        }
-        
-        const config: Record<string, string> = {};
-        
-        if (selectedType === 'whatsapp') {
-            config.provider = whatsappProvider;
-            if (whatsappProvider === 'web_bridge') {
-                config.bridge_url   = 'env://whatsapp-bridge';
-                config.bridge_token = 'env://WHATSAPP_BRIDGE_TOKEN';
-            }
-        }
-
-        fields.forEach(f => {
-            const val = (fd.get(f.name) || '').toString();
-            if (val) config[f.name] = val;
-        });
-        
-        createMutation.mutate({
-            name: fd.get('name') as string,
-            type: selectedType,
-            config,
-            auto_create_tasks: true,
-            require_approval: false,
-        });
-    };
-
-    const handleCopyWebhook = (url: string) => {
-        navigator.clipboard.writeText(url);
-        toast.success('Webhook URL copied');
-    };
-
-    // ── stats ─────────────────────────────────────────────────────────────────
-    const activeCount   = channels.filter(c => c.status === 'active').length;
-    const totalReceived = channels.reduce((a, c) => a + (c.stats?.received || 0), 0);
-    const totalSent     = channels.reduce((a, c) => a + (c.stats?.sent || 0), 0);
-
-    // ─── Render ───────────────────────────────────────────────────────────────
     return (
-        <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 transition-colors duration-200">
-
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
-                        Communication Channels
-                    </h1>
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">
-                        Connect external platforms to your AI agents
-                    </p>
-                </div>
-                <button
-                    onClick={() => setShowAddModal(true)}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors duration-150 shadow-sm dark:shadow-blue-900/30"
-                >
-                    <Plus className="w-4 h-4" /> Add Channel
-                </button>
-            </div>
-
-            {/* Error banner */}
-            {error && (
-                <div className="mb-6 p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl">
-                    <p className="text-red-700 dark:text-red-400 text-sm">
-                        Error loading channels. Please try refreshing the page.
-                    </p>
-                </div>
-            )}
-
-            {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                {[
-                    { label: 'Total Channels', value: channels.length,  valueClass: 'text-gray-900 dark:text-white'    },
-                    { label: 'Active',          value: activeCount,      valueClass: 'text-green-600 dark:text-green-400' },
-                    { label: 'Received',        value: totalReceived,    valueClass: 'text-blue-600 dark:text-blue-400'   },
-                    { label: 'Sent',            value: totalSent,        valueClass: 'text-purple-600 dark:text-purple-400' },
-                ].map(stat => (
-                    <div
-                        key={stat.label}
-                        className="bg-white dark:bg-[#161b27] p-5 rounded-xl border border-gray-200 dark:border-[#1e2535] shadow-sm dark:shadow-none transition-colors duration-200"
-                    >
-                        <div className={`text-2xl font-bold ${stat.valueClass}`}>{stat.value}</div>
-                        <div className="text-xs font-medium text-gray-500 dark:text-gray-500 mt-0.5 uppercase tracking-wide">{stat.label}</div>
-                    </div>
-                ))}
-            </div>
-
-            {/* Channel grid */}
-            {isLoading ? (
-                <div className="flex items-center justify-center h-64">
-                    <Loader2 className="w-8 h-8 animate-spin text-blue-600 dark:text-blue-400" />
-                </div>
-
-            ) : channels.length === 0 ? (
-                <div className="text-center py-16 bg-gray-50 dark:bg-[#161b27] rounded-2xl border border-dashed border-gray-300 dark:border-[#1e2535] transition-colors duration-200">
-                    <div className="w-16 h-16 mx-auto rounded-full bg-blue-100 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 flex items-center justify-center mb-4">
-                        <Plus className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-                    </div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                        No channels connected
-                    </h3>
-                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-5">
-                        Connect WhatsApp, Slack, Discord, Signal and more
-                    </p>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-gray-800 border border-gray-600/50 rounded-2xl w-full max-w-lg shadow-2xl">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700/50">
+                    <h2 className="text-lg font-semibold text-white">Add Channel</h2>
                     <button
-                        onClick={() => setShowAddModal(true)}
-                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors duration-150"
+                        onClick={onClose}
+                        className="text-gray-400 hover:text-white transition-colors p-1"
                     >
-                        Add Your First Channel
+                        <XCircle className="w-5 h-5" />
                     </button>
                 </div>
 
-            ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                    {channels.map(channel => {
-                        const typeDef = channelTypes.find(t => t.id === channel.type);
-                        const colors  = colorMap[typeDef?.color ?? 'blue'];
-                        const Icon    = typeDef?.Icon ?? MessageCircle;
-                        const status  = getStatus(channel.status);
-                        
-                        const isWhatsApp = channel.type === 'whatsapp';
-                        const provider = channel.config?.provider || 'cloud_api';
-                        const isBridge = provider === 'web_bridge';
+                <div className="px-6 py-4 space-y-4">
+                    {/* Name */}
+                    <div>
+                        <label className="text-xs text-gray-400 font-medium block mb-1">Channel Name *</label>
+                        <input
+                            type="text"
+                            value={name}
+                            onChange={e => setName(e.target.value)}
+                            placeholder="e.g. WhatsApp Business"
+                            className="w-full bg-gray-700 border border-gray-600/50 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                    </div>
 
-                        return (
-                            <div
-                                key={channel.id}
-                                className="bg-white dark:bg-[#161b27] rounded-xl border border-gray-200 dark:border-[#1e2535] overflow-hidden shadow-sm dark:shadow-[0_2px_16px_rgba(0,0,0,0.25)] hover:border-gray-300 dark:hover:border-[#2a3347] transition-all duration-150"
-                            >
-                                {/* Card header */}
-                                <div className="p-5 border-b border-gray-100 dark:border-[#1e2535]">
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-11 h-11 rounded-xl ${colors.bg} ${colors.darkBg} flex items-center justify-center flex-shrink-0`}>
-                                                <Icon className={`w-5 h-5 ${colors.text} ${colors.darkText}`} />
-                                            </div>
-                                            <div>
-                                                <h3 className="font-semibold text-gray-900 dark:text-gray-100 leading-snug">
-                                                    {channel.name}
-                                                </h3>
-                                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                                                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${status.dot}`} />
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                                                        {typeDef?.name ?? channel.type} · {status.label}
-                                                    </p>
-                                                    {isWhatsApp && (
-                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                                                            isBridge 
-                                                                ? 'bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-400' 
-                                                                : 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400'
-                                                        }`}>
-                                                            {isBridge ? 'Bridge' : 'Cloud API'}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
+                    {/* Type */}
+                    <div>
+                        <label className="text-xs text-gray-400 font-medium block mb-1">Channel Type *</label>
+                        <select
+                            value={type}
+                            onChange={e => setType(e.target.value as ChannelTypeSlug)}
+                            className="w-full bg-gray-700 border border-gray-600/50 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                            {CHANNEL_TYPE_OPTIONS.map(t => (
+                                <option key={t} value={t}>
+                                    {CHANNEL_ICONS[t]} {t.replace('_', ' ')}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
 
-                                        {/* Action buttons */}
-                                        <div className="flex gap-1">
-                                            {isWhatsApp && (
-                                                <button
-                                                    onClick={() => setShowProviderSwitch(channel.id)}
-                                                    title="Switch provider"
-                                                    className="p-2 text-gray-400 dark:text-gray-500 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-500/10 rounded-lg transition-all duration-150"
-                                                >
-                                                    <Server className="w-4 h-4" />
-                                                </button>
-                                            )}
-                                            <button
-                                                onClick={() => testMutation.mutate(channel.id)}
-                                                disabled={testMutation.isPending}
-                                                title="Test connection"
-                                                className="p-2 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-all duration-150"
-                                            >
-                                                <RefreshCw className={`w-4 h-4 ${testMutation.isPending ? 'animate-spin' : ''}`} />
-                                            </button>
-                                            <button
-                                                onClick={() => { if (confirm(`Delete "${channel.name}"?`)) deleteMutation.mutate(channel.id); }}
-                                                title="Delete channel"
-                                                className="p-2 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all duration-150"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
+                    {/* Config */}
+                    <div>
+                        <label className="text-xs text-gray-400 font-medium block mb-1">Configuration (JSON)</label>
+                        <textarea
+                            value={configText}
+                            onChange={e => { setConfigText(e.target.value); setConfigError(''); }}
+                            rows={4}
+                            placeholder='{ "bot_token": "...", "phone_number_id": "..." }'
+                            className={`w-full bg-gray-700 border rounded-lg px-3 py-2 text-sm text-gray-200 font-mono placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none ${
+                                configError ? 'border-red-500/60' : 'border-gray-600/50'
+                            }`}
+                        />
+                        {configError && (
+                            <p className="text-xs text-red-400 mt-1">{configError}</p>
+                        )}
+                    </div>
 
-                                {/* Card body */}
-                                <div className="p-5 space-y-4 bg-white dark:bg-[#161b27]">
-                                    {/* Badges */}
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        {channel.config?.has_credentials ? (
-                                            <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-green-100 dark:bg-green-500/10 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-500/20 rounded-full font-medium">
-                                                <CheckCircle className="w-3 h-3" /> Credentials configured
-                                            </span>
-                                        ) : (
-                                            <span className="text-xs px-2.5 py-1 bg-yellow-100 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-500/20 rounded-full font-medium">
-                                                ⚠ No credentials
-                                            </span>
-                                        )}
-                                        {channel.routing?.require_approval && (
-                                            <span className="text-xs px-2.5 py-1 bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-500/20 rounded-full font-medium">
-                                                Requires approval
-                                            </span>
-                                        )}
-                                        {isWhatsApp && isBridge && channel.status === 'pending' && (
-                                            <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20 rounded-full font-medium">
-                                                <QrCode className="w-3 h-3" /> QR Required
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {/* Provider-specific info */}
-                                    {isWhatsApp && (
-                                        <div className="p-3 bg-gray-50 dark:bg-[#0f1117] rounded-lg border border-gray-200 dark:border-[#1e2535]">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                                                    Provider
-                                                </span>
-                                                <span className={`text-xs font-semibold ${
-                                                    isBridge ? 'text-orange-600 dark:text-orange-400' : 'text-blue-600 dark:text-blue-400'
-                                                }`}>
-                                                    {isBridge ? 'Web Bridge (QR)' : 'Cloud API (Meta)'}
-                                                </span>
-                                            </div>
-                                            {isBridge ? (
-                                                <p className="text-xs text-gray-500 dark:text-gray-500">
-                                                    Uses WebSocket bridge with QR authentication. Good for personal use.
-                                                </p>
-                                            ) : (
-                                                <p className="text-xs text-gray-500 dark:text-gray-500">
-                                                    Official Meta Business API. Required for production/business use.
-                                                </p>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Webhook URL */}
-                                    {channel.config?.webhook_url && (
-                                        <div>
-                                            <label className="block text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
-                                                Webhook URL
-                                            </label>
-                                            <div className="flex gap-2">
-                                                <code className="flex-1 text-xs bg-gray-50 dark:bg-[#0f1117] border border-gray-200 dark:border-[#1e2535] px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 truncate font-mono">
-                                                    {channel.config.webhook_url}
-                                                </code>
-                                                <button
-                                                    onClick={() => handleCopyWebhook(channel.config.webhook_url!)}
-                                                    title="Copy webhook URL"
-                                                    className="px-3 py-2 bg-gray-100 dark:bg-[#1e2535] hover:bg-gray-200 dark:hover:bg-[#2a3347] border border-gray-200 dark:border-[#1e2535] rounded-lg transition-all duration-150"
-                                                >
-                                                    <Copy className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Extra info */}
-                                    {channel.type === 'signal' && channel.config?.number && (
-                                        <p className="text-xs text-gray-500 dark:text-gray-500">
-                                            Number: <span className="font-mono text-gray-700 dark:text-gray-300">{channel.config.number}</span>
-                                        </p>
-                                    )}
-                                    {channel.type === 'matrix' && channel.config?.homeserver_url && (
-                                        <p className="text-xs text-gray-500 dark:text-gray-500">
-                                            Homeserver: <span className="font-mono text-gray-700 dark:text-gray-300">{channel.config.homeserver_url}</span>
-                                        </p>
-                                    )}
-                                    {channel.type === 'imessage' && (
-                                        <p className="text-xs text-gray-500 dark:text-gray-500">
-                                            Backend: <span className="font-mono text-gray-700 dark:text-gray-300">{channel.config?.backend ?? 'applescript'}</span>
-                                            {channel.config?.bb_url && <span className="text-gray-400 dark:text-gray-600"> · {channel.config.bb_url}</span>}
-                                        </p>
-                                    )}
-
-                                    {/* Allowed Senders (WhatsApp only) */}
-                                    {isWhatsApp && (
-                                        <div className="pt-3 border-t border-gray-100 dark:border-[#1e2535]">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                                                    Allowed Senders
-                                                </span>
-                                                <button
-                                                    onClick={() => { setEditingSenders(channel.id); setSenderInput(''); }}
-                                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                                                >
-                                                    {editingSenders === channel.id ? 'Cancel' : 'Edit'}
-                                                </button>
-                                            </div>
-
-                                            {editingSenders === channel.id ? (
-                                                <div className="space-y-2">
-                                                    <div className="flex flex-wrap gap-1.5">
-                                                        {(channel.config?.allowed_senders || []).map(num => (
-                                                            <span key={num} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 rounded-full text-xs font-mono">
-                                                                {num}
-                                                                <button onClick={() => {
-                                                                    const updated = (channel.config?.allowed_senders || []).filter(s => s !== num);
-                                                                    updateSendersMutation.mutate({ id: channel.id, senders: updated });
-                                                                }} className="hover:text-red-500 ml-0.5">×</button>
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                    <div className="flex gap-2">
-                                                        <input
-                                                            value={senderInput}
-                                                            onChange={e => setSenderInput(e.target.value)}
-                                                            onKeyDown={e => {
-                                                                if (e.key === 'Enter' && senderInput.trim()) {
-                                                                    const updated = [...(channel.config?.allowed_senders || []), senderInput.trim()];
-                                                                    updateSendersMutation.mutate({ id: channel.id, senders: updated });
-                                                                    setSenderInput('');
-                                                                }
-                                                            }}
-                                                            placeholder="+1234567890 (Enter to add)"
-                                                            className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-[#1e2535] rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 focus:ring-1 focus:ring-blue-500 outline-none"
-                                                        />
-                                                        <button
-                                                            onClick={() => updateSendersMutation.mutate({ id: channel.id, senders: channel.config?.allowed_senders || [] })}
-                                                            className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-                                                        >
-                                                            Save
-                                                        </button>
-                                                    </div>
-                                                    <p className="text-xs text-gray-400 dark:text-gray-500">
-                                                        Leave empty to accept messages from everyone. Add your number to only accept your own messages.
-                                                    </p>
-                                                </div>
-                                            ) : (
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {(channel.config?.allowed_senders || []).length === 0 ? (
-                                                        <span className="text-xs text-amber-600 dark:text-amber-400">⚠ Everyone can trigger this channel</span>
-                                                    ) : (
-                                                        (channel.config.allowed_senders || []).map(num => (
-                                                            <span key={num} className="px-2 py-0.5 bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-300 rounded-full text-xs font-mono">{num}</span>
-                                                        ))
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Stats */}
-                                    <div className="flex items-center gap-5 pt-3 border-t border-gray-100 dark:border-[#1e2535]">
-                                        <div className="text-sm">
-                                            <span className="text-gray-400 dark:text-gray-500 text-xs uppercase tracking-wide font-medium">Received </span>
-                                            <span className="font-semibold text-gray-900 dark:text-gray-100">{channel.stats?.received ?? 0}</span>
-                                        </div>
-                                        <div className="text-sm">
-                                            <span className="text-gray-400 dark:text-gray-500 text-xs uppercase tracking-wide font-medium">Sent </span>
-                                            <span className="font-semibold text-gray-900 dark:text-gray-100">{channel.stats?.sent ?? 0}</span>
-                                        </div>
-                                        {channel.stats?.last_message && (
-                                            <div className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
-                                                {format(new Date(channel.stats.last_message), 'MMM d, h:mm a')}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* ═══ CHANNEL HEALTH METRICS (Phase 4) ═══ */}
-                                    <ChannelMetricsSection channelId={channel.id} />
-                                </div>
-                            </div>
-                        );
-                    })}
+                    {/* Options */}
+                    <div className="flex gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={autoCreateTasks}
+                                onChange={e => setAutoCreateTasks(e.target.checked)}
+                                className="rounded accent-blue-500"
+                            />
+                            <span className="text-sm text-gray-300">Auto-create tasks</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={requireApproval}
+                                onChange={e => setRequireApproval(e.target.checked)}
+                                className="rounded accent-blue-500"
+                            />
+                            <span className="text-sm text-gray-300">Require approval</span>
+                        </label>
+                    </div>
                 </div>
-            )}
 
-            {/* ── Add Channel Modal ─────────────────────────────────────────── */}
-            {showAddModal && (
-                <div className="fixed inset-0 bg-black/60 dark:bg-black/75 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-[#161b27] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl dark:shadow-[0_24px_64px_rgba(0,0,0,0.6)] border border-gray-200 dark:border-[#1e2535]">
+                <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-700/50">
+                    <button
+                        onClick={onClose}
+                        className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-gray-200 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={saving}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                        Create Channel
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
 
-                        {/* Modal header */}
-                        <div className="p-6 border-b border-gray-200 dark:border-[#1e2535] flex items-center justify-between sticky top-0 bg-white dark:bg-[#161b27] z-10 rounded-t-2xl">
-                            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-                                {qrStep
-                                    ? 'Scan QR Code'
-                                    : selectedType
-                                        ? `Configure ${channelTypes.find(t => t.id === selectedType)?.name}`
-                                        : 'Add Channel'}
-                            </h2>
-                            <button aria-label="Close" onClick={closeModal}
-                                className="p-2 hover:bg-gray-100 dark:hover:bg-[#1e2535] rounded-lg transition-colors duration-150"
+// ─── Test message modal ───────────────────────────────────────────────────────
+
+interface TestModalProps {
+    channel: Channel;
+    onClose: () => void;
+}
+
+function TestMessageModal({ channel, onClose }: TestModalProps) {
+    const [recipient, setRecipient] = useState('');
+    const [content, setContent] = useState('Hello from Agentium! 👋');
+    const [sending, setSending] = useState(false);
+
+    const handleSend = async () => {
+        if (!recipient.trim()) { toast.error('Recipient required'); return; }
+        setSending(true);
+        try {
+            await api.post(`/channels/${channel.id}/send`, { recipient, content });
+            toast.success('Test message sent!');
+            onClose();
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail ?? 'Send failed');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-gray-800 border border-gray-600/50 rounded-2xl w-full max-w-md shadow-2xl">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700/50">
+                    <h2 className="text-base font-semibold text-white">
+                        Send Test Message — {CHANNEL_ICONS[channel.type]} {channel.name}
+                    </h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white p-1">
+                        <XCircle className="w-5 h-5" />
+                    </button>
+                </div>
+                <div className="px-6 py-4 space-y-3">
+                    <div>
+                        <label className="text-xs text-gray-400 font-medium block mb-1">Recipient</label>
+                        <input
+                            type="text"
+                            value={recipient}
+                            onChange={e => setRecipient(e.target.value)}
+                            placeholder="Phone number, chat ID, email…"
+                            className="w-full bg-gray-700 border border-gray-600/50 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-gray-400 font-medium block mb-1">Message</label>
+                        <textarea
+                            value={content}
+                            onChange={e => setContent(e.target.value)}
+                            rows={3}
+                            className="w-full bg-gray-700 border border-gray-600/50 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                        />
+                    </div>
+                </div>
+                <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-700/50">
+                    <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-gray-200 transition-colors">
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSend}
+                        disabled={sending}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                        {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─── Channel Card ─────────────────────────────────────────────────────────────
+
+interface ChannelCardProps {
+    channel: Channel;
+    onRefresh: () => void;
+    onDelete: (id: string) => void;
+    onTest: (channel: Channel) => void;
+    onViewLog: (id: string) => void;
+}
+
+function ChannelCard({ channel, onRefresh, onDelete, onTest, onViewLog }: ChannelCardProps) {
+    const [expanded, setExpanded] = useState(false);
+    const [testing, setTesting] = useState(false);
+    const [resetting, setResetting] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+
+    const st = STATUS_CONFIG[channel.status] ?? STATUS_CONFIG.pending;
+
+    const handleTest = async () => {
+        setTesting(true);
+        try {
+            await api.post(`/channels/${channel.id}/test`);
+            toast.success('Connection test passed');
+            onRefresh();
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail ?? 'Test failed');
+        } finally {
+            setTesting(false);
+        }
+    };
+
+    const handleReset = async () => {
+        setResetting(true);
+        try {
+            await api.post(`/channels/${channel.id}/reset`);
+            toast.success('Channel reset');
+            onRefresh();
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail ?? 'Reset failed');
+        } finally {
+            setResetting(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!window.confirm(`Delete channel "${channel.name}"? This cannot be undone.`)) return;
+        setDeleting(true);
+        try {
+            await api.delete(`/channels/${channel.id}`);
+            toast.success('Channel deleted');
+            onDelete(channel.id);
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail ?? 'Delete failed');
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    return (
+        <div className={`rounded-xl border bg-gray-800/50 overflow-hidden transition-colors hover:bg-gray-800/80 ${
+            channel.status === 'error' ? 'border-red-500/25' : 'border-gray-700/50'
+        }`}>
+            {/* Header row */}
+            <div
+                className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+                onClick={() => setExpanded(e => !e)}
+            >
+                {/* Icon */}
+                <span className="text-2xl w-9 text-center flex-shrink-0">
+                    {CHANNEL_ICONS[channel.type] ?? '📡'}
+                </span>
+
+                {/* Name & status */}
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-100">{channel.name}</span>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${st.color} ${st.bg} border ${st.border}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${st.dot} ${channel.status === 'active' ? 'animate-pulse' : ''}`} />
+                            {st.label}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
+                        <span className="capitalize">{channel.type.replace('_', ' ')}</span>
+                        {channel.config.phone_number && <span>{channel.config.phone_number}</span>}
+                        {channel.config.webhook_url && (
+                            <span className="flex items-center gap-1">
+                                <Wifi className="w-3 h-3" /> Webhook configured
+                            </span>
+                        )}
+                    </div>
+                </div>
+
+                {/* Stats */}
+                <div className="hidden sm:flex items-center gap-4 text-xs text-gray-500 flex-shrink-0">
+                    <div className="text-center">
+                        <div className="text-gray-300 font-medium">{channel.stats.received.toLocaleString()}</div>
+                        <div>received</div>
+                    </div>
+                    <div className="text-center">
+                        <div className="text-gray-300 font-medium">{channel.stats.sent.toLocaleString()}</div>
+                        <div>sent</div>
+                    </div>
+                </div>
+
+                {/* Expand chevron */}
+                {expanded
+                    ? <ChevronUp className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                    : <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                }
+            </div>
+
+            {/* Expanded actions & details */}
+            {expanded && (
+                <div className="border-t border-gray-700/50 px-4 py-3 bg-gray-900/30 space-y-3">
+                    {/* Routing info */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div>
+                            <span className="text-xs text-gray-500 block mb-0.5">Default Agent</span>
+                            <span className="text-xs text-gray-300 font-mono">
+                                {channel.routing.default_agent ?? 'Head of Council'}
+                            </span>
+                        </div>
+                        <div>
+                            <span className="text-xs text-gray-500 block mb-0.5">Auto Tasks</span>
+                            <span className={`text-xs font-medium ${channel.routing.auto_create_tasks ? 'text-emerald-400' : 'text-gray-400'}`}>
+                                {channel.routing.auto_create_tasks ? 'Enabled' : 'Disabled'}
+                            </span>
+                        </div>
+                        <div>
+                            <span className="text-xs text-gray-500 block mb-0.5">Approval</span>
+                            <span className={`text-xs font-medium ${channel.routing.require_approval ? 'text-amber-400' : 'text-gray-400'}`}>
+                                {channel.routing.require_approval ? 'Required' : 'Not required'}
+                            </span>
+                        </div>
+                        {channel.stats.last_message && (
+                            <div className="col-span-full">
+                                <span className="text-xs text-gray-500 block mb-0.5">Last Message</span>
+                                <span className="text-xs text-gray-300">
+                                    {new Date(channel.stats.last_message).toLocaleString()}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex flex-wrap gap-2">
+                        {/* View Message Log — primary CTA */}
+                        <button
+                            onClick={() => onViewLog(channel.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-medium hover:bg-blue-600/30 transition-colors"
+                        >
+                            <Inbox className="w-3.5 h-3.5" />
+                            Message Log
+                            <ArrowUpRight className="w-3 h-3 opacity-60" />
+                        </button>
+
+                        {/* Test connection */}
+                        <button
+                            onClick={handleTest}
+                            disabled={testing}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-700 border border-gray-600/50 text-gray-300 text-xs font-medium hover:bg-gray-600 transition-colors disabled:opacity-50"
+                        >
+                            {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+                            Test
+                        </button>
+
+                        {/* Send test message */}
+                        <button
+                            onClick={() => onTest(channel)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-700 border border-gray-600/50 text-gray-300 text-xs font-medium hover:bg-gray-600 transition-colors"
+                        >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            Send Test
+                        </button>
+
+                        {/* Reset circuit breaker */}
+                        {channel.status === 'error' && (
+                            <button
+                                onClick={handleReset}
+                                disabled={resetting}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-medium hover:bg-amber-500/25 transition-colors disabled:opacity-50"
                             >
-                                <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                                {resetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                                Reset
                             </button>
-                        </div>
+                        )}
 
-                        <div className="p-6">
-                            {/* Step 3: QR Code */}
-                            {qrStep ? (
-                                <div className="flex flex-col items-center gap-6 py-4">
-                                    <div className="text-center">
-                                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                            Scan this QR code with your WhatsApp app to link the account.
-                                        </p>
-                                    </div>
-
-                                    {qrCodeData ? (
-                                        <div className="p-5 bg-white rounded-2xl shadow-lg border border-orange-200 dark:border-orange-500/30">
-                                            <QRCodeSVG value={qrCodeData} size={240} level="H" includeMargin />
-                                        </div>
-                                    ) : (
-                                        <div className="w-[250px] h-[250px] rounded-2xl bg-gray-100 dark:bg-[#0f1117] border border-gray-200 dark:border-[#1e2535] flex flex-col items-center justify-center gap-3">
-                                            <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
-                                            <p className="text-xs text-gray-500 dark:text-gray-400">Waiting for QR code…</p>
-                                        </div>
-                                    )}
-
-                                    <ol className="text-sm text-gray-600 dark:text-gray-400 space-y-1.5 text-left w-full max-w-xs list-decimal list-inside">
-                                        <li>Open <strong className="text-gray-800 dark:text-gray-200">WhatsApp</strong> on your phone</li>
-                                        <li>Go to <strong className="text-gray-800 dark:text-gray-200">Settings → Linked Devices</strong></li>
-                                        <li>Tap <strong className="text-gray-800 dark:text-gray-200">Link a Device</strong></li>
-                                        <li>Scan the QR code above</li>
-                                    </ol>
-
-                                    <div className="flex items-center gap-2 text-xs text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-lg px-3 py-2 w-full max-w-xs">
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
-                                        Waiting for scan… refreshes every 10 s
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={closeModal}
-                                        className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-                            ) : !selectedType ? (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                    {channelTypes.map(type => {
-                                        const colors = colorMap[type.color];
-                                        return (
-                                            <button
-                                                key={type.id}
-                                                onClick={() => setSelectedType(type.id)}
-                                                className="flex items-center gap-3 p-4 border border-gray-200 dark:border-[#1e2535] bg-white dark:bg-[#0f1117] hover:border-blue-400 dark:hover:border-blue-500/50 hover:bg-blue-50/30 dark:hover:bg-blue-500/5 rounded-xl transition-all duration-150 text-left group"
-                                            >
-                                                <div className={`w-10 h-10 rounded-lg ${colors.bg} ${colors.darkBg} flex items-center justify-center flex-shrink-0`}>
-                                                    <type.Icon className={`w-5 h-5 ${colors.text} ${colors.darkText}`} />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm truncate">{type.name}</h3>
-                                                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{type.description}</p>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                /* Step 2: configure */
-                                <div className="space-y-5">
-                                    <button
-                                        onClick={() => { setSelectedType(null); setQrCodeData(null); }}
-                                        className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors duration-150"
-                                    >
-                                        <ChevronRight className="w-4 h-4 rotate-180" /> Back
-                                    </button>
-
-                                    {/* Channel note */}
-                                    {channelTypes.find(t => t.id === selectedType)?.note && (
-                                        <div className="p-3.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg text-sm text-amber-700 dark:text-amber-400">
-                                            {channelTypes.find(t => t.id === selectedType)!.note}
-                                        </div>
-                                    )}
-
-                                    {/* WhatsApp Provider Selector */}
-                                    {selectedType === 'whatsapp' && (
-                                        <div className="p-4 bg-gray-50 dark:bg-[#0f1117] rounded-xl border border-gray-200 dark:border-[#1e2535]">
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                                                Select Provider <span className="text-red-500">*</span>
-                                            </label>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setWhatsappProvider('cloud_api')}
-                                                    className={`p-3 rounded-lg border-2 text-left transition-all ${
-                                                        whatsappProvider === 'cloud_api'
-                                                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
-                                                            : 'border-gray-200 dark:border-[#1e2535] hover:border-gray-300'
-                                                    }`}
-                                                >
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <Server className={`w-4 h-4 ${whatsappProvider === 'cloud_api' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500'}`} />
-                                                        <span className={`font-medium text-sm ${whatsappProvider === 'cloud_api' ? 'text-blue-900 dark:text-blue-100' : 'text-gray-700 dark:text-gray-300'}`}>
-                                                            Cloud API
-                                                        </span>
-                                                    </div>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-500">
-                                                        Official Meta API for business use
-                                                    </p>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setWhatsappProvider('web_bridge')}
-                                                    className={`p-3 rounded-lg border-2 text-left transition-all ${
-                                                        whatsappProvider === 'web_bridge'
-                                                            ? 'border-orange-500 bg-orange-50 dark:bg-orange-500/10'
-                                                            : 'border-gray-200 dark:border-[#1e2535] hover:border-gray-300'
-                                                    }`}
-                                                >
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <QrCode className={`w-4 h-4 ${whatsappProvider === 'web_bridge' ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500'}`} />
-                                                        <span className={`font-medium text-sm ${whatsappProvider === 'web_bridge' ? 'text-orange-900 dark:text-orange-100' : 'text-gray-700 dark:text-gray-300'}`}>
-                                                            Web Bridge
-                                                        </span>
-                                                    </div>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-500">
-                                                        QR-based for personal/development
-                                                    </p>
-                                                </button>
-                                            </div>
-                                            
-                                            {whatsappProvider === 'web_bridge' && (
-                                                <div className="mt-3 space-y-2">
-                                                    <div className="p-2.5 bg-green-50 dark:bg-green-500/5 border border-green-200 dark:border-green-500/20 rounded-lg flex items-start gap-2">
-                                                        <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                                                        <p className="text-xs text-green-700 dark:text-green-400">
-                                                            Bridge is running in Docker. Just give this channel a name and click Connect — a QR code will appear instantly.
-                                                        </p>
-                                                    </div>
-                                                    <div className="p-2.5 bg-orange-50 dark:bg-orange-500/5 border border-orange-200 dark:border-orange-500/20 rounded-lg flex items-start gap-2">
-                                                        <AlertTriangle className="w-4 h-4 text-orange-500 dark:text-orange-400 flex-shrink-0 mt-0.5" />
-                                                        <p className="text-xs text-orange-700 dark:text-orange-400">
-                                                            Web Bridge uses unofficial methods. Use only for personal accounts, not business.
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    <form onSubmit={handleSubmit} className="space-y-4">
-                                        {/* Channel name */}
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                                Channel Name <span className="text-red-500">*</span>
-                                            </label>
-                                            <input
-                                                name="name"
-                                                type="text"
-                                                required
-                                                placeholder={`e.g. "Support ${channelTypes.find(t => t.id === selectedType)?.name}"`}
-                                                className="w-full px-4 py-2.5 border border-gray-300 dark:border-[#1e2535] rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-500/50 focus:border-transparent outline-none transition-all duration-150 text-sm"
-                                            />
-                                        </div>
-
-                                        {/* Dynamic fields based on type/provider */}
-                                        {selectedType === 'whatsapp' ? (
-                                            (whatsappProvider === 'cloud_api' ? whatsAppCloudFields : whatsAppBridgeFields).map(field => (
-                                                <div key={field.name}>
-                                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                                        {field.label}
-                                                        {field.required && <span className="text-red-500 ml-1">*</span>}
-                                                    </label>
-                                                    <input
-                                                        name={field.name}
-                                                        type={field.type}
-                                                        required={field.required}
-                                                        placeholder={field.placeholder}
-                                                        className="w-full px-4 py-2.5 border border-gray-300 dark:border-[#1e2535] rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-500/50 focus:border-transparent outline-none transition-all duration-150 text-sm"
-                                                    />
-                                                    {field.help && (
-                                                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">{field.help}</p>
-                                                    )}
-                                                </div>
-                                            ))
-                                        ) : (
-                                            channelTypes
-                                                .find(t => t.id === selectedType)
-                                                ?.fields.map(field => (
-                                                    <div key={field.name}>
-                                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                                            {field.label}
-                                                            {field.required && <span className="text-red-500 ml-1">*</span>}
-                                                        </label>
-                                                        <input
-                                                            name={field.name}
-                                                            type={field.type}
-                                                            required={field.required}
-                                                            placeholder={field.placeholder}
-                                                            className="w-full px-4 py-2.5 border border-gray-300 dark:border-[#1e2535] rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-500/50 focus:border-transparent outline-none transition-all duration-150 text-sm"
-                                                        />
-                                                    </div>
-                                                ))
-                                        )}
-
-                                        {/* Actions */}
-                                        <div className="flex gap-3 pt-2">
-                                            <button
-                                                type="button"
-                                                onClick={closeModal}
-                                                className="px-4 py-2.5 border border-gray-300 dark:border-[#1e2535] text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-[#1e2535] transition-all duration-150 text-sm font-medium"
-                                            >
-                                                Cancel
-                                            </button>
-                                            <button
-                                                type="submit"
-                                                disabled={createMutation.isPending}
-                                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-all duration-150 text-sm font-medium shadow-sm dark:shadow-blue-900/30"
-                                            >
-                                                {createMutation.isPending ? (
-                                                    <><Loader2 className="w-4 h-4 animate-spin" /> {whatsappProvider === 'web_bridge' && selectedType === 'whatsapp' ? 'Generating QR…' : 'Connecting…'}</>
-                                                ) : (
-                                                    <><CheckCircle className="w-4 h-4" /> {whatsappProvider === 'web_bridge' && selectedType === 'whatsapp' ? 'Connect & Show QR' : 'Connect'}</>
-                                                )}
-                                            </button>
-                                        </div>
-                                    </form>
-                                </div>
-                            )}
-                        </div>
+                        {/* Delete */}
+                        <button
+                            onClick={handleDelete}
+                            disabled={deleting}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-50 ml-auto"
+                        >
+                            {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                            Delete
+                        </button>
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
 
-            {/* ── Provider Switch Modal ─────────────────────────────────────── */}
-            {showProviderSwitch && (
-                <div className="fixed inset-0 bg-black/60 dark:bg-black/75 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-[#161b27] rounded-2xl max-w-md w-full shadow-2xl border border-gray-200 dark:border-[#1e2535]">
-                        <div className="p-6 border-b border-gray-200 dark:border-[#1e2535]">
-                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                                Switch WhatsApp Provider
-                            </h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                This will disconnect the current session and switch authentication methods.
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export function ChannelsPage() {
+    const navigate = useNavigate();
+    const [channels, setChannels] = useState<Channel[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [showCreate, setShowCreate] = useState(false);
+    const [testChannel, setTestChannel] = useState<Channel | null>(null);
+    const [statusFilter, setStatusFilter] = useState<ChannelStatus | 'all'>('all');
+    const [typeFilter, setTypeFilter] = useState<ChannelTypeSlug | 'all'>('all');
+    const [stats, setStats] = useState<Record<string, number>>({});
+
+    const fetchChannels = useCallback(async () => {
+        setLoading(true);
+        try {
+            const params: Record<string, string> = {};
+            if (statusFilter !== 'all') params.status = statusFilter;
+            if (typeFilter !== 'all') params.channel_type = typeFilter;
+
+            const { data } = await api.get('/channels/', { params });
+            setChannels(data.channels ?? []);
+            setStats(data.by_status ?? {});
+        } catch {
+            toast.error('Failed to load channels');
+        } finally {
+            setLoading(false);
+        }
+    }, [statusFilter, typeFilter]);
+
+    useEffect(() => { fetchChannels(); }, [fetchChannels]);
+
+    const handleViewLog = (channelId: string) => {
+        navigate(`/message-log?channel_id=${channelId}`);
+    };
+
+    const handleDelete = (id: string) => {
+        setChannels(prev => prev.filter(c => c.id !== id));
+    };
+
+    const totalReceived = channels.reduce((s, c) => s + c.stats.received, 0);
+    const totalSent = channels.reduce((s, c) => s + c.stats.sent, 0);
+    const activeCount = stats['active'] ?? 0;
+    const errorCount = stats['error'] ?? 0;
+
+    return (
+        <div className="flex flex-col h-full min-h-0 bg-gray-900 text-gray-100">
+            {/* Header */}
+            <div className="flex-shrink-0 px-6 py-4 border-b border-gray-700/50 bg-gray-900/80 backdrop-blur-sm">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+                            <Radio className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <div>
+                            <h1 className="text-lg font-semibold text-gray-100">Channels</h1>
+                            <p className="text-xs text-gray-400">
+                                {channels.length} channel{channels.length !== 1 ? 's' : ''} configured
                             </p>
                         </div>
-                        <div className="p-6 space-y-3">
-                            <button
-                                onClick={() => switchProviderMutation.mutate({ id: showProviderSwitch, provider: 'cloud_api' })}
-                                disabled={switchProviderMutation.isPending}
-                                className="w-full p-4 border-2 border-blue-200 dark:border-blue-500/30 hover:border-blue-500 dark:hover:border-blue-400 rounded-xl text-left transition-all group"
-                            >
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="font-semibold text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                                        Switch to Cloud API
-                                    </span>
-                                    <Server className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                                </div>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    Official Meta Business API. Best for production use.
-                                </p>
-                            </button>
-                            
-                            <button
-                                onClick={() => switchProviderMutation.mutate({ id: showProviderSwitch, provider: 'web_bridge' })}
-                                disabled={switchProviderMutation.isPending}
-                                className="w-full p-4 border-2 border-orange-200 dark:border-orange-500/30 hover:border-orange-500 dark:hover:border-orange-400 rounded-xl text-left transition-all group"
-                            >
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="font-semibold text-gray-900 dark:text-white group-hover:text-orange-600 dark:group-hover:text-orange-400">
-                                        Switch to Web Bridge
-                                    </span>
-                                    <QrCode className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-                                </div>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    QR-based authentication. For personal/development use.
-                                </p>
-                            </button>
-                            
-                            <button
-                                onClick={() => setShowProviderSwitch(null)}
-                                className="w-full px-4 py-2.5 border border-gray-300 dark:border-[#1e2535] text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-[#1e2535] transition-all duration-150 text-sm font-medium"
-                            >
-                                Cancel
-                            </button>
-                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => navigate('/message-log')}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-800 border border-gray-600/50 text-gray-300 text-sm hover:bg-gray-700 hover:text-gray-100 transition-colors"
+                        >
+                            <Inbox className="w-4 h-4" />
+                            All Message Logs
+                        </button>
+                        <button
+                            onClick={fetchChannels}
+                            className="p-2 rounded-lg bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-gray-200 transition-colors"
+                        >
+                            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                        </button>
+                        <button
+                            onClick={() => setShowCreate(true)}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+                        >
+                            <Plus className="w-4 h-4" />
+                            Add Channel
+                        </button>
                     </div>
                 </div>
+
+                {/* Summary stats */}
+                <div className="flex gap-4 mt-3 flex-wrap">
+                    {[
+                        { label: 'Active',    value: activeCount,       color: 'text-emerald-400' },
+                        { label: 'Errors',    value: errorCount,        color: errorCount > 0 ? 'text-red-400' : 'text-gray-400' },
+                        { label: 'Received',  value: totalReceived,     color: 'text-blue-400' },
+                        { label: 'Sent',      value: totalSent,         color: 'text-purple-400' },
+                    ].map(s => (
+                        <div key={s.label} className="flex items-center gap-1.5">
+                            <span className={`text-sm font-semibold ${s.color}`}>{s.value.toLocaleString()}</span>
+                            <span className="text-xs text-gray-500">{s.label}</span>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Filters */}
+                <div className="flex gap-2 mt-3 flex-wrap">
+                    {/* Status filter */}
+                    <div className="flex gap-1">
+                        {(['all', 'active', 'pending', 'error', 'disconnected'] as const).map(s => (
+                            <button
+                                key={s}
+                                onClick={() => setStatusFilter(s)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                                    statusFilter === s
+                                        ? 'bg-blue-600/30 border-blue-500/50 text-blue-300'
+                                        : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-gray-200'
+                                }`}
+                            >
+                                {s === 'all' ? 'All' : STATUS_CONFIG[s as ChannelStatus]?.label ?? s}
+                                {s !== 'all' && stats[s] !== undefined && (
+                                    <span className="ml-1 opacity-60">({stats[s]})</span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Type filter */}
+                    <select
+                        value={typeFilter}
+                        onChange={e => setTypeFilter(e.target.value as ChannelTypeSlug | 'all')}
+                        className="bg-gray-800 border border-gray-600/40 rounded-lg px-2 py-1 text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                        <option value="all">All types</option>
+                        {CHANNEL_TYPE_OPTIONS.map(t => (
+                            <option key={t} value={t}>{CHANNEL_ICONS[t]} {t.replace('_', ' ')}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
+            {/* Channel list */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+                {loading && channels.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+                        <Loader2 className="w-8 h-8 animate-spin mb-3" />
+                        <p className="text-sm">Loading channels…</p>
+                    </div>
+                ) : channels.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+                        <WifiOff className="w-10 h-10 mb-3 opacity-30" />
+                        <p className="text-sm font-medium">No channels configured</p>
+                        <p className="text-xs mt-1 text-gray-600">Add a channel to start routing external messages</p>
+                        <button
+                            onClick={() => setShowCreate(true)}
+                            className="mt-4 flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+                        >
+                            <Plus className="w-4 h-4" />
+                            Add your first channel
+                        </button>
+                    </div>
+                ) : (
+                    channels.map(channel => (
+                        <ChannelCard
+                            key={channel.id}
+                            channel={channel}
+                            onRefresh={fetchChannels}
+                            onDelete={handleDelete}
+                            onTest={setTestChannel}
+                            onViewLog={handleViewLog}
+                        />
+                    ))
+                )}
+            </div>
+
+            {/* Modals */}
+            {showCreate && (
+                <CreateChannelModal
+                    onClose={() => setShowCreate(false)}
+                    onCreated={fetchChannels}
+                />
+            )}
+            {testChannel && (
+                <TestMessageModal
+                    channel={testChannel}
+                    onClose={() => setTestChannel(null)}
+                />
             )}
         </div>
     );

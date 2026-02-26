@@ -6,47 +6,6 @@
 
 # 🚨 High-Priority Missing Features
 
-## 1️⃣ Channel Health Monitoring Dashboard (Done)
-
-**Phase 4 + Phase 7**
-
-**Backend:** ✅ Metrics already tracked (`ChannelMetrics`)  
-**Frontend:** implemented
-Add in channel page metrics.
-
-### Missing: (Updated)
-
-- Channel success rate
-- Failure rate
-- Rate limit hits
-- Circuit breaker state (OPEN / HALF_OPEN / CLOSED)
-- Consecutive failures
-- Visual health indicators (green/yellow/red)
-- Centralized dashboard widget
-
----
-
-## 2️⃣ Message Log Per Channel
-
-**Phase 4 + Phase 7**
-
-**Routing:** ✅ Exists  
-**Persistence + UI:** ❌ Not implemented
-
-### Missing:
-
-- Per-channel message history viewer
-- Filter by:
-  - Channel
-  - Agent
-  - Date range
-  - Success / Failure
-- Replay failed messages
-- Channel-level audit visibility
-- Frontend message log viewer
-
----
-
 ## 3️⃣ A/B Model Testing Framework
 
 **Phase 5**
@@ -141,47 +100,5 @@ Add in channel page metrics.
 - Sharing execution branches
 
 ---
-
-# 📄 Documentation Gap
-
-## 8️⃣ Explicit Critic Routing Documentation
-
-**Phase 6**
-
-**Behavior:** ✅ Implemented by design  
-**Documentation:** ❌ Missing formal documentation
-
-### Missing:
-
-- Explanation of critic isolation model
-- Routing boundaries
-- Interaction limitations
-- Design rationale for non-democratic routing
-
----
-
-# 🎯 Final Consolidated Outstanding Work
-
-1. Channel Health Monitoring Dashboard
-2. Message Log Per Channel
-3. A/B Model Testing Framework
-4. Provider Performance Metrics Dashboard
-5. Checkpoint Branch Diff View
-6. Drag-and-Drop Agent Reassignment
-7. Checkpoint Export / Import
-8. Critic Routing Documentation
-
----
-
-# 🧠 System Maturity Status
-
-Agentium has moved beyond core system construction.
-
-Remaining work is focused on:
-
-- Observability & Monitoring
-- Experimentation & Optimization
-- UX Enhancements
-- Documentation clarity
 
 No core architectural deficiencies remain.
