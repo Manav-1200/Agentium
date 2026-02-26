@@ -6,21 +6,57 @@ self-healing execution loop, data retention, and channel message retry.
 import logging
 import asyncio
 import json
+import os
 from typing import Optional, Dict, Any, List
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.pool import NullPool
+
 from backend.celery_app import celery_app
-from backend.models.database import SessionLocal, engine
+
+# Import models directly (not through database module)
 from backend.models.entities.channels import ExternalMessage, ExternalChannel, ChannelStatus, ChannelType
 from backend.models.entities.task import Task, TaskStatus, TaskType, TaskPriority
 from backend.models.entities.task_events import TaskEvent, TaskEventType
 from backend.models.entities.agents import Agent, CouncilMember, HeadOfCouncil, AgentType
 from backend.models.entities.audit import AuditLog, AuditCategory, AuditLevel
-from backend.services.knowledge_governance import KnowledgeGovernanceService, KnowledgeCategory
 
 logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════
+# DEDICATED CELERY DATABASE CONFIGURATION
+# ═══════════════════════════════════════════════════════════
+
+# Get database URL from environment (same as main app)
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres:postgres@postgres:5432/agentium"
+)
+
+# Create a separate engine for Celery workers with NullPool
+# This is CRITICAL: disables connection pooling for fork-based concurrency
+celery_engine = create_engine(
+    DATABASE_URL,
+    poolclass=NullPool,        # No connection pooling - fresh connections per task
+    pool_pre_ping=True,        # Validate connections before use
+    echo=False,
+    future=True
+)
+
+# Create session factory bound to Celery engine
+CelerySessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=celery_engine
+)
+
+# Optional: Use scoped_session for thread safety in concurrent tasks
+CeleryScopedSession = scoped_session(CelerySessionLocal)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -31,9 +67,10 @@ logger = logging.getLogger(__name__)
 def get_task_db():
     """
     Context manager for database sessions in Celery tasks.
-    Ensures proper session lifecycle and error handling.
+    Uses dedicated Celery engine with NullPool to avoid connection
+    corruption across forked worker processes.
     """
-    db = SessionLocal()
+    db = CelerySessionLocal()
     try:
         yield db
         db.commit()
@@ -42,6 +79,8 @@ def get_task_db():
         raise
     finally:
         db.close()
+        # Remove from scoped session registry if using scoped sessions
+        CeleryScopedSession.remove()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -552,8 +591,7 @@ def start_imap_receivers():
     from backend.services.channel_manager import imap_receiver
     
     with get_task_db() as db:
-        from sqlalchemy.orm import joinedload
-        
+        # Don't use joinedload - it can cause issues with NullPool in some SQLAlchemy versions
         email_channels = db.query(ExternalChannel).filter(
             ExternalChannel.channel_type == ChannelType.EMAIL,
             ExternalChannel.status == ChannelStatus.ACTIVE
@@ -561,17 +599,28 @@ def start_imap_receivers():
         
         channel_configs = []
         for channel in email_channels:
+            # Safely handle config that might be string or dict
+            config = channel.config
+            if isinstance(config, str):
+                try:
+                    config = json.loads(config)
+                except json.JSONDecodeError:
+                    config = {}
+            elif not isinstance(config, dict):
+                config = {}
+                
             channel_configs.append({
                 'id': channel.id,
-                'config': channel.config if isinstance(channel.config, dict) else {}
+                'config': config
             })
         
         started = 0
         for channel_data in channel_configs:
-            if channel_data['config'].get('enable_imap') or channel_data['config'].get('imap_host'):
+            channel_config = channel_data['config']
+            if channel_config.get('enable_imap') or channel_config.get('imap_host'):
                 try:
                     asyncio.run(
-                        imap_receiver.start_channel(channel_data['id'], channel_data['config'])
+                        imap_receiver.start_channel(channel_data['id'], channel_config)
                     )
                     started += 1
                     logger.info(f"Started/verified IMAP for channel {channel_data['id']}")

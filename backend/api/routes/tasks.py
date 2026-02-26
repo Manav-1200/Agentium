@@ -62,7 +62,7 @@ def _serialize(task: Task) -> dict:
         } if task.error_count > 0 else None,
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "updated_at": task.updated_at.isoformat() if hasattr(task, 'updated_at') and task.updated_at else None,
-        "event_count": len(task.events) if hasattr(task, 'events') else 0
+        "event_count": task.events.count() if hasattr(task, 'events') else 0
     }
 
 
