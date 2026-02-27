@@ -47,9 +47,11 @@ import {
     History,
     Sparkles,
     Database,
+    GitCompareArrows,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { CheckpointTimeline } from '../components/checkpoints/CheckpointTimeline';
+import { BranchDiffView } from '../components/checkpoints/BranchDiffView';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2001,6 +2003,7 @@ export const TasksPage: React.FC = () => {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [filterStatus, setFilterStatus] = useState<string>('');
     const [activeTab, setActiveTab]       = useState<Tab>('tasks');
+    const [checkpointSubTab, setCheckpointSubTab] = useState<'timeline' | 'diff'>('timeline');
 
     useEffect(() => { loadTasks(); }, [filterStatus]);
 
@@ -2225,7 +2228,34 @@ export const TasksPage: React.FC = () => {
                 {/* ── Checkpoints tab ────────────────────────────────────── */}
                 {activeTab === 'checkpoints' && (
                     <div className="p-6">
-                        <CheckpointTimeline />
+                        {/* Sub-tab bar */}
+                        <div className="flex items-center gap-1 mb-6 bg-gray-100 dark:bg-[#0f1117] rounded-lg p-1 w-fit">
+                            <button
+                                onClick={() => setCheckpointSubTab('timeline')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                                    checkpointSubTab === 'timeline'
+                                        ? 'bg-white dark:bg-[#161b27] text-gray-900 dark:text-white shadow-sm'
+                                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                }`}
+                            >
+                                <Milestone className="w-3.5 h-3.5" />
+                                Timeline
+                            </button>
+                            <button
+                                onClick={() => setCheckpointSubTab('diff')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                                    checkpointSubTab === 'diff'
+                                        ? 'bg-white dark:bg-[#161b27] text-gray-900 dark:text-white shadow-sm'
+                                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                }`}
+                            >
+                                <GitCompareArrows className="w-3.5 h-3.5" />
+                                Branch Diff
+                            </button>
+                        </div>
+
+                        {checkpointSubTab === 'timeline' && <CheckpointTimeline />}
+                        {checkpointSubTab === 'diff'     && <BranchDiffView />}
                     </div>
                 )}
 

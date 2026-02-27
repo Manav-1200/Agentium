@@ -8,21 +8,6 @@
 
 # ⚠️ Medium Priority (Backend Exists, Frontend Missing)
 
-## 4️⃣ Provider Performance Metrics Dashboard
-
-**Phase 5**
-
-**Backend:** ✅ Logs latency, cost, success/failure  
-**Frontend:** ❌ Aggregation + visualization missing
-
-### Missing:
-
-- Aggregated provider comparison
-- Cost over time charts
-- Success rate per provider
-- Average latency visualization
-- Model-level breakdown
-
 ---
 
 ## 5️⃣ Checkpoint Branch Diff View

@@ -36,6 +36,48 @@ export interface BranchRequest {
     branch_name: string;
 }
 
+// ─── Branch comparison types ──────────────────────────────────────────────────
+
+export type DiffStatus = 'added' | 'removed' | 'changed' | 'unchanged';
+
+export interface FieldDiff {
+    key: string;
+    left: any;
+    right: any;
+    status: DiffStatus;
+}
+
+export interface AgentStateDiff {
+    agent_id: string;
+    status: DiffStatus;
+    diffs: FieldDiff[];
+}
+
+export interface ArtifactDiff {
+    key: string;
+    status: DiffStatus;
+    left: any;
+    right: any;
+}
+
+export interface BranchCompareResult {
+    left_branch: string;
+    right_branch: string;
+    left_checkpoint_id: string;
+    right_checkpoint_id: string;
+    left_created_at: string;
+    right_created_at: string;
+    task_state_diffs: FieldDiff[];
+    agent_state_diffs: AgentStateDiff[];
+    artifact_diffs: ArtifactDiff[];
+    summary: {
+        added: number;
+        removed: number;
+        changed: number;
+        unchanged: number;
+    };
+}
+
 // ============================================================================
 // Checkpoints Service
 // ============================================================================
@@ -85,6 +127,26 @@ export const checkpointsService = {
         const response = await api.post(`/api/v1/checkpoints/${checkpointId}/branch`, {
             branch_name: branchName,
         });
+        return response.data;
+    },
+
+    /**
+     * Compare two branches by diffing their latest checkpoints.
+     * Returns structured diffs for task state, agent states, and artifacts.
+     */
+    compareBranches: async (
+        leftBranch: string,
+        rightBranch: string,
+        taskId?: string
+    ): Promise<BranchCompareResult> => {
+        const params = new URLSearchParams({
+            left_branch: leftBranch,
+            right_branch: rightBranch,
+        });
+        if (taskId) params.append('task_id', taskId);
+        const response = await api.get<BranchCompareResult>(
+            `/api/v1/checkpoints/compare?${params.toString()}`
+        );
         return response.data;
     },
 };

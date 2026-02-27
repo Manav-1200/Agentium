@@ -17,8 +17,9 @@ Agentium/
 │   │   ├── env.py                   # Alembic environment config
 │   │   └── versions/                # Migration scripts
 │   │       ├── 001_schema.py        # Initial schema
-│   │       └── 002_mcp_tools.py     # MCP tools migration
-│   │       └── 003_user_preferences.py # User preferences migration
+│   │       ├── 002_mcp_tools.py     # MCP tools migration
+│   │       ├── 003_user_preferences.py # User preferences migration
+│   │       └── 002_ab_testing.py    # A/B testing migration
 │   ├── api/                          # API layer
 │   │   ├── dependencies/
 │   │   │   └── auth.py              # Auth dependencies
@@ -44,10 +45,13 @@ Agentium/
 │   │   │   ├── tasks.py             # Task management
 │   │   │   ├── tool_creation.py     # Tool creation
 │   │   │   ├── tools.py             # Tool registry
+│   │   │   ├── user_preferences.py  # User preferences
 │   │   │   ├── voice.py             # Voice features
 │   │   │   ├── voting.py            # Voting/constitution
 │   │   │   ├── webhooks.py          # Webhook handlers
-│   │   │   └── websocket.py         # WebSocket endpoints
+│   │   │   ├── websocket.py         # WebSocket endpoints
+│   │   │   ├── ab_testing.py        # A/B testing
+│   │   │   └── provider_analytics.py # Provider analytics
 │   │   ├── schemas/                 # Pydantic schemas
 │   │   │   ├── checkpoint.py
 │   │   │   ├── mcp_schemas.py
@@ -69,6 +73,7 @@ Agentium/
 │   ├── models/                      # Database models
 │   │   ├── database.py              # Database setup
 │   │   ├── entities/                # SQLAlchemy entities
+│   │   │   ├── __init__.py
 │   │   │   ├── agents.py             # Agent definitions
 │   │   │   ├── audit.py              # Audit logs
 │   │   │   ├── base.py               # Base entity
@@ -92,12 +97,14 @@ Agentium/
 │   │   │   ├── user_config.py         # User preferences
 │   │   │   ├── user.py                # User entities
 │   │   │   ├── user_preference.py     # User preferences
-│   │   │   └── voting.py              # Voting records
+│   │   │   ├── voting.py              # Voting records
+│   │   │   └── ab_testing.py          # A/B testing
 │   │   └── schemas/                   # Request/response schemas
 │   │       ├── messages.py
 │   │       ├── task.py
 │   │       └── tool_creation.py
 │   ├── scripts/                      # Utility scripts
+│   │   ├── __init__.py
 │   │   ├── create_initial_admin.py   # Admin setup
 │   │   ├── init_db.py                 # Database init
 │   │   ├── init_vector_db.py          # Vector DB init
@@ -159,7 +166,8 @@ Agentium/
 │   │   ├── tool_deprecation.py      # Tool deprecation
 │   │   ├── tool_factory.py           # Tool factory
 │   │   ├── tool_marketplace.py       # Tool marketplace
-│   │   └── tool_versioning.py       # Tool versioning
+│   │   ├── tool_versioning.py       # Tool versioning
+│   │   └── ab_testing_service.py     # A/B testing service
 │   ├── tools/                       # Built-in tools
 │   │   ├── browser_tool.py          # Browser automation
 │   │   ├── user_preference_tool.py  # User preference operations
@@ -189,12 +197,21 @@ Agentium/
 │   │   │   │   ├── AgentTree.tsx
 │   │   │   │   └── SpawnAgentModal.tsx
 │   │   │   ├── checkpoints/         # Checkpoint UI
-│   │   │   │   └── CheckpointTimeline.tsx
+│   │   │   │   ├── CheckpointTimeline.tsx
+│   │   │   │   └── BranchDiffView.tsx
+│   │   │   ├── channels/             # Channel UI
+│   │   │   │   ├── ChannelMetricsCard.tsx
+│   │   │   │   ├── CircuitBreakerBadge.tsx
+│   │   │   │   └── MessageLogViewer.tsx
 │   │   │   ├── common/             # Shared components
 │   │   │   │   ├── ErrorBoundary.tsx
 │   │   │   │   └── ProtectedRoute.tsx
 │   │   │   ├── council/            # Governance UI
 │   │   │   │   └── VotingInterface.tsx
+│   │   │   ├── dashboard/          # Dashboard components
+│   │   │   │   ├── ChannelHealthWidget.tsx
+│   │   │   │   ├── FinancialBurnDashboard.tsx
+│   │   │   │   └── ProviderAnalytics.tsx
 │   │   │   ├── layout/             # Layout components
 │   │   │   │   └── MainLayout.tsx
 │   │   │   ├── models/             # Model config UI
@@ -208,8 +225,6 @@ Agentium/
 │   │   │   ├── tasks/              # Task UI
 │   │   │   │   ├── CreateTaskModal.tsx
 │   │   │   │   └── TaskCard.tsx
-│   │   │   ├── dashboard/          # Dashboard components
-│   │   │   │   └── FinancialBurnDashboard.tsx
 │   │   │   ├── BudgetControl.tsx
 │   │   │   ├── ConnectionStatus.tsx
 │   │   │   ├── FlatMapAuthBackground.tsx
@@ -233,20 +248,27 @@ Agentium/
 │   │   │   ├── SovereignDashboard.tsx
 │   │   │   ├── TasksPage.tsx
 │   │   │   ├── Usermanagement.tsx
-│   │   │   └── VotingPage.tsx
+│   │   │   ├── VotingPage.tsx
+│   │   │   ├── ABTestingPage.tsx
+│   │   │   └── MessageLogPage.tsx
 │   │   ├── services/                # API service layers
+│   │   │   ├── abTesting.ts
 │   │   │   ├── admin.ts
 │   │   │   ├── agents.ts
 │   │   │   ├── api.ts
 │   │   │   ├── auth.ts
 │   │   │   ├── chatApi.ts
+│   │   │   ├── channelMessages.ts
+│   │   │   ├── channelMetrics.ts
 │   │   │   ├── checkpoints.ts
 │   │   │   ├── constitution.ts
 │   │   │   ├── fileApi.ts
 │   │   │   ├── hostAccessApi.ts
 │   │   │   ├── inboxApi.ts
+│   │   │   ├── localVoice.ts
 │   │   │   ├── models.ts
 │   │   │   ├── monitoring.ts
+│   │   │   ├── preferences.ts
 │   │   │   ├── tasks.ts
 │   │   │   ├── voiceApi.ts
 │   │   │   └── voting.ts
@@ -259,6 +281,8 @@ Agentium/
 │   │   │   ├── hostAccess.ts
 │   │   │   └── index.ts
 │   │   ├── App.tsx                  # Root component
+│   │   ├── App.css                  # App styles
+│   │   ├── index.css                # Global styles
 │   │   └── main.tsx                  # Entry point
 │   ├── Dockerfile
 │   ├── eslint.config.js
@@ -275,6 +299,9 @@ Agentium/
 ├── docs/                            # Documentation
 │   ├── selfhost.md                  # Self-hosting guide
 │   ├── todo.md                      # TODO list
+│   ├── constitution/
+│   │   └── core.md                  # Constitution core
+│   ├── verification_1_7_phase.md    # Verification phase doc
 │   └── workflow/                    # Workflow docs
 │       ├── channel_verification.md
 │       ├── dev_workflow.md
