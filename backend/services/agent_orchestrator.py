@@ -32,6 +32,7 @@ from backend.models.schemas.tool_creation import ToolCreationRequest
 # NEW: Tool execution imports
 from backend.services.host_access import HostAccessService
 from backend.services.clarification_service import ClarificationService
+from backend.tools.browser_router import should_use_stealth_browser_with_runtime, register_stealth_domain
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +251,19 @@ class AgentOrchestrator:
             if command_phrase in content_lower:
                 # Check if agent is authorized for this tool
                 agent_tier = self._get_tier(agent_id)
+
+                # For browser commands, use router to pick stealth vs standard
+                if tool_name == "browser_control":
+                    import re
+                    url_match = re.search(r'https?://[^\s]+', content)
+                    url = url_match.group(0) if url_match else ""
+                    choice = should_use_stealth_browser_with_runtime(url)
+                    tool_name = choice.tool_name  # nodriver_navigate or desktop_browse_to
+                    logger.debug(
+                        "_detect_tool_intent: browser route for %r → %s (%s)",
+                        url, tool_name, choice.reason
+                    )
+
                 tool = tool_registry.get_tool(tool_name)
 
                 if tool and agent_tier in tool.get("authorized_tiers", []):
@@ -295,6 +309,34 @@ class AgentOrchestrator:
             kwargs=params,
             task_id=tool_detection.get("task_id"),  # pass along if present
         )
+
+        # If a standard browser call bounced with a bot-detection error, register
+        # the domain as stealth-required so future calls route to nodriver automatically.
+        if (
+            tool_name == "desktop_browse_to"
+            and result.get("status") == "error"
+            and any(kw in str(result.get("error", "")).lower()
+                    for kw in ("403", "captcha", "challenge", "blocked", "bot"))
+        ):
+            url = params.get("url", "")
+            if url:
+                from urllib.parse import urlparse
+                hostname = urlparse(url).hostname or ""
+                if hostname:
+                    register_stealth_domain(hostname)
+                    logger.warning(
+                        "_execute_tool_directly: bot-detection on %s — "
+                        "registered as stealth domain, retrying with nodriver",
+                        hostname
+                    )
+                    # Retry immediately with stealth browser
+                    result = tool_svc.execute_tool(
+                        tool_name="nodriver_navigate",
+                        called_by=agent_id,
+                        kwargs=params,
+                        task_id=tool_detection.get("task_id"),
+                    )
+                    tool_name = "nodriver_navigate"  # update for audit log
 
         # Log execution to audit trail (separate from analytics — audit is governance)
         await self._log(
@@ -475,6 +517,8 @@ class AgentOrchestrator:
         if "file" in issue.lower():
             suggestions.append("read_file")
         if "browser" in issue.lower() or "web" in issue.lower():
+            # Prefer stealth browser for web tasks since we don't have a URL yet
+            suggestions.append("nodriver_navigate")
             suggestions.append("browser_control")
         if "command" in issue.lower() or "execute" in issue.lower():
             suggestions.append("execute_command")

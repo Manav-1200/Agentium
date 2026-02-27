@@ -12,6 +12,7 @@ import asyncio
 import inspect
 from typing import Any, Callable, Dict, List, Optional
 
+from backend.tools.nodriver_tool import nodriver_tool
 from backend.tools.browser_tool  import BrowserTool
 from backend.tools.file_tool     import FileSystemTool
 from backend.tools.shell_tool    import ShellTool
@@ -679,6 +680,224 @@ class ToolRegistry:
                 "reason": {"type": "string", "description": "Reason for bulk update", "optional": True},
             },
             authorized_tiers=["0xxxx", "1xxxx", "2xxxx"],
+        )
+        
+        # ══════════════════════════════════════════════════════════════════════
+        # NODRIVER TOOL — stealth/undetected browser automation
+        # ══════════════════════════════════════════════════════════════════════
+
+        self.register_tool(
+            name="nodriver_navigate",
+            description=(
+                "Navigate the stealth browser to a URL. "
+                "Bypasses most WAF / anti-bot protections (Cloudflare, DataDome, etc.). "
+                "Returns the page title and resolved URL. "
+                "Use new_tab=True to open a parallel session."
+            ),
+            function=nodriver_tool.navigate,
+            parameters={
+                "url":        {"type": "string",  "description": "Destination URL (include https://)"},
+                "new_tab":    {"type": "boolean", "description": "Open in a new tab (default false)"},
+                "new_window": {"type": "boolean", "description": "Open in a new window (default false)"},
+                "timeout":    {"type": "number",  "description": "Page-load timeout in seconds (default 30)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_get_content",
+            description="Return the HTML content of the current stealth browser page.",
+            function=nodriver_tool.get_content,
+            parameters={
+                "max_chars": {"type": "integer", "description": "Max characters to return (default 8000)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_find_element",
+            description=(
+                "Find a page element by visible text using nodriver's smart shortest-match algorithm. "
+                "Retries until timeout. Great for cookie banners, buttons, labels."
+            ),
+            function=nodriver_tool.find_element,
+            parameters={
+                "text":       {"type": "string",  "description": "Visible text to search for"},
+                "best_match": {"type": "boolean", "description": "Return shortest/closest match (default true)"},
+                "timeout":    {"type": "number",  "description": "Retry timeout in seconds (default 10)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_find_all_elements",
+            description="Find all elements containing the given visible text.",
+            function=nodriver_tool.find_all_elements,
+            parameters={
+                "text":    {"type": "string", "description": "Visible text to search for"},
+                "timeout": {"type": "number", "description": "Retry timeout in seconds (default 10)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_select",
+            description=(
+                "Select a single element by CSS selector (waits until it appears). "
+                "Also works inside iframes. "
+                "Example selectors: 'input[type=email]', '[role=button]', 'a[href] > div > img'."
+            ),
+            function=nodriver_tool.select_element,
+            parameters={
+                "css_selector": {"type": "string", "description": "CSS selector string"},
+                "timeout":      {"type": "number", "description": "Retry timeout in seconds (default 10)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_select_all",
+            description="Select all elements matching a CSS selector (including inside iframes).",
+            function=nodriver_tool.select_all_elements,
+            parameters={
+                "css_selector": {"type": "string", "description": "CSS selector string"},
+                "timeout":      {"type": "number", "description": "Retry timeout in seconds (default 10)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_xpath",
+            description="Find a page node using an XPath selector.",
+            function=nodriver_tool.xpath,
+            parameters={
+                "xpath_selector": {"type": "string", "description": "XPath expression"},
+                "timeout":        {"type": "number", "description": "Retry timeout in seconds (default 10)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_click",
+            description=(
+                "Click a page element located by CSS selector OR visible text. "
+                "Supply exactly one of 'selector' or 'text'."
+            ),
+            function=nodriver_tool.click_element,
+            parameters={
+                "selector":   {"type": "string",  "description": "CSS selector (optional if text given)"},
+                "text":       {"type": "string",  "description": "Visible text (optional if selector given)"},
+                "best_match": {"type": "boolean", "description": "Use best-match text algorithm (default true)"},
+                "timeout":    {"type": "number",  "description": "Retry timeout in seconds (default 10)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_send_keys",
+            description="Type text or option values into the element matched by a CSS selector.",
+            function=nodriver_tool.send_keys,
+            parameters={
+                "selector": {"type": "string", "description": "CSS selector for the target element"},
+                "keys":     {"type": "string", "description": "Text / keys to send"},
+                "timeout":  {"type": "number", "description": "Retry timeout in seconds (default 10)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_evaluate",
+            description=(
+                "Execute arbitrary JavaScript in the current page context and return the result. "
+                "Example: {\"expression\": \"document.querySelectorAll('a').length\"}"
+            ),
+            function=nodriver_tool.evaluate,
+            parameters={
+                "expression": {"type": "string", "description": "JavaScript expression to evaluate"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_scroll",
+            description="Scroll the current page up or down by a pixel amount.",
+            function=nodriver_tool.scroll,
+            parameters={
+                "amount":    {"type": "integer", "description": "Pixels to scroll (default 200)"},
+                "direction": {"type": "string",  "description": "'down' or 'up' (default 'down')"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_screenshot",
+            description="Save a screenshot of the current stealth browser page to a file.",
+            function=nodriver_tool.screenshot,
+            parameters={
+                "save_path": {"type": "string", "description": "File path to save PNG (default /tmp/nodriver_screenshot.png)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_save_cookies",
+            description="Save current session cookies to a JSON file for reuse across runs.",
+            function=nodriver_tool.save_cookies,
+            parameters={
+                "filepath": {"type": "string", "description": "Destination file path for cookies JSON"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_load_cookies",
+            description="Restore session cookies from a JSON file (previously saved by nodriver_save_cookies).",
+            function=nodriver_tool.load_cookies,
+            parameters={
+                "filepath": {"type": "string", "description": "Source file path for cookies JSON"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_get_local_storage",
+            description="Read the current page's localStorage and return it as a dict.",
+            function=nodriver_tool.get_local_storage,
+            parameters={},
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_set_local_storage",
+            description="Write key-value pairs into the current page's localStorage.",
+            function=nodriver_tool.set_local_storage,
+            parameters={
+                "data": {"type": "object", "description": "Dict of key-value pairs to set"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_cf_verify",
+            description=(
+                "Automatically click the Cloudflare 'I am human' checkbox. "
+                "Requires opencv-python. Only works in non-expert mode."
+            ),
+            function=nodriver_tool.cf_verify,
+            parameters={},
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_bypass_insecure_warning",
+            description="Click through the browser's 'your connection is not private' warning (e.g. for self-signed certs).",
+            function=nodriver_tool.bypass_insecure_warning,
+            parameters={},
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_reload",
+            description="Reload the current stealth browser page.",
+            function=nodriver_tool.reload,
+            parameters={},
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_close_tab",
+            description="Close the currently active stealth browser tab.",
+            function=nodriver_tool.close_tab,
+            parameters={},
+            authorized_tiers=["0xxxx", "1xxxx"],
+        )
+        self.register_tool(
+            name="nodriver_close",
+            description="Shut down the stealth browser entirely and free all resources.",
+            function=nodriver_tool.close,
+            parameters={},
+            authorized_tiers=["0xxxx", "1xxxx"],
         )
 
     # ── Registration ───────────────────────────────────────────────────────────

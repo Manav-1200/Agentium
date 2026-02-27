@@ -52,10 +52,19 @@ else
     echo "⚠️  Xvfb not found — desktop tools will be unavailable"
 fi
 
-# ── 3. Run DB migrations ────────────────────────
+# ── 3. Verify Chromium for nodriver ────────────
+CHROME_BIN="${CHROME_BIN:-/usr/bin/chromium}"
+if command -v "${CHROME_BIN}" >/dev/null 2>&1; then
+    CHROME_VERSION=$("${CHROME_BIN}" --version 2>/dev/null || echo "unknown")
+    echo "✅ Chromium found for nodriver: ${CHROME_VERSION} (${CHROME_BIN})"
+else
+    echo "⚠️  Chromium not found at ${CHROME_BIN} — nodriver/stealth browser will be unavailable"
+fi
+
+# ── 4. Run DB migrations ────────────────────────
 echo "🔄 Running DB init..."
 python scripts/init_db.py
 
-# ── 4. Hand off to CMD (uvicorn / celery / etc.) ─
+# ── 5. Hand off to CMD (uvicorn / celery / etc.) ─
 echo "🚀 Starting: $*"
 exec "$@"
