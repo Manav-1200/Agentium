@@ -14,6 +14,7 @@ import hashlib
 
 from backend.core.config import settings
 
+
 # Password hashing (for future multi-user support)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer(auto_error=False)

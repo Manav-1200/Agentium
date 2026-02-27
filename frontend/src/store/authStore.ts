@@ -5,7 +5,7 @@ import { jwtDecode } from 'jwt-decode';
 
 // Proper User interface matching backend
 interface User {
-    id?: number;
+    id?: string;
     username: string;
     email?: string;
     is_active?: boolean;

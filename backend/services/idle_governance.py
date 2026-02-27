@@ -543,6 +543,7 @@ class EnhancedIdleGovernanceEngine:
         """
         Assign appropriate idle work to agent based on role.
         Consolidated method — includes preference optimization for all tiers.
+        Fixed: Uses UUID for task agentium_id to prevent duplicates.
         """
         # Skip if this agent already has an active idle task
         if agent.agentium_id in self.current_idle_tasks:
@@ -575,7 +576,8 @@ class EnhancedIdleGovernanceEngine:
         
         # Create the idle task in the database
         try:
-            idempotency_key = f"idle_{agent.agentium_id}_{task_type.value}_{datetime.utcnow().strftime('%Y%m%d%H')}"
+            # More granular idempotency key with minutes and seconds to reduce collisions
+            idempotency_key = f"idle_{agent.agentium_id}_{task_type.value}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
             
             # Duplicate prevention — check if an identical idle task already exists
             existing = db.query(Task).filter(
@@ -587,7 +589,12 @@ class EnhancedIdleGovernanceEngine:
                 logger.debug(f"Skipping duplicate idle task {idempotency_key}")
                 return
             
+            # Generate unique agentium_id for task using UUID to prevent T00001, T00002 collisions
+            import uuid
+            task_agentium_id = f"T{uuid.uuid4().hex[:8].upper()}"
+            
             idle_task = Task(
+                agentium_id=task_agentium_id,  # Explicitly set unique ID
                 title=f"[Idle] {task_type.value}",
                 description=f"[Idle] {task_type.value} by {agent.agentium_id}",
                 task_type=task_type,
@@ -608,10 +615,13 @@ class EnhancedIdleGovernanceEngine:
             agent.current_task_id = str(idle_task.id)
             agent.last_idle_action_at = datetime.utcnow()
             
-            logger.info(f"🌙 Idle work assigned: {agent.agentium_id} → {task_type.value}")
+            logger.info(f"🌙 Idle work assigned: {agent.agentium_id} → {task_type.value} (Task ID: {task_agentium_id})")
             
         except Exception as e:
+            db.rollback()  # Critical: Rollback on error to prevent partial commits
             logger.warning(f"⚠️ Failed to assign idle work to {agent.agentium_id}: {e}")
+            # Clean up any partial state
+            self.current_idle_tasks.pop(agent.agentium_id, None)
     
     async def _execute_idle_work(self, db: Session, agents: List[Agent]):
         """
@@ -634,16 +644,17 @@ class EnhancedIdleGovernanceEngine:
             try:
                 tokens_saved = 0
                 
-                if task.type == TaskType.PREFERENCE_OPTIMIZATION:
-                    result = await preference_optimizer_task.execute(db, agent)
+                # FIX: Use task.task_type instead of task.type
+                if task.task_type == TaskType.PREFERENCE_OPTIMIZATION:
+                    result = await preference_optimizer_task.execute()
                     tokens_saved = result.get('tokens_saved', 0) if isinstance(result, dict) else 0
                     
-                elif task.type == TaskType.VECTOR_MAINTENANCE:
+                elif task.task_type == TaskType.VECTOR_MAINTENANCE:
                     # Trigger vector DB maintenance via knowledge service
                     from backend.services.knowledge_service import knowledge_service
                     await knowledge_service.run_maintenance(db)
                     
-                elif task.type == TaskType.AUDIT_ARCHIVAL:
+                elif task.task_type == TaskType.AUDIT_ARCHIVAL:
                     # Archive old audit logs
                     from backend.models.entities.audit import AuditLog
                     cutoff = datetime.utcnow() - timedelta(days=90)
@@ -652,25 +663,25 @@ class EnhancedIdleGovernanceEngine:
                     ).count()
                     logger.info(f"📦 Audit archival scan: {archived} records eligible")
                     
-                elif task.type == TaskType.AGENT_HEALTH_SCAN:
+                elif task.task_type == TaskType.AGENT_HEALTH_SCAN:
                     # Check agent health across the system
                     all_agents = db.query(Agent).filter_by(is_active=True).all()
                     unhealthy = [a for a in all_agents if a.status == AgentStatus.SUSPENDED]
                     if unhealthy:
                         logger.info(f"🏥 Health scan: {len(unhealthy)} suspended agents found")
                         
-                elif task.type in (TaskType.CONSTITUTION_REFINE, TaskType.CONSTITUTION_READ):
+                elif task.task_type in (TaskType.CONSTITUTION_REFINE, TaskType.CONSTITUTION_READ):
                     # Trigger constitutional re-alignment
                     agent.read_and_align_constitution(db)
                     
-                elif task.type == TaskType.ETHOS_OPTIMIZATION:
+                elif task.task_type == TaskType.ETHOS_OPTIMIZATION:
                     # Compress and optimize agent's ethos
                     agent.compress_ethos(db)
                     
-                elif task.type == TaskType.CACHE_OPTIMIZATION:
+                elif task.task_type == TaskType.CACHE_OPTIMIZATION:
                     logger.info(f"🗄️ Cache optimization cycle by {agent.agentium_id}")
                     
-                elif task.type == TaskType.STORAGE_DEDUPE:
+                elif task.task_type == TaskType.STORAGE_DEDUPE:
                     logger.info(f"🔍 Storage dedup scan by {agent.agentium_id}")
                 
                 # Mark idle task as completed
@@ -686,7 +697,8 @@ class EnhancedIdleGovernanceEngine:
                 # Record metrics
                 self.metrics.record_idle_task_completion(tokens_saved)
                 
-                logger.info(f"✅ Idle work completed: {agent.agentium_id} → {task.type.value}")
+                # FIX: Use task.task_type instead of task.type
+                logger.info(f"✅ Idle work completed: {agent.agentium_id} → {task.task_type.value}")
                 
             except Exception as e:
                 logger.warning(f"⚠️ Idle work error for {agent.agentium_id}: {e}")

@@ -124,7 +124,106 @@ class Agent(BaseEntity):
             raise ValueError("Agentium ID must be exactly 5 digits")
         
         return agentium_id
+
+    def search_skills(
+        self,
+        query: str,
+        db: Session,
+        min_success_rate: float = 0.7
+    ) -> List[Dict[str, Any]]:
+        """
+        Search knowledge library for relevant skills.
+        Called during task execution to find applicable patterns.
+        """
+        from backend.services.skill_manager import skill_manager
+        
+        return skill_manager.search_skills(
+            query=query,
+            agent_tier=self.agent_type.value,
+            db=db,
+            min_success_rate=min_success_rate
+        )
     
+    def submit_skill(
+        self,
+        skill_data: Dict[str, Any],
+        task: "Task",
+        db: Session
+    ) -> str:
+        """
+        Submit a new skill to Knowledge Library for Council review.
+        Called after successful task execution with novel approach.
+        """
+        from backend.services.skill_manager import skill_manager
+        
+        # Populate provenance
+        skill_data["task_origin"] = task.agentium_id
+        skill_data["success_rate"] = 0.8  # Initial based on current success
+        
+        skill = skill_manager.create_skill(
+            skill_data=skill_data,
+            creator_agent=self,
+            db=db,
+            auto_verify=False  # Always require Council review for agent-created
+        )
+        
+        # Log submission
+        from backend.models.entities.audit import AuditLog, AuditCategory, AuditLevel
+        AuditLog.log(
+            db=db,
+            level=AuditLevel.INFO,
+            category=AuditCategory.GOVERNANCE,
+            actor_type="agent",
+            actor_id=self.agentium_id,
+            action="skill_submitted",
+            target_type="skill",
+            target_id=skill.skill_id,
+            description=f"Skill submitted for review: {skill.display_name}"
+        )
+        
+        return skill.skill_id
+    
+    def execute_with_skill_rag(
+        self,
+        task: "Task",
+        db: Session
+    ) -> Dict[str, Any]:
+        """
+        Execute task using RAG with skills from knowledge library.
+        Main execution method that augments LLM with retrieved skills.
+        """
+        from backend.services.skill_rag import skill_rag
+        import asyncio
+        
+        # Run RAG pipeline
+        result = asyncio.run(skill_rag.execute_with_skills(
+            task_description=task.description,
+            agent=self,
+            db=db,
+            model_config_id=self.get_model_config(db).id if self.get_model_config(db) else None
+        ))
+        
+        # Check if we should create new skill from this execution
+        if result.get("skills_used") and len(result["skills_used"]) == 0:
+            # No existing skills used - potential new skill
+            suggestion = asyncio.run(skill_rag.suggest_skill_creation(
+                task_description=task.description,
+                execution_result=result,
+                agent=self,
+                db=db
+            ))
+            
+            if suggestion:
+                # Auto-submit for review
+                new_skill_id = self.submit_skill(
+                    skill_data=suggestion["draft_skill"],
+                    task=task,
+                    db=db
+                )
+                result["suggested_new_skill"] = new_skill_id
+        
+        return result
+
     def get_system_prompt(self) -> str:
         """Get effective system prompt for this agent."""
         if self.system_prompt_override:

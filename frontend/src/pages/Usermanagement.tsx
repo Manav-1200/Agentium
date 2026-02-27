@@ -19,7 +19,7 @@ import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 
 interface User {
-    id: number;
+    id: string;
     username: string;
     email: string;
     is_active: boolean;
@@ -86,7 +86,7 @@ export default function UserManagement() {
         }
     };
 
-    const handleApprove = async (userId: number, username: string) => {
+    const handleApprove = async (userId: string, username: string) => {
         try {
             await api.post(`/api/v1/admin/users/${userId}/approve`);
             toast.success(`${username} approved successfully`, { icon: '✅', duration: 3000 });
@@ -96,7 +96,7 @@ export default function UserManagement() {
         }
     };
 
-    const handleReject = async (userId: number, username: string) => {
+    const handleReject = async (userId: string, username: string) => {
         if (!confirm(`Are you sure you want to reject ${username}'s signup request?`)) return;
         try {
             await api.post(`/api/v1/admin/users/${userId}/reject`);
@@ -107,9 +107,9 @@ export default function UserManagement() {
         }
     };
 
-    const handleDelete = async (userId: number, username: string) => {
+    const handleDelete = async (userId: string, username: string) => {
         if (!confirm(`Delete user "${username}"? This action cannot be undone.`)) return;
-        if (userId === currentUser.id) {
+        if (currentUser?.id && userId === currentUser.id) {
             toast.error('You cannot delete your own account');
             return;
         }

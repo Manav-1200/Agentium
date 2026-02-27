@@ -87,15 +87,62 @@ def get_task_db():
 # Core Task Execution
 # ═══════════════════════════════════════════════════════════
 
+# In execute_task_async function, replace with:
+
 @celery_app.task(bind=True, max_retries=3)
 def execute_task_async(self, task_id: str, agent_id: str):
-    """Execute a task asynchronously."""
-    try:
-        logger.info(f"Executing task {task_id} with agent {agent_id}")
-        return {"status": "completed", "task_id": task_id}
-    except Exception as exc:
-        logger.error(f"Task execution failed: {exc}")
-        raise self.retry(exc=exc, countdown=60)
+    """
+    Execute task with skill-augmented RAG.
+    """
+    with get_task_db() as db:
+        try:
+            logger.info(f"Executing task {task_id} with agent {agent_id}")
+            
+            # Load task and agent
+            task = db.query(Task).filter_by(agentium_id=task_id).first()
+            agent = db.query(Agent).filter_by(agentium_id=agent_id).first()
+            
+            if not task or not agent:
+                raise ValueError("Task or agent not found")
+            
+            # Execute with skill RAG
+            result = agent.execute_with_skill_rag(task, db)
+            
+            # Update task with result
+            task.complete(
+                result_summary=result["content"][:500],
+                result_data={
+                    "full_output": result["content"],
+                    "skills_used": result.get("skills_used", []),
+                    "model": result.get("model"),
+                    "tokens_used": result.get("tokens_used")
+                }
+            )
+            
+            # Record success for used skills
+            for skill in result.get("skills_used", []):
+                from backend.services.skill_manager import skill_manager
+                skill_manager.record_skill_usage(
+                    skill_id=skill["skill_id"],
+                    success=True,
+                    db=db
+                )
+            
+            db.commit()
+            
+            return {
+                "status": "completed",
+                "task_id": task_id,
+                "skills_used": len(result.get("skills_used", []))
+            }
+            
+        except Exception as exc:
+            logger.error(f"Task execution failed: {exc}")
+            
+            # Record failure for used skills
+            # (Would need to track which skills were attempted)
+            
+            raise self.retry(exc=exc, countdown=60)
 
 
 @celery_app.task

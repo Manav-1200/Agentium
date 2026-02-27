@@ -20,6 +20,7 @@ from backend.models.entities.channels import (
     ChannelStatus
 )
 
+from backend.models.entities.skill import SkillSchema, SkillDB, SkillSubmission
 from backend.models.entities.chat_message import ChatMessage, Conversation
 
 from backend.models.entities.scheduled_task import (
@@ -153,7 +154,9 @@ __all__ = [
     'ScheduledTaskExecution', 
     'ScheduledTaskStatus',
     'ScheduledTaskExecutionStatus',
-
+    "SkillSchema",
+    "SkillDB", 
+    "SkillSubmission",
 
     'ExternalChannel',
     'ExternalMessage', 

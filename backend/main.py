@@ -73,6 +73,7 @@ from backend.api.routes import remote_executor as remote_executor_routes  # Phas
 from backend.api.routes import voting as voting_routes            # Phase 7: Voting & Deliberations
 from backend.api.routes.ab_testing import router as ab_testing_router
 from backend.api.routes import provider_analytics as provider_analytics_routes
+from backend.api.routes import skills as skills_routes
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -371,6 +372,7 @@ app.include_router(tools_routes.router,             prefix="/api/v1")   # Phase 
 app.include_router(user_preferences_routes.router, prefix="/api/v1")
 app.include_router(ab_testing_router, prefix="/api/v1")
 app.include_router(provider_analytics_routes.router, prefix="/api/v1")
+app.include_router(skills_routes.router, prefix="/api/v1")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

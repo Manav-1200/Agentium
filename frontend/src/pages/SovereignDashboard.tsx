@@ -21,10 +21,12 @@ import {
     Zap,
     Wrench,
     DollarSign,
+    BookOpen,
 } from 'lucide-react';
 import { hostAccessApi } from '@/services/hostAccessApi';
 import { MCPToolRegistry } from '@/components/mcp/MCPToolRegistry';
 import { FinancialBurnDashboard } from '@/components/dashboard/FinancialBurnDashboard';
+import { SkillsPage } from './SkillsPage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,7 +55,7 @@ interface CommandLog {
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type TabId = 'system' | 'mcp-tools' | 'financial-burn';
+type TabId = 'system' | 'mcp-tools' | 'financial-burn' | 'skills';
 
 interface Tab {
     id: TabId;
@@ -80,6 +82,12 @@ const TABS: Tab[] = [
         label: 'Financial & Burn Rate',
         icon: DollarSign,
         description: 'Token usage, cost burn rate, and completion stats',
+    },
+        {
+        id: 'skills',
+        label: 'Knowledge Library',
+        icon: BookOpen,
+        description: 'Search and manage reusable skills and knowledge snippets',
     },
 ];
 
@@ -274,6 +282,10 @@ export function SovereignDashboard() {
             {/* ── Financial & Burn Rate Tab ────────────────────────────────── */}
             {activeTab === 'financial-burn' && (
                 <FinancialBurnDashboard />
+            )}
+            {/* ── Skills / Knowledge Library Tab ───────────────────────────── */}
+            {activeTab === 'skills' && (
+                <SkillsPage />
             )}
 
             {/* ── System Control Tab ───────────────────────────────────────── */}
