@@ -39,10 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxi6 \
     libxtst6 \
     libxss1 \
-    # tkinter required by mouseinfo (pyautogui dependency)
     python3-tk \
     tk-dev \
-    # Chromium and sandbox for nodriver (stealth browser automation)
     chromium \
     chromium-sandbox \
     fonts-liberation \
@@ -60,6 +58,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     libasound2 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22 LTS (via NodeSource — Bookworm apt version is too old)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Rust stable (rustup, installed globally so agentium user can use it)
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --no-modify-path --profile minimal --default-toolchain stable && \
+    chmod -R a+w /usr/local/rustup /usr/local/cargo
 
 # Create agentium user with root capabilities
 RUN useradd -m -s /bin/bash -G sudo,docker agentium && \
@@ -96,7 +107,10 @@ ENV PYTHONPATH=/app \
     DISPLAY=:99 \
     XVFB_SCREEN=0 \
     XVFB_RESOLUTION=1920x1080x24 \
-    CHROME_BIN=/usr/bin/chromium
+    CHROME_BIN=/usr/bin/chromium \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
 
 EXPOSE 8000
 

@@ -17,6 +17,11 @@ from backend.tools.browser_tool  import BrowserTool
 from backend.tools.file_tool     import FileSystemTool
 from backend.tools.shell_tool    import ShellTool
 from backend.tools.host_os_tool  import host_os_tool
+from backend.tools.code_analyzer_tool import code_analyzer
+from backend.tools.data_transform_tool import data_transform_tool
+from backend.tools.embedding_tool      import embedding_tool
+from backend.tools.git_tool            import git_tool
+from backend.tools.http_api_tool       import http_api_tool
 from backend.tools.desktop_tool  import (
     mouse_kb_tool,
     file_tool      as desktop_file_tool,
@@ -36,7 +41,120 @@ class ToolRegistry:
 
     def _initialize_tools(self):
         """Register all built-in (non-MCP) tools."""
+        # ══════════════════════════════════════════════════════════════════════
+        # CODE ANALYZER TOOL
+        # ══════════════════════════════════════════════════════════════════════
+        self.register_tool(
+            name="code_analyze",
+            description="Analyze code for syntax errors, lint issues, security vulnerabilities, and complexity metrics. Supports Python (pylint, bandit, mypy) and JS/TS.",
+            function=code_analyzer.execute,
+            parameters={
+                "code":           {"type": "string",  "description": "Source code string to analyze"},
+                "file_path":      {"type": "string",  "description": "Path to code file (alternative to code)"},
+                "language":       {"type": "string",  "description": "Language: python, javascript, typescript, json, yaml"},
+                "analysis_types": {"type": "array",   "description": "Checks to run: syntax, lint, security, complexity, all"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx", "4xxxx", "5xxxx", "6xxxx"],
+        )
 
+        # ══════════════════════════════════════════════════════════════════════
+        # DATA TRANSFORM TOOL
+        # ══════════════════════════════════════════════════════════════════════
+        self.register_tool(
+            name="data_transform",
+            description="Convert data between formats (JSON/CSV/XML/YAML/Parquet) and perform transformations: filter, sort, aggregate, deduplicate, flatten.",
+            function=data_transform_tool.execute,
+            parameters={
+                "action":        {"type": "string", "description": "convert, filter, aggregate, sort, deduplicate, flatten"},
+                "data":          {"type": "any",    "description": "Input data (dict, list, or string)"},
+                "input_format":  {"type": "string", "description": "Input format: json, csv, yaml, xml"},
+                "output_format": {"type": "string", "description": "Output format: json, csv, yaml, parquet, excel"},
+                "file_path":     {"type": "string", "description": "Load data from file path instead of data param"},
+                "query":         {"type": "string", "description": "Filter query e.g. 'age>18,status=active'"},
+                "options":       {"type": "object", "description": "Extra options: by, descending, group_by, function, separator"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx", "4xxxx", "5xxxx", "6xxxx"],
+        )
+
+        # ══════════════════════════════════════════════════════════════════════
+        # EMBEDDING TOOL
+        # ══════════════════════════════════════════════════════════════════════
+        self.register_tool(
+            name="embedding",
+            description="Generate vector embeddings for text and compute semantic similarity, search, or clustering. Providers: local (sentence-transformers), openai, cohere.",
+            function=embedding_tool.execute,
+            parameters={
+                "action":     {"type": "string",  "description": "embed, similarity, search, cluster"},
+                "texts":      {"type": "any",     "description": "String or list of strings to embed"},
+                "text_a":     {"type": "string",  "description": "First text for similarity comparison"},
+                "text_b":     {"type": "string",  "description": "Second text for similarity comparison"},
+                "query":      {"type": "string",  "description": "Query text for semantic search"},
+                "candidates": {"type": "array",   "description": "Candidate texts to search through"},
+                "provider":   {"type": "string",  "description": "Embedding provider: local, openai (default: local)"},
+                "model":      {"type": "string",  "description": "Model name override (optional)"},
+                "top_k":      {"type": "integer", "description": "Number of results to return for search (default 5)"},
+                "n_clusters": {"type": "integer", "description": "Number of clusters for cluster action (default 3)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx", "4xxxx", "5xxxx", "6xxxx"],
+        )
+
+        # ══════════════════════════════════════════════════════════════════════
+        # GIT TOOL
+        # ══════════════════════════════════════════════════════════════════════
+        self.register_tool(
+            name="git",
+            description="Git version control: clone repos, manage branches, view history/diffs, commit and push changes. Not available to task-tier agents (3xxxx).",
+            function=git_tool.execute,
+            parameters={
+                "action":    {"type": "string", "description": "clone, status, log, diff, checkout, pull, commit, push, branch_list, blame"},
+                "repo_url":  {"type": "string", "description": "Repository URL (for clone)"},
+                "path":      {"type": "string", "description": "Local repo path"},
+                "branch":    {"type": "string", "description": "Branch name"},
+                "message":   {"type": "string", "description": "Commit message"},
+                "files":     {"type": "array",  "description": "Files to stage for commit (omit to stage all)"},
+                "commit":    {"type": "string", "description": "Commit hash for diff"},
+                "file":      {"type": "string", "description": "File path for blame"},
+                "limit":     {"type": "integer","description": "Number of commits for log (default 10)"},
+                "remote":    {"type": "string", "description": "Remote name for push (default: origin)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx"],  # intentionally excludes 3xxxx
+        )
+
+        # ══════════════════════════════════════════════════════════════════════
+        # HTTP API TOOL
+        # ══════════════════════════════════════════════════════════════════════
+        self.register_tool(
+            name="http_api",
+            description="Advanced HTTP client: REST calls with auth (Bearer/Basic/API Key), automatic retries with backoff, rate limit tracking, and response parsing (JSON/XML/HTML).",
+            function=http_api_tool.execute,
+            parameters={
+                "url":              {"type": "string",  "description": "Request URL"},
+                "method":           {"type": "string",  "description": "HTTP method: GET, POST, PUT, DELETE, PATCH (default: GET)"},
+                "headers":          {"type": "object",  "description": "Custom request headers"},
+                "params":           {"type": "object",  "description": "URL query parameters"},
+                "data":             {"type": "any",     "description": "Raw request body"},
+                "json_data":        {"type": "object",  "description": "JSON body (sets Content-Type automatically)"},
+                "auth_type":        {"type": "string",  "description": "Auth method: bearer, basic, api_key"},
+                "auth_value":       {"type": "string",  "description": "Auth credential (token, user:pass, or key)"},
+                "timeout":          {"type": "integer", "description": "Request timeout in seconds (default 30)"},
+                "retries":          {"type": "integer", "description": "Max retry attempts (default 3)"},
+                "parse_as":         {"type": "string",  "description": "Response parser: json, xml, html, text, auto (default: json)"},
+                "follow_redirects": {"type": "boolean", "description": "Follow HTTP redirects (default true)"},
+                "verify_ssl":       {"type": "boolean", "description": "Verify SSL certificates (default true)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx", "4xxxx", "5xxxx", "6xxxx"],
+        )
+
+        self.register_tool(
+            name="http_api_batch",
+            description="Execute multiple HTTP requests concurrently with controlled concurrency.",
+            function=http_api_tool.batch_request,
+            parameters={
+                "requests":    {"type": "array",   "description": "List of request dicts (same params as http_api)"},
+                "concurrency": {"type": "integer", "description": "Max concurrent requests (default 5)"},
+            },
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx", "4xxxx", "5xxxx", "6xxxx"],
+        )
         # ══════════════════════════════════════════════════════════════════════
         # ORIGINAL BUILT-IN TOOLS
         # ══════════════════════════════════════════════════════════════════════
@@ -626,7 +744,7 @@ class ToolRegistry:
                 "user_id": {"type": "string", "description": "User ID (optional, for user-specific prefs)", "optional": True},
                 "default": {"type": "any", "description": "Default value if preference not found", "optional": True},
             },
-            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx"],
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx", "4xxxx", "5xxxx", "6xxxx"],
         )
         
         self.register_tool(
@@ -655,7 +773,7 @@ class ToolRegistry:
                 "category": {"type": "string", "description": "Filter by category", "optional": True},
                 "include_values": {"type": "boolean", "description": "Include values in response", "optional": True},
             },
-            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx"],
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx", "4xxxx", "5xxxx", "6xxxx"],
         )
         
         self.register_tool(
@@ -665,7 +783,7 @@ class ToolRegistry:
             parameters={
                 "agent_tier": {"type": "string", "description": "Agent tier (0xxxx, 1xxxx, 2xxxx, 3xxxx)"},
             },
-            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx"],
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx", "4xxxx", "5xxxx", "6xxxx"],
         )
         
         self.register_tool(
