@@ -359,7 +359,7 @@ class ReincarnationService:
                     logger.warning(f"⚠️ Invalid capability: {cap_name}")
         
         # Log the spawn
-        AuditLog.log(
+        audit = AuditLog.log(
             level=AuditLevel.INFO,
             category=AuditCategory.GOVERNANCE,
             actor_type="agent",
@@ -374,6 +374,7 @@ class ReincarnationService:
                 "custom_capabilities": capabilities or []
             }
         )
+        db.add(audit)
         
         logger.info(f"✨ Task Agent spawned: {new_id} (parent: {parent.agentium_id})")
         return task_agent
@@ -427,7 +428,7 @@ class ReincarnationService:
         db.flush()
         
         # Log the spawn
-        AuditLog.log(
+        audit = AuditLog.log(
             level=AuditLevel.INFO,
             category=AuditCategory.GOVERNANCE,
             actor_type="agent",
@@ -441,6 +442,7 @@ class ReincarnationService:
                 "name": name
             }
         )
+        db.add(audit)
         
         logger.info(f"✨ Lead Agent spawned: {new_id} (parent: {parent.agentium_id})")
         return lead_agent
@@ -543,7 +545,7 @@ class ReincarnationService:
         )
         
         # Log the promotion
-        AuditLog.log(
+        audit = AuditLog.log(
             level=AuditLevel.INFO,
             category=AuditCategory.GOVERNANCE,
             actor_type="agent",
@@ -560,6 +562,7 @@ class ReincarnationService:
                 "tasks_transferred": len(active_tasks)
             }
         )
+        db.add(audit)
         
         db.commit()
         
@@ -727,7 +730,7 @@ class ReincarnationService:
             agent.liquidation_archive = json.dumps(archive_state)
         
         # STEP 6: Log the liquidation
-        AuditLog.log(
+        audit = AuditLog.log(
             level=AuditLevel.WARNING,
             category=AuditCategory.GOVERNANCE,
             actor_type="agent",
@@ -738,6 +741,7 @@ class ReincarnationService:
             description=f"Agent {agent_id} liquidated by {liquidated_by.agentium_id}. Reason: {reason}",
             meta_data=liquidation_summary
         )
+        db.add(audit)
         
         db.commit()
         

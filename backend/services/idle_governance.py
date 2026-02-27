@@ -6,6 +6,7 @@ Adds scheduled auto-liquidation, resource rebalancing, and comprehensive metrics
 import asyncio
 import random
 import time
+import json
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
@@ -286,8 +287,7 @@ class EnhancedIdleGovernanceEngine:
             
             # Log the detection
             from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
-            AuditLog.log(
-                db=db,
+            audit = AuditLog.log(
                 level=AuditLevel.INFO,
                 category=AuditCategory.GOVERNANCE,
                 actor_type="system",
@@ -300,6 +300,7 @@ class EnhancedIdleGovernanceEngine:
                     "detection_time": datetime.utcnow().isoformat()
                 }
             )
+            db.add(audit)
         
         return idle_ids
     
@@ -544,6 +545,7 @@ class EnhancedIdleGovernanceEngine:
         Assign appropriate idle work to agent based on role.
         Consolidated method — includes preference optimization for all tiers.
         Fixed: Uses UUID for task agentium_id to prevent duplicates.
+        Fixed: Uses Python-side duplicate check to avoid SQL JSON operator issues.
         """
         # Skip if this agent already has an active idle task
         if agent.agentium_id in self.current_idle_tasks:
@@ -577,20 +579,30 @@ class EnhancedIdleGovernanceEngine:
         # Create the idle task in the database
         try:
             # More granular idempotency key with minutes and seconds to reduce collisions
-            idempotency_key = f"idle_{agent.agentium_id}_{task_type.value}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            import uuid
+            unique_suffix = uuid.uuid4().hex[:12]
+            idempotency_key = f"idle_{agent.agentium_id}_{task_type.value}_{unique_suffix}"
             
-            # Duplicate prevention — check if an identical idle task already exists
-            existing = db.query(Task).filter(
-                Task.idempotency_key == idempotency_key,
-                Task.is_active == True
-            ).first()
+            # Check for ANY recent identical idle task for this agent (within last hour)
+            from datetime import timedelta
+            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
             
-            if existing:
-                logger.debug(f"Skipping duplicate idle task {idempotency_key}")
-                return
+            # FIX: Use Python-side check to avoid SQL JSON operator complexity
+            # Fetch recent tasks of this type and check if agent is already assigned
+            recent_tasks = db.query(Task).filter(
+                Task.task_type == task_type,
+                Task.is_idle_task == True,
+                Task.is_active == True,
+                Task.created_at > one_hour_ago
+            ).limit(10).all()
+            
+            # Check if any of these tasks is assigned to this agent
+            for task in recent_tasks:
+                if task.assigned_task_agent_ids and agent.agentium_id in task.assigned_task_agent_ids:
+                    logger.debug(f"Skipping duplicate idle task for {agent.agentium_id}: {task_type.value}")
+                    return
             
             # Generate unique agentium_id for task using UUID to prevent T00001, T00002 collisions
-            import uuid
             task_agentium_id = f"T{uuid.uuid4().hex[:8].upper()}"
             
             idle_task = Task(
@@ -645,8 +657,9 @@ class EnhancedIdleGovernanceEngine:
                 tokens_saved = 0
                 
                 # FIX: Use task.task_type instead of task.type
+                # FIX: Don't await - execute() returns a dict, not a coroutine
                 if task.task_type == TaskType.PREFERENCE_OPTIMIZATION:
-                    result = await preference_optimizer_task.execute()
+                    result = preference_optimizer_task.execute()  # REMOVED: await
                     tokens_saved = result.get('tokens_saved', 0) if isinstance(result, dict) else 0
                     
                 elif task.task_type == TaskType.VECTOR_MAINTENANCE:
@@ -770,8 +783,7 @@ class EnhancedIdleGovernanceEngine:
                 # Log scaling decision in audit trail
                 from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
                 
-                AuditLog.log(
-                    db=db,
+                audit = AuditLog.log(
                     level=AuditLevel.INFO,
                     category=AuditCategory.GOVERNANCE,
                     actor_type="agent",
@@ -785,6 +797,7 @@ class EnhancedIdleGovernanceEngine:
                         "triggered_by": "queue_depth"
                     }
                 )
+                db.add(audit)
                 
                 # In production: Request Council micro-vote and spawn agents
                 # For now, log the recommendation

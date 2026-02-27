@@ -112,8 +112,9 @@ class AuditLog(BaseEntity):
         """
         Factory method to create audit log entry.
         """
+        import uuid as _uuid
         entry = cls(
-            agentium_id=f"A{datetime.utcnow().strftime('%Y%m%d%H%M%S')}{actor_id}",
+            agentium_id=f"A{_uuid.uuid4().hex[:19]}",  # exactly 20 chars, always unique
             level=level,
             category=category,
             actor_type=actor_type,

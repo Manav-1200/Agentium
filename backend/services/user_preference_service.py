@@ -462,8 +462,7 @@ class UserPreferenceService:
         self.db.commit()
 
         # Log optimization
-        AuditLog.log(
-            db=self.db,
+        audit = AuditLog.log(
             level=AuditLevel.INFO,
             category=AuditCategory.GOVERNANCE,
             actor_type="system",
@@ -472,6 +471,7 @@ class UserPreferenceService:
             description=f"Preference optimization completed",
             after_state=results
         )
+        self.db.add(audit)
 
         return results
 

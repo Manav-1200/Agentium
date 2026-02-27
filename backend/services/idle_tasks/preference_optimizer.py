@@ -70,17 +70,19 @@ class PreferenceOptimizerIdleTask:
                 archived = self._archive_old_history(db)
                 results["history_archived"] = archived
 
-                # Log completion
-                AuditLog.log(
-                    db=db,
+                # Log completion - FIX: Remove 'db=' parameter, use correct 'meta_data' parameter name
+                # Create audit log entry and add to session
+                audit = AuditLog.log(
                     level=AuditLevel.INFO,
                     category=AuditCategory.GOVERNANCE,
                     actor_type="system",
                     actor_id="IDLE_GOVERNANCE",
                     action="preference_optimization_completed",
                     description=f"Preference optimization completed: {opt_results}",
-                    after_state=results
+                    after_state=results,
+                    meta_data={"results": results}  # FIXED: use meta_data not metadata
                 )
+                db.add(audit)  # FIXED: Explicitly add to session
 
                 db.commit()
 
