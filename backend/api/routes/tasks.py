@@ -183,6 +183,16 @@ async def list_tasks(
     tasks = query.order_by(Task.created_at.desc()).offset(skip).limit(limit).all()
     return [_serialize(t) for t in tasks]
 
+@router.get("/active")
+async def get_active_tasks(
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get all active tasks."""
+    tasks = db.query(Task).filter(
+        Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.DELIBERATING])
+    ).order_by(Task.created_at.desc()).all()
+    return {"tasks": [_serialize(t) for t in tasks], "total": len(tasks)}
 
 @router.get("/{task_id}")
 async def get_task(

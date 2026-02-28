@@ -588,18 +588,6 @@ async def get_system_health(db: Session = Depends(get_db)):
     """Get comprehensive system health status."""
     return {"status": "healthy", "service": "MonitoringService", "timestamp": datetime.utcnow().isoformat()}
 
-
-# ── Task Management ───────────────────────────────────────────────────────────
-
-@app.get("/api/v1/tasks/active")
-async def get_active_tasks(db: Session = Depends(get_db)):
-    """Get all active tasks."""
-    tasks = db.query(Task).filter(
-        Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.DELIBERATING])
-    ).all()
-    return {"tasks": [task.to_dict() for task in tasks], "total": len(tasks)}
-
-
 # ── Idle Governance ───────────────────────────────────────────────────────────
 
 @app.get("/api/v1/governance/idle/status")
