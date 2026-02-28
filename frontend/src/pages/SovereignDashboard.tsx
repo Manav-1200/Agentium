@@ -22,11 +22,13 @@ import {
     Wrench,
     DollarSign,
     BookOpen,
+    Store,
 } from 'lucide-react';
 import { hostAccessApi } from '@/services/hostAccessApi';
 import { MCPToolRegistry } from '@/components/mcp/MCPToolRegistry';
 import { FinancialBurnDashboard } from '@/components/dashboard/FinancialBurnDashboard';
 import { SkillsPage } from './SkillsPage';
+import ToolMarketplacePage from './ToolMarketplacePage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -55,7 +57,7 @@ interface CommandLog {
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type TabId = 'system' | 'mcp-tools' | 'financial-burn' | 'skills';
+type TabId = 'system' | 'mcp-tools' | 'financial-burn' | 'skills' | 'tools-marketplace';
 
 interface Tab {
     id: TabId;
@@ -83,11 +85,17 @@ const TABS: Tab[] = [
         icon: DollarSign,
         description: 'Token usage, cost burn rate, and completion stats',
     },
-        {
+    {
         id: 'skills',
         label: 'Knowledge Library',
         icon: BookOpen,
         description: 'Search and manage reusable skills and knowledge snippets',
+    },
+    {
+        id: 'tools-marketplace',
+        label: 'Tool Marketplace',
+        icon: Store,
+        description: 'Browse, publish, and manage tools in the marketplace',
     },
 ];
 
@@ -283,9 +291,15 @@ export function SovereignDashboard() {
             {activeTab === 'financial-burn' && (
                 <FinancialBurnDashboard />
             )}
+
             {/* ── Skills / Knowledge Library Tab ───────────────────────────── */}
             {activeTab === 'skills' && (
                 <SkillsPage />
+            )}
+
+            {/* ── Tool Marketplace Tab ─────────────────────────────────────── */}
+            {activeTab === 'tools-marketplace' && (
+                <ToolMarketplacePage embedded />
             )}
 
             {/* ── System Control Tab ───────────────────────────────────────── */}

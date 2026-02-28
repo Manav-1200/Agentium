@@ -13,7 +13,11 @@ from backend.models.entities.agents import Agent, AgentType
 from backend.models.entities.monitoring import MonitoringAlert, ViolationSeverity
 from backend.models.entities.channels import ExternalChannel, ChannelType
 from backend.services.channel_manager import ChannelManager
-from backend.main import manager as websocket_manager
+
+# NOTE: websocket_manager is imported lazily (inside methods) to avoid a circular import.
+# backend.main imports db_maintenance → alert_manager, so importing backend.main here
+# at module level causes: ImportError: cannot import name 'manager' from partially
+# initialized module 'backend.main'.
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,8 @@ class AlertManager:
     async def _broadcast_websocket(self, alert: MonitoringAlert, message: str):
         """Broadcast alert to all connected WebSocket clients (Frontend Dashboard)."""
         try:
+            # Lazy import to avoid circular dependency with backend.main
+            from backend.main import manager as websocket_manager
             await websocket_manager.broadcast({
                 "type": "system_alert",
                 "severity": alert.severity.value,

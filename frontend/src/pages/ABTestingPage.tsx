@@ -630,13 +630,295 @@ function ExperimentCard({
   );
 }
 
+// ── Quick Test Modal ──────────────────────────────────────────────────────────
+
+function QuickTestModal({ onClose }: { onClose: () => void }) {
+  const [task, setTask] = useState('');
+  const [selectedConfigs, setSelectedConfigs] = useState<string[]>([]);
+  const [result, setResult] = useState<ExperimentDetail | null>(null);
+
+  const { data: modelsData } = useQuery({
+    queryKey: ['model-configs'],
+    queryFn: async () => {
+      const res = await api.get('/api/v1/models/configs');
+      return res.data;
+    },
+  });
+  const models = Array.isArray(modelsData) ? modelsData : [];
+
+  const { mutate: runTest, isPending } = useMutation({
+    mutationFn: () => abTestingApi.quickTest(task, selectedConfigs),
+    onSuccess: (data) => setResult(data),
+  });
+
+  const toggleConfig = (id: string) =>
+    setSelectedConfigs(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+
+  const isValid = task.trim() && selectedConfigs.length >= 2;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/80 backdrop-blur-sm">
+      <div className="bg-white dark:bg-[#161b27] rounded-2xl shadow-2xl dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-100 dark:border-[#1e2535]">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-[#1e2535]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 dark:bg-amber-400 flex items-center justify-center shadow-lg shadow-amber-500/25">
+              <Zap className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Quick A/B Test</h2>
+              <p className="text-xs text-slate-400 dark:text-slate-500">Synchronous — results returned immediately</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-[#1e2535] rounded-lg transition-colors">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
+        </div>
+
+        {!result ? (
+          <div className="p-6 space-y-5">
+            <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl p-3 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-amber-700 dark:text-amber-400">Quick tests run synchronously. Best for 2–3 models with simple tasks. Use "New Experiment" for large tests.</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Task / Prompt</label>
+              <textarea
+                value={task}
+                onChange={e => setTask(e.target.value)}
+                placeholder="Write a brief task to test across models..."
+                rows={3}
+                className="w-full px-3 py-2.5 bg-white dark:bg-[#0f1117] border border-slate-200 dark:border-[#1e2535] rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Select Models <span className="text-slate-400 font-normal">(pick 2–3)</span>
+              </label>
+              {models.length === 0 ? (
+                <p className="text-sm text-slate-400 italic">No model configs found.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {models.map((m: any, i: number) => {
+                    const selected = selectedConfigs.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => toggleConfig(m.id)}
+                        className={`flex items-center gap-2.5 p-3 rounded-xl border-2 text-left transition-all ${
+                          selected
+                            ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10'
+                            : 'border-slate-200 dark:border-[#1e2535] hover:border-slate-300 bg-white dark:bg-[#0f1117]'
+                        }`}
+                      >
+                        <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length] }} />
+                        <div className="min-w-0">
+                          <p className={`text-sm font-medium truncate ${selected ? 'text-amber-700 dark:text-amber-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                            {m.default_model || m.name || m.provider}
+                          </p>
+                          <p className="text-xs text-slate-400 truncate">{m.provider}</p>
+                        </div>
+                        {selected && <CheckCircle2 className="w-4 h-4 text-amber-500 ml-auto shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#1e2535] rounded-lg transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={() => runTest()}
+                disabled={!isValid || isPending}
+                className="flex items-center gap-2 px-5 py-2 bg-amber-500 text-white text-sm font-medium rounded-lg hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md shadow-amber-500/25"
+              >
+                {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                {isPending ? 'Running...' : 'Run Now'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="p-6 space-y-5">
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              <span className="font-semibold text-slate-800 dark:text-white">Test Complete</span>
+              <StatusBadge status={result.status} />
+            </div>
+
+            {result.comparison?.winner && (
+              <div className="bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl p-5 text-white shadow-lg shadow-amber-500/25">
+                <div className="flex items-center gap-2 mb-1">
+                  <Trophy className="w-4 h-4 text-yellow-200" />
+                  <span className="text-sm font-medium text-amber-100">Winner</span>
+                </div>
+                <p className="text-2xl font-bold">{result.comparison.winner.model}</p>
+                <p className="text-sm text-amber-100 mt-1">{result.comparison.winner.reason}</p>
+                <p className="text-xs text-amber-200 mt-2">Confidence: {(result.comparison.winner.confidence ?? 0).toFixed(0)}%</p>
+              </div>
+            )}
+
+            {result.comparison?.model_comparisons?.models && (
+              <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-[#1e2535]">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-[#0f1117]">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Model</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Quality</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Cost</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Latency</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 dark:divide-[#1e2535]">
+                    {result.comparison.model_comparisons.models.map((m: ModelComparison, i: number) => (
+                      <tr key={m.config_id} className="bg-white dark:bg-[#161b27]">
+                        <td className="px-4 py-3 flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length] }} />
+                          <span className="font-medium text-slate-800 dark:text-slate-200">{m.model_name}</span>
+                          {m.model_name === result.comparison?.winner?.model && <Trophy className="w-3.5 h-3.5 text-amber-500" />}
+                        </td>
+                        <td className="px-4 py-3 text-right"><ScorePill score={m.avg_quality_score} /></td>
+                        <td className="px-4 py-3 text-right font-mono text-xs text-slate-500">${m.avg_cost_usd?.toFixed(6) ?? '—'}</td>
+                        <td className="px-4 py-3 text-right text-slate-500">{m.avg_latency_ms?.toLocaleString() ?? '—'}ms</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm bg-slate-100 dark:bg-[#1e2535] text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-[#2a3347] transition-colors">
+                Close
+              </button>
+              <button
+                onClick={() => setResult(null)}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Run Another
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Recommendations Panel ─────────────────────────────────────────────────────
+
+function RecommendationsPanel() {
+  const [taskFilter, setTaskFilter] = useState('');
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['ab-recommendations', taskFilter],
+    queryFn: () => abTestingApi.getRecommendations(taskFilter || undefined),
+    refetchInterval: 60000,
+  });
+
+  const recommendations = data?.recommendations ?? [];
+
+  return (
+    <div className="bg-white dark:bg-[#161b27] rounded-2xl border border-slate-100 dark:border-[#1e2535] shadow-sm dark:shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+      <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-[#1e2535]">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+          <h2 className="font-semibold text-slate-800 dark:text-white text-sm">Model Recommendations</h2>
+          {data && (
+            <span className="text-xs text-slate-400 dark:text-slate-500">{data.total_categories} categories</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            value={taskFilter}
+            onChange={e => setTaskFilter(e.target.value)}
+            placeholder="Filter by category..."
+            className="px-3 py-1.5 text-xs bg-slate-50 dark:bg-[#0f1117] border border-slate-200 dark:border-[#1e2535] rounded-lg text-slate-700 dark:text-slate-300 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-40"
+          />
+          <button onClick={() => refetch()} className="p-1.5 hover:bg-slate-100 dark:hover:bg-[#1e2535] rounded-lg transition-colors">
+            <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+        </div>
+      ) : recommendations.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+          <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center mb-4">
+            <TrendingUp className="w-6 h-6 text-indigo-400" />
+          </div>
+          <h3 className="font-semibold text-slate-700 dark:text-slate-300 mb-1 text-sm">No recommendations yet</h3>
+          <p className="text-xs text-slate-400 dark:text-slate-500">Complete some experiments to build model recommendations</p>
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-50 dark:divide-[#1e2535]">
+          {recommendations.map((rec, i) => (
+            <div key={`${rec.task_category}-${i}`} className="p-4 hover:bg-slate-50 dark:hover:bg-[#1e2535]/50 transition-colors">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide truncate">{rec.task_category}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Trophy className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span className="font-semibold text-slate-800 dark:text-white text-sm">{rec.recommended_model}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0 text-right">
+                  <div>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">Quality</p>
+                    <ScorePill score={rec.avg_quality_score} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">Avg Cost</p>
+                    <p className="text-xs font-mono text-slate-600 dark:text-slate-400">${rec.avg_cost_usd?.toFixed(5) ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">Success</p>
+                    <p className={`text-xs font-semibold ${rec.success_rate >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {rec.success_rate.toFixed(0)}%
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
+                <span>{rec.avg_latency_ms?.toLocaleString() ?? '—'}ms avg latency</span>
+                <span>·</span>
+                <span>{rec.sample_size} samples</span>
+                {rec.last_updated && (
+                  <>
+                    <span>·</span>
+                    <span>Updated {new Date(rec.last_updated).toLocaleDateString()}</span>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export function ABTestingPage() {
   const { user } = useAuthStore();
   const [showCreate, setShowCreate] = useState(false);
+  const [showQuickTest, setShowQuickTest] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'experiments' | 'recommendations'>('experiments');
 
   const queryClient = useQueryClient();
 
@@ -709,13 +991,22 @@ export function ABTestingPage() {
               <p className="text-sm text-slate-400 dark:text-slate-500">Compare AI models on cost, speed &amp; quality</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 dark:bg-indigo-500 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 dark:hover:bg-indigo-400 shadow-sm transition-colors shadow-indigo-200 dark:shadow-indigo-500/20"
-          >
-            <Plus className="w-4 h-4" />
-            New Experiment
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowQuickTest(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white text-sm font-medium rounded-xl hover:bg-amber-600 shadow-sm transition-colors shadow-amber-200 dark:shadow-amber-500/20"
+            >
+              <Zap className="w-4 h-4" />
+              Quick Test
+            </button>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 dark:bg-indigo-500 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 dark:hover:bg-indigo-400 shadow-sm transition-colors shadow-indigo-200 dark:shadow-indigo-500/20"
+            >
+              <Plus className="w-4 h-4" />
+              New Experiment
+            </button>
+          </div>
         </div>
 
         {/* Stats row */}
@@ -728,6 +1019,33 @@ export function ABTestingPage() {
           </div>
         )}
 
+        {/* Tabs */}
+        <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#161b27] rounded-xl p-1 w-fit border border-slate-200 dark:border-[#1e2535]">
+          <button
+            onClick={() => setActiveTab('experiments')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'experiments'
+                ? 'bg-white dark:bg-[#0f1117] text-slate-800 dark:text-white shadow-sm'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            Experiments
+          </button>
+          <button
+            onClick={() => setActiveTab('recommendations')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'recommendations'
+                ? 'bg-white dark:bg-[#0f1117] text-slate-800 dark:text-white shadow-sm'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            Recommendations
+          </button>
+        </div>
+
+        {activeTab === 'recommendations' ? (
+          <RecommendationsPanel />
+        ) : (<>
         {/* Filters */}
         <div className="flex items-center gap-2">
           {FILTERS.map(f => (
@@ -788,7 +1106,14 @@ export function ABTestingPage() {
         )}
       </div>
 
+        </>)}
+      </div>
+
       {/* Modals */}
+      {showQuickTest && (
+        <QuickTestModal onClose={() => setShowQuickTest(false)} />
+      )}
+
       {showCreate && (
         <CreateExperimentModal
           onClose={() => setShowCreate(false)}

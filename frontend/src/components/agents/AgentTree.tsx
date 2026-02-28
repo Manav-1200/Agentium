@@ -1,12 +1,9 @@
 /**
- * AgentTree — Phase 7.2 + Phase 7 DnD
+ * AgentTree — Phase 7.2 + Phase 7 DnD + Promote action
  *
  * Changes vs previous:
- *  - DragDropProps interface threaded through every tree level
- *  - DraggableCard wrapper: HTML5 drag source + drop target per card
- *  - Drop target ring highlight while dragging
- *  - Dragged card fades/scales to indicate it's being moved
- *  - Critic branch is NOT a drag source or drop target
+ *  - onPromote callback threaded through every tree level
+ *  - DraggableCard passes onPromote to AgentCard
  */
 
 import React, { useState } from 'react';
@@ -36,11 +33,13 @@ export interface DragDropProps {
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface AgentTreeProps extends DragDropProps {
-    agent:          Agent;
-    agentsMap:      Map<string, Agent>;
-    onSpawn:        (agent: Agent) => void;
-    onTerminate:    (agent: Agent) => void;
-    level?:         number;
+    agent:           Agent;
+    agentsMap:       Map<string, Agent>;
+    onSpawn:         (agent: Agent) => void;
+    onTerminate:     (agent: Agent) => void;
+    /** Optional — triggers the promote flow for task_agents */
+    onPromote?:      (agent: Agent) => void;
+    level?:          number;
     includeCritics?: boolean;
 }
 
@@ -50,8 +49,9 @@ const DraggableCard: React.FC<DragDropProps & {
     agent:       Agent;
     onSpawn:     (agent: Agent) => void;
     onTerminate: (agent: Agent) => void;
+    onPromote?:  (agent: Agent) => void;
 }> = ({
-    agent, onSpawn, onTerminate,
+    agent, onSpawn, onTerminate, onPromote,
     draggingAgentId, dropTargetId,
     onDragStart, onDragEnd, onDragEnter, onDragLeave, onDrop,
 }) => {
@@ -67,7 +67,6 @@ const DraggableCard: React.FC<DragDropProps & {
             onDragStart={e => {
                 if (!isDraggable) { e.preventDefault(); return; }
                 e.dataTransfer.effectAllowed = 'move';
-                // Tiny delay so the ghost image is drawn before the opacity change kicks in
                 requestAnimationFrame(() => onDragStart(agent));
             }}
             onDragEnd={onDragEnd}
@@ -103,9 +102,13 @@ const DraggableCard: React.FC<DragDropProps & {
                     : '',
             ].join(' ')}
         >
-            <AgentCard agent={agent} onSpawn={onSpawn} onTerminate={onTerminate} />
+            <AgentCard
+                agent={agent}
+                onSpawn={onSpawn}
+                onTerminate={onTerminate}
+                onPromote={onPromote}
+            />
 
-            {/* Drop-zone overlay label */}
             {isDropTarget && !isDragging && (
                 <div className="absolute inset-0 rounded-xl bg-blue-500/10 flex items-center justify-center pointer-events-none">
                     <span className="text-xs font-semibold text-blue-600 dark:text-blue-300 bg-white dark:bg-[#161b27] px-2 py-0.5 rounded-full shadow">
@@ -120,7 +123,7 @@ const DraggableCard: React.FC<DragDropProps & {
 // ─── Recursive tree node ──────────────────────────────────────────────────────
 
 export const AgentTree: React.FC<AgentTreeProps> = ({
-    agent, agentsMap, onSpawn, onTerminate,
+    agent, agentsMap, onSpawn, onTerminate, onPromote,
     level = 0, includeCritics = false,
     draggingAgentId, dropTargetId,
     onDragStart, onDragEnd, onDragEnter, onDragLeave, onDrop,
@@ -143,7 +146,6 @@ export const AgentTree: React.FC<AgentTreeProps> = ({
     const hasMainChildren = mainChildren.length > 0;
     const hasCritics      = criticAgents.length > 0;
 
-    // Bundle to pass down recursively
     const dndProps: DragDropProps = {
         draggingAgentId, dropTargetId,
         onDragStart, onDragEnd, onDragEnter, onDragLeave, onDrop,
@@ -151,18 +153,15 @@ export const AgentTree: React.FC<AgentTreeProps> = ({
 
     return (
         <div className="relative">
-            {/* Vertical spine */}
             {level > 0 && (
                 <div className="absolute border-l-2 border-slate-400 dark:border-slate-500" style={{ left: '-24px', height: '100%', top: 0 }} />
             )}
 
             <div className="flex items-start gap-2 mb-4 relative">
-                {/* Horizontal connector */}
                 {level > 0 && (
                     <div className="absolute w-6 border-t-2 border-slate-400 dark:border-slate-500" style={{ left: '-24px', top: '24px' }} />
                 )}
 
-                {/* Expand chevron */}
                 {hasMainChildren ? (
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
@@ -178,11 +177,11 @@ export const AgentTree: React.FC<AgentTreeProps> = ({
                     agent={agent}
                     onSpawn={onSpawn}
                     onTerminate={onTerminate}
+                    onPromote={onPromote}
                     {...dndProps}
                 />
             </div>
 
-            {/* Children */}
             {isExpanded && hasMainChildren && (
                 <div className="ml-12 pl-6 border-l-2 border-slate-400 dark:border-slate-500">
                     <div className="border-l border-slate-300 dark:border-slate-600 -ml-6 pl-6 pt-2">
@@ -193,6 +192,7 @@ export const AgentTree: React.FC<AgentTreeProps> = ({
                                 agentsMap={agentsMap}
                                 onSpawn={onSpawn}
                                 onTerminate={onTerminate}
+                                onPromote={onPromote}
                                 level={level + 1}
                                 includeCritics={false}
                                 {...dndProps}
@@ -202,7 +202,7 @@ export const AgentTree: React.FC<AgentTreeProps> = ({
                 </div>
             )}
 
-            {/* ── Critic branch (root only) ─────────────────────────────────── */}
+            {/* ── Critic branch (root only) ──────────────────────────────────── */}
             {isRoot && hasCritics && (
                 <div className="mt-8">
                     <button onClick={() => setCriticExpanded(x => !x)} className="flex items-center gap-2 mb-4">

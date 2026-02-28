@@ -1,10 +1,16 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Agent } from '../types';
-import { agentsService, capabilitiesService } from '../services/agents';
+import { agentsService, capabilitiesService, lifecycleService } from '../services/agents';
 import { AgentTree } from '../components/agents/AgentTree';
 import { SpawnAgentModal } from '../components/agents/SpawnAgentModal';
+import { PromoteAgentModal } from '../components/agents/PromoteAgentModal';
+import { BulkLiquidateModal } from '../components/agents/BulkLiquidateModal';
+import { LifecycleDashboard } from '../components/agents/LifecycleDashboard';
 import { useWebSocketStore } from '@/store/websocketStore';
-import { LayoutGrid, List, Users, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
+import {
+    LayoutGrid, List, Users, AlertCircle, Loader2, RefreshCw,
+    BarChart2, ChevronLeft, ChevronRight as ChevronRightIcon,
+} from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -40,7 +46,6 @@ const AGENT_TYPE_COLORS: Record<string, {
     },
 };
 
-// WS content prefixes that signal agent hierarchy changes
 const AGENT_WS_PREFIXES = ['agent_spawned', 'agent_terminated', 'agent_status', 'agent_updated'];
 function isAgentEvent(content: string): boolean {
     return AGENT_WS_PREFIXES.some(p => content?.startsWith(p));
@@ -49,7 +54,7 @@ function isAgentEvent(content: string): boolean {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function normalizeAgent(agent: any): Agent {
-    const rawType = agent.agent_type;
+    const rawType  = agent.agent_type;
     const validType = VALID_AGENT_TYPES.includes(rawType) ? rawType : 'task_agent';
     return {
         ...agent,
@@ -65,12 +70,12 @@ function normalizeAgent(agent: any): Agent {
 // ─── Reassign Confirmation Modal ──────────────────────────────────────────────
 
 interface ReassignModalProps {
-    agent: Agent;
-    newParent: Agent;
-    validating: boolean;
+    agent:           Agent;
+    newParent:       Agent;
+    validating:      boolean;
     validationError: string | null;
-    onConfirm: () => void;
-    onClose: () => void;
+    onConfirm:       () => void;
+    onClose:         () => void;
 }
 
 const ReassignModal: React.FC<ReassignModalProps> = ({
@@ -125,6 +130,17 @@ export const AgentsPage: React.FC = () => {
     const [viewMode,     setViewMode]     = useState<'tree' | 'list'>('tree');
     const [spawnParent,  setSpawnParent]  = useState<Agent | null>(null);
 
+    // ── Promote state ─────────────────────────────────────────────────────────
+    const [promoteTarget, setPromoteTarget] = useState<Agent | null>(null);
+
+    // ── Bulk liquidate state ──────────────────────────────────────────────────
+    const [showBulkLiquidate, setShowBulkLiquidate] = useState(false);
+
+    // ── Lifecycle sidebar ─────────────────────────────────────────────────────
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    /** Key to force LifecycleDashboard to remount/refetch after bulk liquidation */
+    const [dashboardKey, setDashboardKey] = useState(0);
+
     // ── DnD state ─────────────────────────────────────────────────────────────
     const [draggingAgent,   setDraggingAgent]   = useState<Agent | null>(null);
     const [dropTarget,      setDropTarget]      = useState<string | null>(null);
@@ -134,8 +150,8 @@ export const AgentsPage: React.FC = () => {
     const dragCounter = useRef(0);
 
     // ── Real-time ─────────────────────────────────────────────────────────────
-    const lastMessage    = useWebSocketStore(state => state.lastMessage);
-    const prevMsgRef     = useRef<typeof lastMessage>(null);
+    const lastMessage = useWebSocketStore(state => state.lastMessage);
+    const prevMsgRef  = useRef<typeof lastMessage>(null);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Data loading
@@ -168,7 +184,6 @@ export const AgentsPage: React.FC = () => {
 
         const { type, content, metadata } = lastMessage;
 
-        // Generic agent system event → silent refresh
         if (type === 'system' && isAgentEvent(content)) {
             loadAgents(true);
             return;
@@ -177,7 +192,6 @@ export const AgentsPage: React.FC = () => {
         if (metadata?.agent_id) {
             const agentId = metadata.agent_id;
 
-            // Optimistic status patch from status events
             const statusMatch = content?.match(/^agent_status:(\w+):/);
             if (statusMatch) {
                 const newStatus = statusMatch[1] as Agent['status'];
@@ -186,10 +200,7 @@ export const AgentsPage: React.FC = () => {
                 );
             }
 
-            if (content?.startsWith('agent_spawned')) {
-                loadAgents(true);
-            }
-
+            if (content?.startsWith('agent_spawned'))    loadAgents(true);
             if (content?.startsWith('agent_terminated')) {
                 setAgents(prev =>
                     prev.map(a =>
@@ -203,7 +214,7 @@ export const AgentsPage: React.FC = () => {
     }, [lastMessage, loadAgents]);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Spawn (with optimistic UI)
+    // Spawn
     // ─────────────────────────────────────────────────────────────────────────
 
     const handleSpawn = async (name: string, childType: 'council_member' | 'lead_agent' | 'task_agent') => {
@@ -217,7 +228,6 @@ export const AgentsPage: React.FC = () => {
             constitution_version: '', is_terminated: false, parent: spawnParent.agentium_id,
         });
 
-        // Optimistic add
         setAgents(prev => [
             ...prev.map(a =>
                 a.agentium_id === spawnParent.agentium_id
@@ -232,7 +242,6 @@ export const AgentsPage: React.FC = () => {
             toast.success('Agent spawned successfully');
             await loadAgents(true);
         } catch (err) {
-            // Rollback
             setAgents(prev =>
                 prev
                     .filter(a => a.agentium_id !== placeholderId)
@@ -247,13 +256,12 @@ export const AgentsPage: React.FC = () => {
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Terminate (with optimistic UI)
+    // Terminate
     // ─────────────────────────────────────────────────────────────────────────
 
     const handleTerminate = async (agent: Agent) => {
         if (!window.confirm(`Terminate ${agent.name}?`)) return;
 
-        // Optimistic mark
         setAgents(prev =>
             prev.map(a =>
                 a.agentium_id === agent.agentium_id
@@ -266,8 +274,7 @@ export const AgentsPage: React.FC = () => {
             await agentsService.terminateAgent(agent.agentium_id, 'Manual termination by Sovereign');
             toast.success('Agent terminated');
             await loadAgents(true);
-        } catch (err) {
-            // Rollback
+        } catch {
             setAgents(prev =>
                 prev.map(a =>
                     a.agentium_id === agent.agentium_id
@@ -277,6 +284,34 @@ export const AgentsPage: React.FC = () => {
             );
             toast.error('Failed to terminate agent');
         }
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Promote
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const handlePromoteConfirm = async (promotedByAgentiumId: string, reason: string) => {
+        if (!promoteTarget) return;
+        await lifecycleService.promoteAgent({
+            task_agentium_id:       promoteTarget.agentium_id,
+            promoted_by_agentium_id: promotedByAgentiumId,
+            reason,
+        });
+        toast.success(`${promoteTarget.name} promoted to Lead Agent`);
+        setPromoteTarget(null);
+        await loadAgents(true);
+        // Refresh dashboard stats to reflect promotion event
+        setDashboardKey(k => k + 1);
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Bulk liquidate callback
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const handleBulkLiquidateSuccess = async (count: number) => {
+        toast.success(`${count} idle agent${count !== 1 ? 's' : ''} liquidated`);
+        await loadAgents(true);
+        setDashboardKey(k => k + 1);
     };
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -310,11 +345,6 @@ export const AgentsPage: React.FC = () => {
         dragCounter.current = 0;
         if (!draggingAgent || newParentId === draggingAgent.agentium_id) return;
 
-        // Build agentsMap snapshot for lookup
-        const map = new Map<string, Agent>();
-        setAgents(prev => { prev.forEach(a => map.set(a.agentium_id, a)); return prev; });
-
-        // We need the actual current agents map — use a ref approach
         const newParent = agentsMapRef.current.get(newParentId);
         if (!newParent) return;
 
@@ -342,7 +372,6 @@ export const AgentsPage: React.FC = () => {
         const { agent, newParent } = pendingReassign;
         setPendingReassign(null);
 
-        // Optimistic tree move
         setAgents(prev => {
             const oldParent = prev.find(a => a.subordinates.includes(agent.agentium_id));
             return prev.map(a => {
@@ -408,6 +437,20 @@ export const AgentsPage: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {/* Lifecycle sidebar toggle */}
+                    <button
+                        onClick={() => setSidebarOpen(v => !v)}
+                        title={sidebarOpen ? 'Hide lifecycle panel' : 'Show lifecycle panel'}
+                        className={[
+                            'p-2 rounded-lg border text-slate-500 dark:text-slate-400 transition-colors shadow-sm',
+                            sidebarOpen
+                                ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400'
+                                : 'border-slate-200 dark:border-[#1e2535] bg-white dark:bg-[#161b27] hover:bg-slate-50 dark:hover:bg-[#1e2535]',
+                        ].join(' ')}
+                    >
+                        <BarChart2 className="w-4 h-4" />
+                    </button>
+
                     <button
                         onClick={() => loadAgents(true)}
                         disabled={isRefreshing}
@@ -438,73 +481,88 @@ export const AgentsPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* ── Content area ──────────────────────────────────────── */}
-            <div className="flex-1 overflow-auto rounded-xl border border-slate-200 dark:border-[#1e2535] p-6 bg-white dark:bg-[#161b27] shadow-sm dark:shadow-[0_2px_20px_rgba(0,0,0,0.3)] transition-colors duration-200">
+            {/* ── Main + sidebar layout ────────────────────────────── */}
+            <div className={`flex flex-1 gap-4 overflow-hidden ${sidebarOpen ? 'flex-row' : ''}`}>
 
-                {isLoading ? (
-                    <div className="flex flex-col items-center justify-center h-40 gap-3 text-slate-400 dark:text-slate-500">
-                        <Loader2 className="w-6 h-6 animate-spin" />
-                        <span className="text-sm">Loading agents…</span>
-                    </div>
+                {/* ── Content area ──────────────────────────────────── */}
+                <div className="flex-1 overflow-auto rounded-xl border border-slate-200 dark:border-[#1e2535] p-6 bg-white dark:bg-[#161b27] shadow-sm dark:shadow-[0_2px_20px_rgba(0,0,0,0.3)] transition-colors duration-200">
 
-                ) : agents.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-40 gap-2 text-slate-400 dark:text-slate-500">
-                        <Users className="w-8 h-8 opacity-40" />
-                        <span className="text-sm">No agents found. System not initialized?</span>
-                    </div>
-
-                ) : viewMode === 'tree' ? (
-                    headOfCouncil ? (
-                        <div className="relative rounded-xl border border-slate-200 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-900 p-6 min-h-[500px] overflow-auto">
-                            <div
-                                className="absolute inset-0 rounded-xl bg-[radial-gradient(circle,_#cbd5e1_1px,_transparent_1px)] dark:bg-[radial-gradient(circle,_#334155_1px,_transparent_1px)] bg-[length:20px_20px] opacity-60 pointer-events-none"
-                                aria-hidden="true"
-                            />
-                            <div className="relative z-10">
-                                <AgentTree
-                                    agent={headOfCouncil}
-                                    agentsMap={agentsMap}
-                                    onSpawn={setSpawnParent}
-                                    onTerminate={handleTerminate}
-                                    draggingAgentId={draggingAgent?.agentium_id ?? null}
-                                    dropTargetId={dropTarget}
-                                    onDragStart={handleDragStart}
-                                    onDragEnd={handleDragEnd}
-                                    onDragEnter={handleDragEnter}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={handleDrop}
-                                />
-                            </div>
+                    {isLoading ? (
+                        <div className="flex flex-col items-center justify-center h-40 gap-3 text-slate-400 dark:text-slate-500">
+                            <Loader2 className="w-6 h-6 animate-spin" />
+                            <span className="text-sm">Loading agents…</span>
                         </div>
-                    ) : (
-                        <div className="flex items-center gap-2 text-red-600 dark:text-red-400 text-sm">
-                            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                            Head of Council not found in agent list.
-                        </div>
-                    )
 
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {agents.map(agent => {
-                            const colorSet = AGENT_TYPE_COLORS[agent.agent_type] ?? AGENT_TYPE_COLORS.task_agent;
-                            const label    = AGENT_TYPE_LABELS[agent.agent_type] ?? agent.agent_type;
-                            const { light, dark } = colorSet;
-                            return (
+                    ) : agents.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-40 gap-2 text-slate-400 dark:text-slate-500">
+                            <Users className="w-8 h-8 opacity-40" />
+                            <span className="text-sm">No agents found. System not initialized?</span>
+                        </div>
+
+                    ) : viewMode === 'tree' ? (
+                        headOfCouncil ? (
+                            <div className="relative rounded-xl border border-slate-200 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-900 p-6 min-h-[500px] overflow-auto">
                                 <div
-                                    key={agent.id || agent.agentium_id}
-                                    className="rounded-xl border border-slate-200 dark:border-[#1e2535] p-4 bg-white dark:bg-[#0f1117] hover:border-slate-300 dark:hover:border-[#2a3347] hover:shadow-sm transition-all duration-150"
-                                >
-                                    <div className="flex items-start justify-between gap-2 mb-3">
-                                        <h3 className="text-sm font-semibold text-slate-900 dark:text-gray-100 leading-snug">{agent.name}</h3>
-                                        <span className={['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 border', light.bg, light.text, dark.bg, dark.text, dark.border].join(' ')}>
-                                            <span className={`w-1.5 h-1.5 rounded-full ${light.dot} ${dark.dot}`} />
-                                            {label}
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-slate-400 dark:text-slate-600 font-mono truncate">{agent.agentium_id}</p>
+                                    className="absolute inset-0 rounded-xl bg-[radial-gradient(circle,_#cbd5e1_1px,_transparent_1px)] dark:bg-[radial-gradient(circle,_#334155_1px,_transparent_1px)] bg-[length:20px_20px] opacity-60 pointer-events-none"
+                                    aria-hidden="true"
+                                />
+                                <div className="relative z-10">
+                                    <AgentTree
+                                        agent={headOfCouncil}
+                                        agentsMap={agentsMap}
+                                        onSpawn={setSpawnParent}
+                                        onTerminate={handleTerminate}
+                                        onPromote={setPromoteTarget}
+                                        draggingAgentId={draggingAgent?.agentium_id ?? null}
+                                        dropTargetId={dropTarget}
+                                        onDragStart={handleDragStart}
+                                        onDragEnd={handleDragEnd}
+                                        onDragEnter={handleDragEnter}
+                                        onDragLeave={handleDragLeave}
+                                        onDrop={handleDrop}
+                                    />
                                 </div>
-                            );
-                        })}
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2 text-red-600 dark:text-red-400 text-sm">
+                                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                Head of Council not found in agent list.
+                            </div>
+                        )
+
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {agents.map(agent => {
+                                const colorSet = AGENT_TYPE_COLORS[agent.agent_type] ?? AGENT_TYPE_COLORS.task_agent;
+                                const label    = AGENT_TYPE_LABELS[agent.agent_type] ?? agent.agent_type;
+                                const { light, dark } = colorSet;
+                                return (
+                                    <div
+                                        key={agent.id || agent.agentium_id}
+                                        className="rounded-xl border border-slate-200 dark:border-[#1e2535] p-4 bg-white dark:bg-[#0f1117] hover:border-slate-300 dark:hover:border-[#2a3347] hover:shadow-sm transition-all duration-150"
+                                    >
+                                        <div className="flex items-start justify-between gap-2 mb-3">
+                                            <h3 className="text-sm font-semibold text-slate-900 dark:text-gray-100 leading-snug">{agent.name}</h3>
+                                            <span className={['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 border', light.bg, light.text, dark.bg, dark.text, dark.border].join(' ')}>
+                                                <span className={`w-1.5 h-1.5 rounded-full ${light.dot} ${dark.dot}`} />
+                                                {label}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-400 dark:text-slate-600 font-mono truncate">{agent.agentium_id}</p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* ── Lifecycle sidebar ──────────────────────────────── */}
+                {sidebarOpen && (
+                    <div className="w-80 flex-shrink-0 overflow-y-auto rounded-xl border border-slate-200 dark:border-[#1e2535] p-5 bg-white dark:bg-[#161b27] shadow-sm dark:shadow-[0_2px_20px_rgba(0,0,0,0.3)]">
+                        <LifecycleDashboard
+                            key={dashboardKey}
+                            onOpenBulkLiquidate={() => setShowBulkLiquidate(true)}
+                        />
                     </div>
                 )}
             </div>
@@ -515,6 +573,22 @@ export const AgentsPage: React.FC = () => {
                     parent={spawnParent}
                     onConfirm={handleSpawn}
                     onClose={() => setSpawnParent(null)}
+                />
+            )}
+
+            {promoteTarget && (
+                <PromoteAgentModal
+                    agent={promoteTarget}
+                    agents={agents}
+                    onConfirm={handlePromoteConfirm}
+                    onClose={() => setPromoteTarget(null)}
+                />
+            )}
+
+            {showBulkLiquidate && (
+                <BulkLiquidateModal
+                    onClose={() => setShowBulkLiquidate(false)}
+                    onSuccess={handleBulkLiquidateSuccess}
                 />
             )}
 

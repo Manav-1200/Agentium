@@ -23,6 +23,27 @@ export interface CreateTaskRequest {
     veto_authority?: 'code' | 'output' | 'plan';
 }
 
+export interface UpdateTaskRequest {
+    title?: string;
+    description?: string;
+    priority?: string;
+    status?: string;
+    status_note?: string;
+    constitutional_basis?: string;
+    hierarchical_id?: string;
+    parent_task_id?: string;
+    execution_plan_id?: string;
+    acceptance_criteria?: AcceptanceCriterion[];
+    veto_authority?: 'code' | 'output' | 'plan';
+}
+
+export interface AllowedTransitionsResponse {
+    task_id: string;
+    current_status: string;
+    allowed_transitions: string[];
+    is_terminal: boolean;
+}
+
 export const tasksService = {
     getTasks: async (filters?: { status?: string; agent_id?: string; parent_task_id?: string }): Promise<Task[]> => {
         const params = new URLSearchParams();
@@ -65,6 +86,23 @@ export const tasksService = {
 
     getTaskSubtasks: async (taskId: string): Promise<any> => {
         const response = await api.get(`/api/v1/tasks/${taskId}/subtasks`);
+        return response.data;
+    },
+
+    getActiveTasks: async (): Promise<Task[]> => {
+        const response = await api.get<{ tasks: Task[]; total: number }>('/api/v1/tasks/active');
+        return response.data.tasks ?? [];
+    },
+
+    updateTask: async (taskId: string, data: UpdateTaskRequest): Promise<Task> => {
+        const response = await api.patch<Task>(`/api/v1/tasks/${taskId}`, data);
+        return response.data;
+    },
+
+    getAllowedTransitions: async (taskId: string): Promise<AllowedTransitionsResponse> => {
+        const response = await api.get<AllowedTransitionsResponse>(
+            `/api/v1/tasks/${taskId}/allowed-transitions`
+        );
         return response.data;
     },
 };

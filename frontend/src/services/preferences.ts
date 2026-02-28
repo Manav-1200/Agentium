@@ -52,7 +52,7 @@ export const preferencesService = {
         if (scope) params.append('scope', scope);
 
         const query = params.toString() ? `?${params.toString()}` : '';
-        const response = await api.get<PreferenceListResponse>(`/api/v1/preferences/${query}`);
+        const response = await api.get<PreferenceListResponse>(`/api/v1/preferences${query}`);
         return response.data;
     },
 
@@ -61,7 +61,8 @@ export const preferencesService = {
         if (defaultValue !== undefined) params.append('default', defaultValue);
 
         const query = params.toString() ? `?${params.toString()}` : '';
-        const response = await api.get<{ key: string; value: any; default_used: boolean }>(`/api/v1/preferences/${key}${query}`);
+        // encodeURIComponent prevents keys containing '/' or '?' from corrupting the URL path
+        const response = await api.get<{ key: string; value: any; default_used: boolean }>(`/api/v1/preferences/${encodeURIComponent(key)}${query}`);
         return response.data;
     },
 
@@ -71,12 +72,12 @@ export const preferencesService = {
     },
 
     updatePreference: async (key: string, data: UpdatePreferenceRequest): Promise<{ status: string; preference: UserPreference }> => {
-        const response = await api.put<{ status: string; preference: UserPreference }>(`/api/v1/preferences/${key}`, data);
+        const response = await api.put<{ status: string; preference: UserPreference }>(`/api/v1/preferences/${encodeURIComponent(key)}`, data);
         return response.data;
     },
 
     deletePreference: async (key: string): Promise<{ status: string; key: string }> => {
-        const response = await api.delete<{ status: string; key: string }>(`/api/v1/preferences/${key}`);
+        const response = await api.delete<{ status: string; key: string }>(`/api/v1/preferences/${encodeURIComponent(key)}`);
         return response.data;
     },
 
@@ -122,10 +123,11 @@ export const preferencesService = {
         editable: boolean;
     }> => {
         const params = new URLSearchParams();
-        if (defaultValue !== undefined) params.append('default', String(defaultValue));
+        // Serialise default as JSON so objects/arrays/booleans round-trip correctly
+        if (defaultValue !== undefined) params.append('default', JSON.stringify(defaultValue));
 
         const query = params.toString() ? `?${params.toString()}` : '';
-        const response = await api.get(`/api/v1/preferences/agent/get/${key}${query}`);
+        const response = await api.get(`/api/v1/preferences/agent/get/${encodeURIComponent(key)}${query}`);
         return response.data;
     },
 
@@ -135,8 +137,12 @@ export const preferencesService = {
         value: any;
         message: string;
     }> => {
-        const response = await api.post(`/api/v1/preferences/agent/set/${key}`, null, {
-            params: { value, reason }
+        // Send as a JSON body rather than query params — passing complex values (objects,
+        // arrays, booleans) through URLSearchParams via axios `params` corrupts them to
+        // "[object Object]" or stringified primitives the server may not parse correctly.
+        const response = await api.post(`/api/v1/preferences/agent/set/${encodeURIComponent(key)}`, {
+            value,
+            ...(reason !== undefined && { reason }),
         });
         return response.data;
     },
@@ -170,7 +176,7 @@ export const preferencesService = {
         if (limit) params.append('limit', String(limit));
 
         const query = params.toString() ? `?${params.toString()}` : '';
-        const response = await api.get(`/api/v1/preferences/admin/history/${preferenceId}${query}`);
+        const response = await api.get(`/api/v1/preferences/admin/history/${encodeURIComponent(preferenceId)}${query}`);
         return response.data;
     },
 };

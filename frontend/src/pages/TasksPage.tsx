@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Task, UserPreference } from '../types';
-import { tasksService, CreateTaskRequest } from '../services/tasks';
+import { tasksService, CreateTaskRequest, UpdateTaskRequest } from '../services/tasks';
 import { preferencesService, PREFERENCE_CATEGORIES, DATA_TYPE_LABELS, formatPreferenceValue, parsePreferenceValue } from '../services/preferences';
 import { api } from '../services/api';
 import { TaskCard } from '../components/tasks/TaskCard';
@@ -772,9 +772,64 @@ const TaskSubtaskAccordion: React.FC<{ task: Task }> = ({ task }) => {
 
 // ─── Main Task Card ───────────────────────────────────────────────────────────
 
-const MainTaskCard: React.FC<{ task: Task }> = ({ task }) => {
-    const [subtasksOpen, setSubtasksOpen]     = useState(true);
-    const [governanceOpen, setGovernanceOpen] = useState(false);
+const MainTaskCard: React.FC<{ task: Task; onUpdated?: (updated: Task) => void }> = ({ task, onUpdated }) => {
+    const [subtasksOpen, setSubtasksOpen]         = useState(true);
+    const [governanceOpen, setGovernanceOpen]     = useState(false);
+    const [isEditing, setIsEditing]               = useState(false);
+    const [isSaving, setIsSaving]                 = useState(false);
+    const [editTitle, setEditTitle]               = useState(task.title);
+    const [editDescription, setEditDescription]   = useState(task.description ?? '');
+    const [editPriority, setEditPriority]         = useState((task as any).priority ?? 'normal');
+    const [editStatus, setEditStatus]             = useState(task.status);
+    const [allowedTransitions, setAllowedTransitions] = useState<string[] | null>(null);
+    const [transitionsLoading, setTransitionsLoading] = useState(false);
+
+    const PRIORITY_OPTIONS = ['low', 'normal', 'high', 'critical', 'sovereign'];
+
+    const openEdit = async () => {
+        setEditTitle(task.title);
+        setEditDescription(task.description ?? '');
+        setEditPriority((task as any).priority ?? 'normal');
+        setEditStatus(task.status);
+        setIsEditing(true);
+        // Fetch allowed transitions so the status dropdown only shows valid options
+        setTransitionsLoading(true);
+        try {
+            const res = await tasksService.getAllowedTransitions(task.id);
+            setAllowedTransitions([task.status, ...res.allowed_transitions]);
+        } catch {
+            setAllowedTransitions(null);
+        } finally {
+            setTransitionsLoading(false);
+        }
+    };
+
+    const cancelEdit = () => {
+        setIsEditing(false);
+        setAllowedTransitions(null);
+    };
+
+    const saveEdit = async () => {
+        setIsSaving(true);
+        try {
+            const payload: UpdateTaskRequest = {};
+            if (editTitle !== task.title)                       payload.title = editTitle;
+            if (editDescription !== (task.description ?? ''))  payload.description = editDescription;
+            if (editPriority !== (task as any).priority)       payload.priority = editPriority;
+            if (editStatus !== task.status)                    payload.status = editStatus;
+
+            if (Object.keys(payload).length === 0) { cancelEdit(); return; }
+
+            const updated = await tasksService.updateTask(task.id, payload);
+            onUpdated?.(updated);
+            setIsEditing(false);
+            toast.success('Task updated');
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail ?? 'Failed to update task');
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
     const statusColor: Record<string, string> = {
         pending:      'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-400',
@@ -817,50 +872,124 @@ const MainTaskCard: React.FC<{ task: Task }> = ({ task }) => {
                                     {(task as any).agentium_id}
                                 </span>
                             )}
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusColor[task.status] ?? statusColor.pending}`}>
-                                {task.status.replace('_', ' ')}
-                            </span>
-                            <span className={`text-xs font-semibold uppercase tracking-wide ${priorityColor[(task as any).priority ?? 'normal']}`}>
-                                {(task as any).priority ?? 'normal'}
-                            </span>
+                            {isEditing ? (
+                                <select
+                                    value={editStatus}
+                                    onChange={e => setEditStatus(e.target.value)}
+                                    disabled={transitionsLoading}
+                                    className="text-xs font-semibold rounded-full px-2.5 py-0.5 border border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                >
+                                    {(allowedTransitions ?? [task.status]).map(s => (
+                                        <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusColor[task.status] ?? statusColor.pending}`}>
+                                    {task.status.replace('_', ' ')}
+                                </span>
+                            )}
+                            {isEditing ? (
+                                <select
+                                    value={editPriority}
+                                    onChange={e => setEditPriority(e.target.value)}
+                                    className="text-xs font-semibold uppercase rounded px-2 py-0.5 border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#1e2535] text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                >
+                                    {PRIORITY_OPTIONS.map(p => (
+                                        <option key={p} value={p}>{p}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <span className={`text-xs font-semibold uppercase tracking-wide ${priorityColor[(task as any).priority ?? 'normal']}`}>
+                                    {(task as any).priority ?? 'normal'}
+                                </span>
+                            )}
                         </div>
-                        <h3 className="text-base font-semibold text-gray-900 dark:text-white leading-snug">
-                            {task.title}
-                        </h3>
-                        {task.description && (
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
-                                {task.description}
-                            </p>
+                        {isEditing ? (
+                            <input
+                                type="text"
+                                value={editTitle}
+                                onChange={e => setEditTitle(e.target.value)}
+                                className="w-full text-base font-semibold text-gray-900 dark:text-white bg-gray-50 dark:bg-[#1e2535] border border-blue-300 dark:border-blue-600 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 mb-2"
+                            />
+                        ) : (
+                            <h3 className="text-base font-semibold text-gray-900 dark:text-white leading-snug">
+                                {task.title}
+                            </h3>
+                        )}
+                        {isEditing ? (
+                            <textarea
+                                value={editDescription}
+                                onChange={e => setEditDescription(e.target.value)}
+                                rows={2}
+                                className="w-full text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-[#1e2535] border border-blue-300 dark:border-blue-600 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                            />
+                        ) : (
+                            task.description && (
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+                                    {task.description}
+                                </p>
+                            )
                         )}
                     </div>
 
                     {/* Action buttons */}
                     <div className="flex items-center gap-2 flex-shrink-0">
-                        {errorInfo && (
-                            <button
-                                onClick={() =>
-                                    tasksService.retryTask(task.id)
-                                        .then(() => toast.success('Task queued for retry'))
-                                        .catch(() => toast.error('Retry failed'))
-                                }
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/20 transition-colors"
-                            >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                                Retry
-                            </button>
-                        )}
-                        {['in_progress', 'pending', 'retrying'].includes(task.status) && (
-                            <button
-                                onClick={() =>
-                                    tasksService.escalateTask(task.id, 'Manual escalation')
-                                        .then(() => toast.success('Task escalated'))
-                                        .catch(() => toast.error('Escalation failed'))
-                                }
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20 transition-colors"
-                            >
-                                <ShieldAlert className="w-3.5 h-3.5" />
-                                Escalate
-                            </button>
+                        {isEditing ? (
+                            <>
+                                <button
+                                    onClick={saveEdit}
+                                    disabled={isSaving}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                >
+                                    <Save className="w-3.5 h-3.5" />
+                                    {isSaving ? 'Saving…' : 'Save'}
+                                </button>
+                                <button
+                                    onClick={cancelEdit}
+                                    disabled={isSaving}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-[#1e2535] text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#2a3347] transition-colors disabled:opacity-50"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                    Cancel
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    onClick={openEdit}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-[#1e2535] text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#2a3347] transition-colors"
+                                    title="Edit task"
+                                >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                    Edit
+                                </button>
+                                {errorInfo && (
+                                    <button
+                                        onClick={() =>
+                                            tasksService.retryTask(task.id)
+                                                .then(() => toast.success('Task queued for retry'))
+                                                .catch(() => toast.error('Retry failed'))
+                                        }
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/20 transition-colors"
+                                    >
+                                        <RotateCcw className="w-3.5 h-3.5" />
+                                        Retry
+                                    </button>
+                                )}
+                                {['in_progress', 'pending', 'retrying'].includes(task.status) && (
+                                    <button
+                                        onClick={() =>
+                                            tasksService.escalateTask(task.id, 'Manual escalation')
+                                                .then(() => toast.success('Task escalated'))
+                                                .catch(() => toast.error('Escalation failed'))
+                                        }
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20 transition-colors"
+                                    >
+                                        <ShieldAlert className="w-3.5 h-3.5" />
+                                        Escalate
+                                    </button>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>
@@ -2002,6 +2131,7 @@ type Tab = 'tasks' | 'critics' | 'checkpoints' | 'preferences';
 
 export const TasksPage: React.FC = () => {
     const [tasks, setTasks]               = useState<Task[]>([]);
+    const [activeCount, setActiveCount]   = useState<number | null>(null);
     const [isLoading, setIsLoading]       = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -2015,8 +2145,12 @@ export const TasksPage: React.FC = () => {
         try {
             if (!silent) setIsLoading(true);
             else setIsRefreshing(true);
-            const data = await tasksService.getTasks({ status: filterStatus || undefined });
+            const [data, active] = await Promise.all([
+                tasksService.getTasks({ status: filterStatus || undefined }),
+                tasksService.getActiveTasks(),
+            ]);
             setTasks(data);
+            setActiveCount(active.length);
         } catch (err) {
             console.error(err);
             toast.error('Failed to load tasks');
@@ -2041,7 +2175,7 @@ export const TasksPage: React.FC = () => {
     const stats = {
         total:     tasks.length,
         pending:   tasks.filter(t => t.status === 'pending').length,
-        active:    tasks.filter(t => ['in_progress', 'deliberating', 'retrying'].includes(t.status)).length,
+        active:    activeCount ?? tasks.filter(t => ['in_progress', 'deliberating', 'retrying'].includes(t.status)).length,
         completed: tasks.filter(t => t.status === 'completed').length,
     };
 
@@ -2214,7 +2348,14 @@ export const TasksPage: React.FC = () => {
                             ) : (
                                 <div className="space-y-4">
                                     {tasks.map(task => (
-                                        <MainTaskCard key={task.id} task={task} />
+                                        <MainTaskCard
+                                            key={task.id}
+                                            task={task}
+                                            onUpdated={updated =>
+                                                setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
+                                            }
+                                        />
+                                    ))}
                                     ))}
                                 </div>
                             )}
