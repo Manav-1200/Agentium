@@ -238,7 +238,13 @@ export const AgentsPage: React.FC = () => {
         ]);
 
         try {
-            await agentsService.spawnAgent(spawnParent.agentium_id, { child_type: childType, name });
+            // FIX: Added missing required fields 'description' and 'parent_agentium_id'
+            await agentsService.spawnAgent(spawnParent.agentium_id, { 
+                child_type: childType, 
+                name,
+                description: `Spawned ${childType} agent: ${name}`, // Added
+                parent_agentium_id: spawnParent.agentium_id // Added
+            });
             toast.success('Agent spawned successfully');
             await loadAgents(true);
         } catch (err) {
@@ -271,7 +277,12 @@ export const AgentsPage: React.FC = () => {
         );
 
         try {
-            await agentsService.terminateAgent(agent.agentium_id, 'Manual termination by Sovereign');
+            // FIX: Added third argument (sovereign user ID or agent ID)
+            await agentsService.terminateAgent(
+                agent.agentium_id, 
+                'Manual termination by Sovereign',
+                'sovereign' // Added third argument - the acting user/agent ID
+            );
             toast.success('Agent terminated');
             await loadAgents(true);
         } catch {

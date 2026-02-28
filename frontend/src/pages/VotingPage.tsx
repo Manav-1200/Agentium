@@ -364,7 +364,7 @@ function DetailPanel({
                 </div>
 
                 {/* Individual votes (deliberations only, from detail fetch) */}
-                {!isAmendment && deliDetails?.individual_votes?.length > 0 && (
+                {!isAmendment && deliDetails?.individual_votes && deliDetails.individual_votes.length > 0 && (
                     <div>
                         <button
                             className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors w-full"

@@ -1104,9 +1104,7 @@ export function ABTestingPage() {
             ))}
           </div>
         )}
-      </div>
-
-        </>)}
+      </>)}
       </div>
 
       {/* Modals */}
