@@ -150,6 +150,8 @@ class EnhancedIdleGovernanceEngine:
         # Used to pass real elapsed minutes to should_run() instead of hardcoded 30.
         self._last_pref_opt_run: Dict[str, datetime] = {}      # key: agent_id
         self.PREF_OPT_COOLDOWN_MINUTES = 30
+        self._recent_system_tasks: Dict[str, datetime] = {}   # task_type.value -> last_completed
+        self.SYSTEM_TASK_COOLDOWN_SECONDS = 300  # 5 min between same system task
         # ────────────────────────────────────────────────────────────────────────
     
     async def start(self, db: Session):
@@ -564,17 +566,15 @@ class EnhancedIdleGovernanceEngine:
         """
         Assign appropriate idle work to agent based on role.
         One idle task per agent enforced at both in-memory and DB level.
-
-        FIX 1: _get_available_persistent_agents now only returns ACTIVE agents.
-        FIX 2: DB hard-check ensures no IN_PROGRESS idle task exists for this agent.
-        FIX 3: Real elapsed minutes passed to should_run() instead of hardcoded 30.
-        FIX 4: Per-agent cooldown checked before assignment.
+        
+        FIX 5: System-wide tasks (audit, storage, health, cache, vector) now run
+        only once globally per cooldown period, not per agent.
         """
         # ── Guard 1: in-memory tracking ─────────────────────────────────────────
         if agent.agentium_id in self.current_idle_tasks:
             return
 
-        # ── Guard 2 (FIX 4): cooldown since last completion ─────────────────────
+        # ── Guard 2: cooldown since last completion ─────────────────────────────
         last_completed = self._agent_last_completed.get(agent.agentium_id)
         if last_completed:
             elapsed_since_completion = (datetime.utcnow() - last_completed).total_seconds()
@@ -585,9 +585,7 @@ class EnhancedIdleGovernanceEngine:
                 )
                 return
 
-        # ── Guard 3 (FIX 2): DB-level hard check ────────────────────────────────
-        # If ANY IN_PROGRESS idle task is assigned to this agent in the DB,
-        # re-sync in-memory state and bail out.
+        # ── Guard 3: DB-level hard check ────────────────────────────────────────
         existing_active = db.query(Task).filter(
             Task.is_idle_task == True,
             Task.is_active == True,
@@ -600,43 +598,96 @@ class EnhancedIdleGovernanceEngine:
                     f"Agent {agent.agentium_id} already has active idle task "
                     f"({existing.agentium_id}) in DB — skipping"
                 )
-                # Re-sync in-memory dict so next loop tick doesn't re-check DB
                 self.current_idle_tasks[agent.agentium_id] = str(existing.id)
                 return
 
         # ── Import idle tasks ────────────────────────────────────────────────────
         from backend.services.idle_tasks.preference_optimizer import preference_optimizer_task
 
+        # ── Define task categories ───────────────────────────────────────────────
+        PER_AGENT_TASKS = [
+            TaskType.CONSTITUTION_REFINE,
+            TaskType.CONSTITUTION_READ,
+            TaskType.PREDICTIVE_PLANNING,
+            TaskType.ETHOS_OPTIMIZATION,
+        ]
+        
+        SYSTEM_WIDE_TASKS = [
+            TaskType.VECTOR_MAINTENANCE,
+            TaskType.STORAGE_DEDUPE,
+            TaskType.AUDIT_ARCHIVAL,
+            TaskType.AGENT_HEALTH_SCAN,
+            TaskType.CACHE_OPTIMIZATION,
+        ]
+
         # ── Determine task type based on agent role ──────────────────────────────
         if agent.agentium_id == '00001':
-            task_type = random.choice([
-                TaskType.CONSTITUTION_REFINE,
-                TaskType.CONSTITUTION_READ,
-                TaskType.PREDICTIVE_PLANNING,
-                TaskType.ETHOS_OPTIMIZATION,
-                TaskType.PREFERENCE_OPTIMIZATION,
-            ])
-        else:
-            # FIX 3: Calculate real elapsed minutes since last preference_optimization
-            # instead of always passing the hardcoded value 30 (which always returned True).
+            # Head gets preference optimization if due, otherwise per-agent tasks
             last_pref_run = self._last_pref_opt_run.get(agent.agentium_id)
             if last_pref_run:
                 elapsed_pref_minutes = int(
                     (datetime.utcnow() - last_pref_run).total_seconds() / 60
                 )
             else:
-                elapsed_pref_minutes = 9999  # never run → always eligible on first pass
+                elapsed_pref_minutes = 9999
 
             if preference_optimizer_task.should_run(elapsed_pref_minutes):
                 task_type = TaskType.PREFERENCE_OPTIMIZATION
             else:
-                task_type = random.choice([
-                    TaskType.VECTOR_MAINTENANCE,
-                    TaskType.STORAGE_DEDUPE,
-                    TaskType.AUDIT_ARCHIVAL,
-                    TaskType.AGENT_HEALTH_SCAN,
-                    TaskType.CACHE_OPTIMIZATION
-                ])
+                task_type = random.choice(PER_AGENT_TASKS)
+        else:
+            # Council members get preference optimization if due
+            last_pref_run = self._last_pref_opt_run.get(agent.agentium_id)
+            if last_pref_run:
+                elapsed_pref_minutes = int(
+                    (datetime.utcnow() - last_pref_run).total_seconds() / 60
+                )
+            else:
+                elapsed_pref_minutes = 9999
+
+            if preference_optimizer_task.should_run(elapsed_pref_minutes):
+                task_type = TaskType.PREFERENCE_OPTIMIZATION
+            else:
+                # Check if any system-wide task is available (not recently run)
+                available_system = self._get_available_system_tasks()
+                
+                if available_system:
+                    task_type = available_system[0]  # Take first available
+                    # ❌ REMOVED: Don't mark as assigned here — do it after DB check
+                else:
+                    # All system tasks on cooldown, assign per-agent task
+                    task_type = random.choice(PER_AGENT_TASKS)
+
+        # ── FIX 5: Check if this system task is already assigned to another agent ─
+        if task_type in SYSTEM_WIDE_TASKS:
+            # First check: is this task type on global cooldown?
+            last_run = self._recent_system_tasks.get(task_type.value)
+            if last_run:
+                elapsed = (datetime.utcnow() - last_run).total_seconds()
+                if elapsed < self.SYSTEM_TASK_COOLDOWN_SECONDS:
+                    logger.debug(
+                        f"System task {task_type.value} on global cooldown "
+                        f"({elapsed:.0f}s / {self.SYSTEM_TASK_COOLDOWN_SECONDS}s), "
+                        f"skipping for {agent.agentium_id}"
+                    )
+                    return
+
+            # Second check: is there an active task in DB?
+            existing_system_task = db.query(Task).filter(
+                Task.is_idle_task == True,
+                Task.is_active == True,
+                Task.task_type == task_type,
+                Task.status.in_([TaskStatus.IN_PROGRESS, TaskStatus.PENDING])
+            ).first()
+            
+            if existing_system_task:
+                logger.debug(
+                    f"System task {task_type.value} already assigned to "
+                    f"{existing_system_task.assigned_task_agent_ids}, skipping for {agent.agentium_id}"
+                )
+                return
+
+            self._recent_system_tasks[task_type.value] = datetime.utcnow()
 
         # ── Create the idle task in the database ─────────────────────────────────
         try:
@@ -678,16 +729,50 @@ class EnhancedIdleGovernanceEngine:
             db.rollback()
             logger.warning(f"⚠️ Failed to assign idle work to {agent.agentium_id}: {e}")
             self.current_idle_tasks.pop(agent.agentium_id, None)
-    
+            if task_type in SYSTEM_WIDE_TASKS:
+                self._recent_system_tasks.pop(task_type.value, None)
+
+    def _get_available_system_tasks(self) -> List[TaskType]:
+        """
+        Get system-wide tasks that haven't been run recently.
+        Returns list of available task types, sorted by oldest first.
+        """
+        now = datetime.utcnow()
+        available = []
+        
+        SYSTEM_TASKS = [
+            TaskType.VECTOR_MAINTENANCE,
+            TaskType.STORAGE_DEDUPE,
+            TaskType.AUDIT_ARCHIVAL,
+            TaskType.AGENT_HEALTH_SCAN,
+            TaskType.CACHE_OPTIMIZATION,
+        ]
+        
+        for sys_task in SYSTEM_TASKS:
+            last_run = self._recent_system_tasks.get(sys_task.value)
+            if not last_run:
+                # Never run - highest priority
+                available.append((sys_task, datetime.min))
+            else:
+                elapsed = (now - last_run).total_seconds()
+                if elapsed >= self.SYSTEM_TASK_COOLDOWN_SECONDS:
+                    available.append((sys_task, last_run))
+        
+        # Sort by last run time (oldest first) so we rotate through all tasks
+        available.sort(key=lambda x: x[1])
+        return [task for task, _ in available]
+
     async def _execute_idle_work(self, db: Session, agents: List[Agent]):
         """
         Execute assigned idle work for each agent with an active idle task.
         Dispatches to the appropriate handler based on task type.
-
-        FIX 3: Records last preference_optimization run time per agent.
-        FIX 4: Records last task completion time per agent to enforce cooldown.
+        
+        FIX 5: System-wide tasks execute once and mark completion globally.
         """
         from backend.services.idle_tasks.preference_optimizer import preference_optimizer_task
+        
+        # Track which system tasks were completed this cycle to avoid duplicates
+        system_tasks_completed_this_cycle: set = set()
         
         for agent in agents:
             task_id = self.current_idle_tasks.get(agent.agentium_id)
@@ -696,9 +781,31 @@ class EnhancedIdleGovernanceEngine:
             
             task = db.query(Task).filter_by(id=task_id, is_active=True).first()
             if not task or task.status not in (TaskStatus.IN_PROGRESS, TaskStatus.PENDING):
-                # Task completed or cancelled externally — clean up tracking
                 self.current_idle_tasks.pop(agent.agentium_id, None)
                 continue
+            
+            # Skip if this system task was already completed by another agent this cycle
+            if task.task_type in [
+                TaskType.VECTOR_MAINTENANCE,
+                TaskType.STORAGE_DEDUPE,
+                TaskType.AUDIT_ARCHIVAL,
+                TaskType.AGENT_HEALTH_SCAN,
+                TaskType.CACHE_OPTIMIZATION,
+            ]:
+                if task.task_type.value in system_tasks_completed_this_cycle:
+                    logger.debug(
+                        f"System task {task.task_type.value} already completed this cycle, "
+                        f"skipping for {agent.agentium_id}"
+                    )
+                    # Mark as completed without executing
+                    task.status = TaskStatus.IDLE_COMPLETED
+                    task.completed_at = datetime.utcnow()
+                    task.is_active = False
+                    self.current_idle_tasks.pop(agent.agentium_id, None)
+                    agent.status = AgentStatus.ACTIVE
+                    agent.current_task_id = None
+                    self._agent_last_completed[agent.agentium_id] = datetime.utcnow()
+                    continue
             
             try:
                 tokens_saved = 0
@@ -706,11 +813,11 @@ class EnhancedIdleGovernanceEngine:
                 if task.task_type == TaskType.PREFERENCE_OPTIMIZATION:
                     result = preference_optimizer_task.execute()
                     tokens_saved = result.get('tokens_saved', 0) if isinstance(result, dict) else 0
-                    # FIX 3: Record when this agent last ran preference_optimization
                     self._last_pref_opt_run[agent.agentium_id] = datetime.utcnow()
                     
                 elif task.task_type == TaskType.VECTOR_MAINTENANCE:
                     await self.run_maintenance(db)
+                    system_tasks_completed_this_cycle.add(task.task_type.value)
                     
                 elif task.task_type == TaskType.AUDIT_ARCHIVAL:
                     from backend.models.entities.audit import AuditLog
@@ -719,24 +826,33 @@ class EnhancedIdleGovernanceEngine:
                         AuditLog.created_at < cutoff
                     ).count()
                     logger.info(f"📦 Audit archival scan: {archived} records eligible")
+                    system_tasks_completed_this_cycle.add(task.task_type.value)
                     
                 elif task.task_type == TaskType.AGENT_HEALTH_SCAN:
                     all_agents = db.query(Agent).filter_by(is_active=True).all()
                     unhealthy = [a for a in all_agents if a.status == AgentStatus.SUSPENDED]
                     if unhealthy:
                         logger.info(f"🏥 Health scan: {len(unhealthy)} suspended agents found")
+                    else:
+                        logger.info(f"🏥 Health scan: all agents healthy")
+                    system_tasks_completed_this_cycle.add(task.task_type.value)
+                    
+                elif task.task_type == TaskType.CACHE_OPTIMIZATION:
+                    logger.info(f"🗄️ Cache optimization cycle by {agent.agentium_id}")
+                    system_tasks_completed_this_cycle.add(task.task_type.value)
+                    
+                elif task.task_type == TaskType.STORAGE_DEDUPE:
+                    logger.info(f"🔍 Storage dedup scan by {agent.agentium_id}")
+                    system_tasks_completed_this_cycle.add(task.task_type.value)
                         
                 elif task.task_type in (TaskType.CONSTITUTION_REFINE, TaskType.CONSTITUTION_READ):
                     agent.read_and_align_constitution(db)
                     
-                elif task.task_type == TaskType.ETHOS_OPTIMIZATION:
+                elif task.task_type == TaskType.ETHOS_OPTIMIZATION:  # FIXED: was ETHOS_OPTIMIMIZATION
                     agent.compress_ethos(db)
                     
-                elif task.task_type == TaskType.CACHE_OPTIMIZATION:
-                    logger.info(f"🗄️ Cache optimization cycle by {agent.agentium_id}")
-                    
-                elif task.task_type == TaskType.STORAGE_DEDUPE:
-                    logger.info(f"🔍 Storage dedup scan by {agent.agentium_id}")
+                elif task.task_type == TaskType.PREDICTIVE_PLANNING:
+                    logger.info(f"🔮 Predictive planning cycle by {agent.agentium_id}")
                 
                 # Mark idle task as completed
                 task.status = TaskStatus.IDLE_COMPLETED
@@ -748,8 +864,18 @@ class EnhancedIdleGovernanceEngine:
                 agent.status = AgentStatus.ACTIVE
                 agent.current_task_id = None
                 
-                # FIX 4: Record completion time — cooldown clock starts now
+                # Record completion time — cooldown clock starts now
                 self._agent_last_completed[agent.agentium_id] = datetime.utcnow()
+
+                # Update system task tracking
+                if task.task_type in [
+                    TaskType.VECTOR_MAINTENANCE,
+                    TaskType.STORAGE_DEDUPE,
+                    TaskType.AUDIT_ARCHIVAL,
+                    TaskType.AGENT_HEALTH_SCAN,
+                    TaskType.CACHE_OPTIMIZATION,
+                ]:
+                    self._recent_system_tasks[task.task_type.value] = datetime.utcnow()
 
                 # Record metrics
                 self.metrics.record_idle_task_completion(tokens_saved)
@@ -758,11 +884,9 @@ class EnhancedIdleGovernanceEngine:
                 
             except Exception as e:
                 logger.warning(f"⚠️ Idle work error for {agent.agentium_id}: {e}")
-                # Don't fail the loop — clean up and move to next agent
                 self.current_idle_tasks.pop(agent.agentium_id, None)
                 agent.status = AgentStatus.ACTIVE
                 agent.current_task_id = None
-                # FIX 4: Record completion time even on error so we don't immediately retry
                 self._agent_last_completed[agent.agentium_id] = datetime.utcnow()
         
         # Commit all changes
@@ -935,12 +1059,15 @@ class EnhancedIdleGovernanceEngine:
         }
         
         try:
+            from backend.core.vector_store import get_vector_store
+            vector_store = get_vector_store()
+            
             # List all collections
             collections = ["constitution", "ethos", "task_patterns", "critic_case_law", "sovereign_prefs"]
             
             for collection_name in collections:
                 try:
-                    collection = self.vector_store.get_collection(collection_name)
+                    collection = vector_store.get_collection(collection_name)
                     count = collection.count()
                     results["maintenance_tasks"].append(f"{collection_name}: {count} entries")
                     logger.info(f"   📊 {collection_name}: {count} entries")
