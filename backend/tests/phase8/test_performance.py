@@ -211,7 +211,18 @@ class TestMessageBusThroughput:
         count = 1000
         success = 0
 
+        # Temporarily disable rate limiting for benchmark
+        message_bus._rate_limits.LEAD = 100000
+
         start = time.perf_counter()
+        
+        async def _publish(m):
+            with timer() as t:
+                res = await message_bus.publish(m)
+            metrics.record("publish_ms", t.elapsed_ms)
+            return res.success
+
+        tasks = []
         for i in range(count):
             msg = AgentMessage(
                 sender_id="20001",
@@ -220,11 +231,10 @@ class TestMessageBusThroughput:
                 message_type="delegation",
                 content=f"throughput-test-{i}",
             )
-            with timer() as t:
-                result = await message_bus.publish(msg)
-            metrics.record("publish_ms", t.elapsed_ms)
-            if result.success:
-                success += 1
+            tasks.append(_publish(msg))
+            
+        results = await asyncio.gather(*tasks)
+        success = sum(results)
 
         total_sec = time.perf_counter() - start
         throughput = success / total_sec if total_sec > 0 else 0

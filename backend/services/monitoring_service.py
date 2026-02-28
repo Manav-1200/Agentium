@@ -14,6 +14,10 @@ from backend.models.entities.monitoring import (
 )
 from backend.models.entities.task import Task, SubTask, TaskStatus
 from backend.models.database import get_db_context, get_next_agentium_id
+import logging
+import asyncio
+
+logger = logging.getLogger(__name__)
 
 class MonitoringService:
     """
@@ -402,3 +406,96 @@ class MonitoringService:
         alert.notified_agents = notified
         db.add(alert)
         db.commit()
+
+    # -------------------------------------------------------------------------
+    # Phase 9 Background Monitoring Tasks
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    async def constitutional_patrol():
+        """
+        Background task: Every 5 minutes, checks all active agents for excessive violations
+        or degraded health and escalates to the alert manager.
+        """
+        from backend.services.alert_manager import AlertManager
+        
+        while True:
+            try:
+                with get_db_context() as db:
+                    alert_manager = AlertManager(db)
+                    
+                    # 1. Find agents with multiple open violations
+                    critical_agents = db.query(Agent).filter(
+                        Agent.status == "active"
+                    ).all()
+                    
+                    for agent in critical_agents:
+                        open_violations = db.query(ViolationReport).filter_by(
+                            violator_agent_id=agent.id,
+                            status="open"
+                        ).count()
+                        
+                        if open_violations >= 3:
+                            # Auto-suspend and alert
+                            agent.status = "suspended"
+                            db.commit()
+                            
+                            alert = MonitoringAlert(
+                                alert_type="constitutional_patrol_suspension",
+                                severity=ViolationSeverity.CRITICAL,
+                                detected_by_agent_id="system",
+                                affected_agent_id=agent.id,
+                                message=f"Constitutional Patrol: Auto-suspended {agent.agentium_id} due to {open_violations} open violations."
+                            )
+                            db.add(alert)
+                            db.commit()
+                            await alert_manager.dispatch_alert(alert)
+                            
+            except Exception as e:
+                logger.error(f"Error in constitutional_patrol loop: {e}")
+                
+            await asyncio.sleep(300)  # Every 5 minutes
+
+    @staticmethod
+    async def stale_task_detector():
+        """
+        Background task: Daily checks for tasks that have been IN_PROGRESS for too long
+        without updates, marking them as FAILED or ESCALATED.
+        """
+        from backend.services.alert_manager import AlertManager
+        
+        while True:
+            try:
+                with get_db_context() as db:
+                    alert_manager = AlertManager(db)
+                    stale_threshold = datetime.utcnow() - timedelta(hours=24)
+                    
+                    stale_tasks = db.query(Task).filter(
+                        Task.status == TaskStatus.IN_PROGRESS,
+                        Task.started_at < stale_threshold
+                    ).all()
+                    
+                    for task in stale_tasks:
+                        task.set_status(TaskStatus.ESCALATED, "system", "Stale task detector: Task exceeded 24h Execution limit.")
+                        
+                        alert = MonitoringAlert(
+                            alert_type="stale_task_detected",
+                            severity=ViolationSeverity.MAJOR,
+                            detected_by_agent_id="system",
+                            affected_agent_id=task.assigned_task_agent_ids[0] if task.assigned_task_agent_ids else None,
+                            message=f"Stale Task {task.agentium_id} escalated after 24 hours of inactivity."
+                        )
+                        db.add(alert)
+                        db.commit()
+                        await alert_manager.dispatch_alert(alert)
+                        
+            except Exception as e:
+                logger.error(f"Error in stale_task_detector loop: {e}")
+            
+            await asyncio.sleep(86400)  # Daily
+            
+    @classmethod
+    def start_background_monitors(cls):
+        """Starts the detached asynchronous monitoring loops."""
+        asyncio.create_task(cls.constitutional_patrol())
+        asyncio.create_task(cls.stale_task_detector())

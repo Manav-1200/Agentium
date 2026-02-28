@@ -1,0 +1,337 @@
+﻿============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-8.3.4, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+plugins: Faker-33.3.0, asyncio-0.25.0, anyio-4.12.1, cov-6.0.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collecting ... collected 131 items
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load SKIPPED [  0%]
+backend/tests/phase8/test_chaos.py::TestRedisKill::test_redis_kill_mid_execution SKIPPED [  1%]
+backend/tests/phase8/test_chaos.py::TestChromaDBKill::test_chromadb_kill_degraded_mode SKIPPED [  2%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_rm_rf_root PASSED [  3%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_rm_rf_variant PASSED [  3%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_fork_bomb PASSED [  4%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_wget_pipe_sh PASSED [  5%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_curl_pipe_bash PASSED [  6%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_drop_database PASSED [  6%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_delete_from_constitutions PASSED [  7%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_truncate_table PASSED [  8%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_format_c_drive PASSED [  9%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_shutdown PASSED [  9%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_mkfs PASSED [ 10%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_dd_if PASSED [ 11%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_safe_commands_not_blocked PASSED [ 12%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_head_has_veto PASSED [ 12%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_head_has_spawn PASSED [ 13%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_task_cannot_spawn PASSED [ 14%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_council_has_vote PASSED [ 15%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_lead_has_delegate PASSED [ 16%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_task_can_execute PASSED [ 16%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_all_numeric_tiers_defined PASSED [ 17%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_all_named_tiers_defined PASSED [ 18%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalDecision::test_to_dict PASSED [ 19%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalDecision::test_default_values PASSED [ 19%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalDecision::test_vote_required_verdict PASSED [ 20%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalDecision::test_affected_agents PASSED [ 21%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalGuardIntegration::test_tier1_blocks_rm_rf PASSED [ 22%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalGuardIntegration::test_tier1_allows_safe_command PASSED [ 22%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalGuardIntegration::test_tier1_blocks_unauthorized_action PASSED [ 23%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalGuardIntegration::test_tier1_latency PASSED [ 24%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_os_system PASSED [ 25%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_eval PASSED [ 25%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_exec PASSED [ 26%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_dunder_import PASSED [ 27%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_subprocess_popen PASSED [ 28%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_rm_rf PASSED [ 29%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_sql_injection PASSED [ 29%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_empty_code_rejected PASSED [ 30%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_clean_code_passes PASSED [ 31%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_safe_imports_pass PASSED [ 32%]
+backend/tests/phase8/test_critic_effectiveness.py::TestOutputCritic::test_empty_output_rejected PASSED [ 32%]
+backend/tests/phase8/test_critic_effectiveness.py::TestOutputCritic::test_whitespace_only_rejected PASSED [ 33%]
+backend/tests/phase8/test_critic_effectiveness.py::TestOutputCritic::test_error_traceback_rejected PASSED [ 34%]
+backend/tests/phase8/test_critic_effectiveness.py::TestOutputCritic::test_valid_output_passes PASSED [ 35%]
+backend/tests/phase8/test_critic_effectiveness.py::TestPlanCritic::test_empty_plan_rejected PASSED [ 35%]
+backend/tests/phase8/test_critic_effectiveness.py::TestPlanCritic::test_valid_plan_passes PASSED [ 36%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCriticEffectiveness::test_catch_rate PASSED [ 37%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCriticEffectiveness::test_false_positive_rate PASSED [ 38%]
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000 PASSED [ 38%]
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_child_with_nonexistent_parent PASSED [ 39%]
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_delete_parent_with_children PASSED [ 40%]
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_orphan_detection_query PASSED [ 41%]
+backend/tests/phase8/test_database_stress.py::TestConstitutionRollback::test_constitution_version_management PASSED [ 41%]
+backend/tests/phase8/test_database_stress.py::TestAuditLogIntegrity::test_10000_audit_entries PASSED [ 42%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_task_to_lead_valid PASSED [ 43%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lead_to_council_valid PASSED [ 44%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_council_to_head_valid PASSED [ 45%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_head_to_council_down_valid PASSED [ 45%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_council_to_lead_down_valid PASSED [ 46%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lead_to_task_down_valid PASSED [ 47%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_task_to_council_blocked PASSED [ 48%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_task_to_head_blocked PASSED [ 48%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lead_to_head_blocked PASSED [ 49%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_head_to_task_down_blocked PASSED [ 50%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_head_to_lead_down_blocked PASSED [ 51%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lateral_same_tier PASSED [ 51%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lateral_different_tier_blocked PASSED [ 52%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_broadcast_head_only PASSED [ 53%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_broadcast_non_head_blocked PASSED [ 54%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_broadcast_task_blocked PASSED [ 54%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_get_tier PASSED [ 55%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_get_tier_broadcast PASSED [ 56%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_role_mapping_planners PASSED [ 57%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_role_mapping_executors PASSED [ 58%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_role_mapping_critics PASSED [ 58%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_cannot_see_intent PASSED [ 59%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_cannot_see_vote_proposal PASSED [ 60%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_execution PASSED [ 61%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_critique PASSED [ 61%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_critique_result PASSED [ 62%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_heartbeat PASSED [ 63%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_notification PASSED [ 64%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_executor_can_see_delegation PASSED [ 64%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_executor_can_see_execution PASSED [ 65%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_executor_cannot_see_vote_proposal PASSED [ 66%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_planner_can_see_intent PASSED [ 67%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_planner_can_see_vote_proposal PASSED [ 67%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_visible_to_glob_restriction PASSED [ 68%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_visible_to_wildcard PASSED [ 69%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_filter_messages_for_critic PASSED [ 70%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_valid_message_creation PASSED [ 70%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_invalid_sender_id_rejected PASSED [ 71%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_invalid_prefix_rejected PASSED [ 72%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_hop_count_exceeded PASSED [ 73%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_broadcast_special_case PASSED [ 74%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_to_redis_stream_format PASSED [ 74%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_is_hierarchy_valid_method PASSED [ 75%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_is_hierarchy_invalid PASSED [ 76%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_context_scope_default PASSED [ 77%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_visible_to_default PASSED [ 77%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_task_rate_limit PASSED [ 78%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_lead_rate_limit PASSED [ 79%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_council_rate_limit PASSED [ 80%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_head_rate_limit PASSED [ 80%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_hierarchy_rate_order PASSED [ 81%]
+backend/tests/phase8/test_performance.py::TestAPIConcurrency::test_100_concurrent_api_requests PASSED [ 82%]
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput PASSED [ 83%]
+backend/tests/phase8/test_performance.py::TestMemoryFootprint::test_10000_agent_db_query_latency PASSED [ 83%]
+backend/tests/phase8/test_performance.py::TestMessageBusThroughput::test_sustained_throughput PASSED [ 84%]
+backend/tests/phase8/test_performance.py::TestConstitutionalCheckThroughput::test_1000_tier1_checks PASSED [ 85%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_1_member PASSED [ 86%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_2_members PASSED [ 87%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_3_members PASSED [ 87%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_5_members PASSED [ 88%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_10_members PASSED [ 89%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_100_members PASSED [ 90%]
+backend/tests/phase8/test_voting_stress.py::TestSupermajorityThreshold::test_supermajority_pass PASSED [ 90%]
+backend/tests/phase8/test_voting_stress.py::TestSupermajorityThreshold::test_supermajority_fail PASSED [ 91%]
+backend/tests/phase8/test_voting_stress.py::TestSupermajorityThreshold::test_supermajority_exact_boundary PASSED [ 92%]
+backend/tests/phase8/test_voting_stress.py::TestSupermajorityThreshold::test_supermajority_one_below PASSED [ 93%]
+backend/tests/phase8/test_voting_stress.py::TestAbstentionHandling::test_abstentions_reduce_participation PASSED [ 93%]
+backend/tests/phase8/test_voting_stress.py::TestAbstentionHandling::test_all_abstain PASSED [ 94%]
+backend/tests/phase8/test_voting_stress.py::TestDelegationChains::test_delegation_a_to_b_to_c PASSED [ 95%]
+backend/tests/phase8/test_voting_stress.py::TestDelegationChains::test_delegation_loop_prevention PASSED [ 96%]
+backend/tests/phase8/test_voting_stress.py::TestDelegationChains::test_three_way_loop_prevention PASSED [ 96%]
+backend/tests/phase8/test_voting_stress.py::TestVoteTimeout::test_expired_amendment_auto_fail PASSED [ 97%]
+backend/tests/phase8/test_voting_stress.py::TestVoteTimeout::test_active_amendment_not_expired PASSED [ 98%]
+backend/tests/phase8/test_voting_stress.py::TestVoteTimeout::test_deadline_exactly_now PASSED [ 99%]
+backend/tests/phase8/test_voting_stress.py::TestVoteTimeout::test_no_deadline_never_expires PASSED [100%]
+
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'enum'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045: PydanticDeprecatedSince20: `min_items` is deprecated and will be removed, use `min_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`min_items` is deprecated and will be removed, use `min_length` instead', DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051: PydanticDeprecatedSince20: `max_items` is deprecated and will be removed, use `max_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`max_items` is deprecated and will be removed, use `max_length` instead', DeprecationWarning)
+
+backend/models/entities/skill.py:73
+  /app/backend/models/entities/skill.py:73: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('tags')
+
+backend/models/entities/skill.py:77
+  /app/backend/models/entities/skill.py:77: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('skill_name')
+
+../usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854
+  /usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+backend/models/schemas/messages.py:89
+  /app/backend/models/schemas/messages.py:89: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("hop_count")
+
+backend/models/schemas/messages.py:95
+  /app/backend/models/schemas/messages.py:95: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("sender_id", "recipient_id")
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293: PydanticDeprecatedSince20: `json_encoders` is deprecated. See https://docs.pydantic.dev/2.11/concepts/serialization/#custom-serializers for alternatives. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:108: SAWarning: Flushing object <Agent at 0x7164c4b1ff10> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:108: SAWarning: Flushing object <Agent at 0x7164c471f190> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:108: SAWarning: Flushing object <Agent at 0x7164c3d70110> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:108: SAWarning: Flushing object <Agent at 0x7164c3d70350> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:108: SAWarning: Flushing object <Agent at 0x7164c3d70850> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:108: SAWarning: Flushing object <Agent at 0x7164c3d70ad0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:108: SAWarning: Flushing object <Agent at 0x7164c3d70d50> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:108: SAWarning: Flushing object <Agent at 0x7164c3d70fd0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:108: SAWarning: Flushing object <Agent at 0x7164c3d71250> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164c3473450> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164c3187d50> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164c31cddd0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164c31c2190> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164c319b310> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164c31aa9d0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164c31a9e90> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164c31f6710> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164a2f06750> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+  /app/backend/tests/phase8/test_database_stress.py:56: SAWarning: Flushing object <Agent at 0x7164a2f3fb50> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_child_with_nonexistent_parent
+  /app/backend/tests/phase8/test_database_stress.py:168: SAWarning: Flushing object <Agent at 0x7164c343cb90> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    db.flush()
+
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_delete_parent_with_children
+  /app/backend/tests/phase8/test_database_stress.py:185: SAWarning: Flushing object <Agent at 0x7164c34b6050> with incompatible polymorphic identity <AgentType.LEAD_AGENT: 'lead_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    db.flush()
+
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_delete_parent_with_children
+  /app/backend/tests/phase8/test_database_stress.py:199: SAWarning: Flushing object <Agent at 0x7164c34b6b50> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    db.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c31179d0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c3117fd0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c3115010> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c5743350> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c3117690> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c31140d0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c3117a10> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c3117890> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c3131910> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7164c3210d90> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestMessageBusThroughput::test_sustained_throughput
+  /usr/local/lib/python3.11/site-packages/pytest_asyncio/plugin.py:854: DeprecationWarning: The event_loop fixture provided by pytest-asyncio has been redefined in
+  /app/backend/tests/phase8/conftest.py:105
+  Replacing the event_loop fixture with a custom implementation is deprecated
+  and will lead to errors in the future.
+  If you want to request an asyncio event loop with a scope other than function
+  scope, use the "scope" argument to the asyncio mark when marking the tests.
+  If you want to return different types of event loops, use the event_loop_policy
+  fixture.
+  
+    warnings.warn(
+
+backend/tests/phase8/test_performance.py::TestMessageBusThroughput::test_sustained_throughput
+  /app/backend/services/message_bus.py:307: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
+    await self._pubsub.close()
+
+backend/tests/phase8/test_performance.py::TestMessageBusThroughput::test_sustained_throughput
+  /app/backend/services/message_bus.py:309: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
+    await self._redis.close()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 128 passed, 3 skipped, 51 warnings in 12.62s =================

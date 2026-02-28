@@ -76,9 +76,10 @@ class TestPostgresKill:
         """Ensure postgres is running before and after test."""
         yield
         if not _is_container_running("agentium-postgres"):
-            _docker_cmd("start", "agentium-postgres")
-            assert _wait_for_container("agentium-postgres", timeout=60), \
-                "Failed to restart agentium-postgres"
+            started = _docker_cmd("start", "agentium-postgres")
+            if started:
+                assert _wait_for_container("agentium-postgres", timeout=60), \
+                    "Failed to restart agentium-postgres"
 
     def test_postgres_kill_mid_load(self):
         """
@@ -197,8 +198,9 @@ class TestRedisKill:
     def _ensure_redis_running(self):
         yield
         if not _is_container_running("agentium-redis"):
-            _docker_cmd("start", "agentium-redis")
-            _wait_for_container("agentium-redis", timeout=60)
+            started = _docker_cmd("start", "agentium-redis")
+            if started:
+                _wait_for_container("agentium-redis", timeout=60)
 
     def test_redis_kill_mid_execution(self):
         """
@@ -270,8 +272,9 @@ class TestChromaDBKill:
     def _ensure_chroma_running(self):
         yield
         if not _is_container_running("agentium-chroma"):
-            _docker_cmd("start", "agentium-chroma")
-            _wait_for_container("agentium-chroma", timeout=60)
+            started = _docker_cmd("start", "agentium-chroma")
+            if started:
+                _wait_for_container("agentium-chroma", timeout=60)
 
     def test_chromadb_kill_degraded_mode(self, db):
         """

@@ -70,7 +70,7 @@ class AuditLog(BaseEntity):
     metadata_json = Column(Text, nullable=True)      # ✅ FIXED: Changed from 'metadata' to 'metadata_json'
     
     # Result
-    success = Column(String(1), default='Y', nullable=False)  # Y/N
+    success = Column(String(5), default='Y', nullable=False)  # Y/N or True/False
     result_message = Column(Text, nullable=True)
     error_code = Column(String(50), nullable=True)
     error_details = Column(Text, nullable=True)

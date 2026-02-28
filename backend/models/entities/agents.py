@@ -63,7 +63,7 @@ class Agent(BaseEntity):
     created_by_agentium_id = Column(String(10), nullable=True)
     
     # Hierarchy relationships
-    parent_id = Column(String(36), ForeignKey('agents.id'), nullable=True)
+    parent_id = Column(String(36), ForeignKey('agents.id', ondelete='RESTRICT'), nullable=True)
     
     # Status & Lifecycle
     status = Column(Enum(AgentStatus), default=AgentStatus.INITIALIZING, nullable=False)

@@ -6,7 +6,7 @@ from sqlalchemy import Column, String, Boolean, DateTime, func
 from sqlalchemy.orm import Session, relationship
 from passlib.context import CryptContext
 
-from backend.models.database import Base
+from backend.models.entities.base import Base
 
 
 # Password hashing context

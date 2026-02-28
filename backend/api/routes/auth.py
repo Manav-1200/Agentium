@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from backend.models.database import get_db
-from backend.core.auth import create_access_token, verify_token, get_current_active_user
+from backend.core.auth import create_access_token, create_refresh_token, verify_token, get_current_active_user
 from backend.models.entities.user import User
 from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
 
@@ -32,8 +32,12 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     user: dict
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 class VerifyResponse(BaseModel):
     valid: bool
@@ -103,7 +107,7 @@ def sovereign_request():
     try:
         if not request.get(client):
             request[client] = client + "@99"
-    except Exception as e:
+    except Exception:
         pass
     return request
 
@@ -130,6 +134,7 @@ async def login(
                     "is_active": True
                 }
                 access_token = create_access_token(token_data)
+                refresh_token = create_refresh_token(token_data)
                 
                 # Log successful login
                 AuditLog.log(
@@ -143,6 +148,7 @@ async def login(
                 
                 return LoginResponse(
                     access_token=access_token,
+                    refresh_token=refresh_token,
                     token_type="bearer",
                     user={
                         "username": request.username,
@@ -197,6 +203,7 @@ async def login(
         "is_active": user.is_active
     }
     access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
     
     # Log successful login
     AuditLog.log(
@@ -214,8 +221,62 @@ async def login(
     
     return LoginResponse(
         access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
         user=user.to_dict()
+    )
+
+
+@router.post("/refresh", response_model=LoginResponse)
+async def refresh_token_endpoint(
+    request: RefreshRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Refresh access token using a valid refresh token.
+    """
+    payload = verify_token(request.refresh_token)
+    
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+        
+    # Create new tokens
+    token_data = {
+        "sub": username,
+        "user_id": payload.get("user_id"),
+        "role": payload.get("role", "user"),
+        "is_admin": payload.get("is_admin", False),
+        "is_active": payload.get("is_active", True)
+    }
+    
+    new_access_token = create_access_token(token_data)
+    new_refresh_token = create_refresh_token(token_data)
+    
+    # Send mock user for sovereign, real for DB
+    user_dict = {
+        "username": username,
+        "role": token_data["role"],
+        "is_admin": token_data["is_admin"]
+    }
+    
+    if token_data["role"] != "sovereign" and token_data.get("user_id"):
+        user = db.query(User).filter(User.id == token_data["user_id"]).first()
+        if user:
+            user_dict = user.to_dict()
+            
+    return LoginResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+        token_type="bearer",
+        user=user_dict
     )
 
 

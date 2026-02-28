@@ -1,0 +1,112 @@
+﻿============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-8.3.4, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+plugins: Faker-33.3.0, asyncio-0.25.0, anyio-4.12.1, cov-6.0.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collecting ... collected 3 items
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load 
+  ΓÜá  Stopping agentium-postgres...
+SKIPPED
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load ERROR
+backend/tests/phase8/test_chaos.py::TestRedisKill::test_redis_kill_mid_execution 
+  ΓÜá  Stopping agentium-redis...
+SKIPPED
+backend/tests/phase8/test_chaos.py::TestChromaDBKill::test_chromadb_kill_degraded_mode 
+  ΓÜá  Stopping agentium-chroma...
+SKIPPED
+
+==================================== ERRORS ====================================
+______ ERROR at teardown of TestPostgresKill.test_postgres_kill_mid_load _______
+
+self = <phase8.test_chaos.TestPostgresKill object at 0x76ff3637af50>
+
+    @pytest.fixture(autouse=True)
+    def _ensure_postgres_running(self):
+        """Ensure postgres is running before and after test."""
+        yield
+        if not _is_container_running("agentium-postgres"):
+            _docker_cmd("start", "agentium-postgres")
+>           assert _wait_for_container("agentium-postgres", timeout=60), \
+                "Failed to restart agentium-postgres"
+E           AssertionError: Failed to restart agentium-postgres
+E           assert False
+E            +  where False = _wait_for_container('agentium-postgres', timeout=60)
+
+backend/tests/phase8/test_chaos.py:80: AssertionError
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'enum'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045: PydanticDeprecatedSince20: `min_items` is deprecated and will be removed, use `min_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`min_items` is deprecated and will be removed, use `min_length` instead', DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051: PydanticDeprecatedSince20: `max_items` is deprecated and will be removed, use `max_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`max_items` is deprecated and will be removed, use `max_length` instead', DeprecationWarning)
+
+backend/models/entities/skill.py:73
+  /app/backend/models/entities/skill.py:73: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('tags')
+
+backend/models/entities/skill.py:77
+  /app/backend/models/entities/skill.py:77: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('skill_name')
+
+../usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854
+  /usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+backend/models/schemas/messages.py:89
+  /app/backend/models/schemas/messages.py:89: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("hop_count")
+
+backend/models/schemas/messages.py:95
+  /app/backend/models/schemas/messages.py:95: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("sender_id", "recipient_id")
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293: PydanticDeprecatedSince20: `json_encoders` is deprecated. See https://docs.pydantic.dev/2.11/concepts/serialization/#custom-serializers for alternatives. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x76ff3635b9d0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x76ff34763a90> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x76ff3476c350> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x76ff3476c590> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x76ff3476cd10> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x76ff3476cf90> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+============= 3 skipped, 22 warnings, 1 error in 184.19s (0:03:04) =============

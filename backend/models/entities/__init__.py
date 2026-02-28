@@ -58,6 +58,8 @@ from .ab_testing import (
 
 from backend.models.entities.base import Base, BaseEntity
 
+from backend.models.entities.user import User
+
 from backend.models.entities.constitution import (
     Constitution, 
     Ethos, 
@@ -137,6 +139,7 @@ __all__ = [
     'BaseEntity',
     
     # User Configuration (Frontend-managed models)
+    'User',
     'UserModelConfig',
     'ProviderType', 
     'ConnectionStatus',

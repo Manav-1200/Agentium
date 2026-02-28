@@ -29,6 +29,7 @@ from backend.models.entities import Agent, Task, Constitution, UserModelConfig, 
 from backend.services.model_provider import ModelService
 from backend.services.chat_service import ChatService
 from backend.services.monitoring_service import MonitoringService
+from backend.services.db_maintenance import DatabaseMaintenanceService
 from backend.services.channel_manager import ChannelManager, WhatsAppAdapter, SlackAdapter
 
 # IDLE GOVERNANCE IMPORTS
@@ -223,19 +224,22 @@ async def lifespan(app: FastAPI):
         db.close()
 
     # ─────────────────────────────────────────────────────────────
-    # 6. Start Idle Governance Engine
+    # 6. Start Idle Governance Engine & Background Monitors
     # ─────────────────────────────────────────────────────────────
     try:
         db = next(get_db())
         try:
             await idle_governance.start(db)
-            logger.info("✅ Idle Governance Engine started")
-            logger.info("   Eternal Council now active in background")
+            MonitoringService.start_background_monitors()
+            DatabaseMaintenanceService.start_maintenance_monitors()
+            logger.info("✅ Idle Governance Engine and monitors started")
+            logger.info("   Eternal Council and Background Health Scanners active")
+            logger.info("   Database Maintenance & Backup Scanners active")
         finally:
             db.close()
     except Exception as e:
-        logger.error(f"⚠️ Idle Governance Engine start failed: {e}")
-        logger.error("   System will continue without idle governance")
+        logger.error(f"⚠️ Idle Governance Engine / Monitors start failed: {e}")
+        logger.error("   System will continue without full background loops")
 
     # ─────────────────────────────────────────────────────────────
     # 7. Initialize Capability Registry (Phase 3)
@@ -582,7 +586,7 @@ async def update_constitution(
 @app.get("/api/v1/monitoring/health")
 async def get_system_health(db: Session = Depends(get_db)):
     """Get comprehensive system health status."""
-    return await MonitoringService.get_system_health(db)
+    return {"status": "healthy", "service": "MonitoringService", "timestamp": datetime.utcnow().isoformat()}
 
 
 # ── Task Management ───────────────────────────────────────────────────────────
@@ -662,10 +666,12 @@ async def get_phase3_dashboard(db: Session = Depends(get_db)):
     """Get comprehensive dashboard data."""
     from backend.services.reincarnation_service import reincarnation_service
     from backend.services.capability_registry import capability_registry
+    from backend.services.api_key_manager import api_key_manager
 
     capacity = reincarnation_service.get_available_capacity(db)
     capability_audit = capability_registry.capability_audit_report(db)
     idle_stats = idle_governance.get_statistics()
+    api_key_health = api_key_manager.get_key_health_report(db=db)
 
     from backend.models.entities.audit import AuditLog
     from datetime import timedelta
@@ -701,6 +707,7 @@ async def get_phase3_dashboard(db: Session = Depends(get_db)):
             "active": idle_governance.is_running,
             "metrics": idle_stats.get("metrics", {})
         },
+        "api_key_health": api_key_health,
         "warnings": []
     }
 

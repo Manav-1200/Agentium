@@ -1,0 +1,635 @@
+Running Phase 8.1 - Core Functionality
+/usr/local/lib/python3.11/site-packages/pytest_asyncio/plugin.py:207: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-8.3.4, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+plugins: Faker-33.3.0, asyncio-0.25.0, anyio-4.12.1, cov-6.0.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collecting ... collected 105 items
+
+backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000 FAILED [  0%]
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_child_with_nonexistent_parent PASSED [  1%]
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_delete_parent_with_children FAILED [  2%]
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_orphan_detection_query PASSED [  3%]
+backend/tests/phase8/test_database_stress.py::TestConstitutionRollback::test_constitution_version_management PASSED [  4%]
+backend/tests/phase8/test_database_stress.py::TestAuditLogIntegrity::test_10000_audit_entries FAILED [  5%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_task_to_lead_valid PASSED [  6%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lead_to_council_valid PASSED [  7%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_council_to_head_valid PASSED [  8%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_head_to_council_down_valid PASSED [  9%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_council_to_lead_down_valid PASSED [ 10%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lead_to_task_down_valid PASSED [ 11%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_task_to_council_blocked PASSED [ 12%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_task_to_head_blocked PASSED [ 13%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lead_to_head_blocked PASSED [ 14%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_head_to_task_down_blocked PASSED [ 15%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_head_to_lead_down_blocked PASSED [ 16%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lateral_same_tier PASSED [ 17%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_lateral_different_tier_blocked PASSED [ 18%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_broadcast_head_only PASSED [ 19%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_broadcast_non_head_blocked PASSED [ 20%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_broadcast_task_blocked PASSED [ 20%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_get_tier PASSED [ 21%]
+backend/tests/phase8/test_message_bus.py::TestHierarchyValidator::test_get_tier_broadcast PASSED [ 22%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_role_mapping_planners PASSED [ 23%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_role_mapping_executors PASSED [ 24%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_role_mapping_critics PASSED [ 25%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_cannot_see_intent PASSED [ 26%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_cannot_see_vote_proposal PASSED [ 27%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_execution PASSED [ 28%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_critique PASSED [ 29%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_critique_result PASSED [ 30%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_heartbeat PASSED [ 31%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_critic_can_see_notification PASSED [ 32%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_executor_can_see_delegation PASSED [ 33%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_executor_can_see_execution PASSED [ 34%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_executor_cannot_see_vote_proposal PASSED [ 35%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_planner_can_see_intent PASSED [ 36%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_planner_can_see_vote_proposal PASSED [ 37%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_visible_to_glob_restriction PASSED [ 38%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_visible_to_wildcard PASSED [ 39%]
+backend/tests/phase8/test_message_bus.py::TestContextRayTracer::test_filter_messages_for_critic PASSED [ 40%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_valid_message_creation PASSED [ 40%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_invalid_sender_id_rejected PASSED [ 41%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_invalid_prefix_rejected PASSED [ 42%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_hop_count_exceeded PASSED [ 43%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_broadcast_special_case PASSED [ 44%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_to_redis_stream_format PASSED [ 45%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_is_hierarchy_valid_method PASSED [ 46%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_is_hierarchy_invalid PASSED [ 47%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_context_scope_default PASSED [ 48%]
+backend/tests/phase8/test_message_bus.py::TestAgentMessageValidation::test_visible_to_default PASSED [ 49%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_task_rate_limit PASSED [ 50%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_lead_rate_limit PASSED [ 51%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_council_rate_limit PASSED [ 52%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_head_rate_limit PASSED [ 53%]
+backend/tests/phase8/test_message_bus.py::TestRateLimitConfig::test_hierarchy_rate_order PASSED [ 54%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_1_member PASSED [ 55%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_2_members PASSED [ 56%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_3_members PASSED [ 57%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_5_members PASSED [ 58%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_10_members PASSED [ 59%]
+backend/tests/phase8/test_voting_stress.py::TestQuorumValidation::test_quorum_100_members PASSED [ 60%]
+backend/tests/phase8/test_voting_stress.py::TestSupermajorityThreshold::test_supermajority_pass PASSED [ 60%]
+backend/tests/phase8/test_voting_stress.py::TestSupermajorityThreshold::test_supermajority_fail PASSED [ 61%]
+backend/tests/phase8/test_voting_stress.py::TestSupermajorityThreshold::test_supermajority_exact_boundary PASSED [ 62%]
+backend/tests/phase8/test_voting_stress.py::TestSupermajorityThreshold::test_supermajority_one_below PASSED [ 63%]
+backend/tests/phase8/test_voting_stress.py::TestAbstentionHandling::test_abstentions_reduce_participation PASSED [ 64%]
+backend/tests/phase8/test_voting_stress.py::TestAbstentionHandling::test_all_abstain PASSED [ 65%]
+backend/tests/phase8/test_voting_stress.py::TestDelegationChains::test_delegation_a_to_b_to_c PASSED [ 66%]
+backend/tests/phase8/test_voting_stress.py::TestDelegationChains::test_delegation_loop_prevention PASSED [ 67%]
+backend/tests/phase8/test_voting_stress.py::TestDelegationChains::test_three_way_loop_prevention PASSED [ 68%]
+backend/tests/phase8/test_voting_stress.py::TestVoteTimeout::test_expired_amendment_auto_fail PASSED [ 69%]
+backend/tests/phase8/test_voting_stress.py::TestVoteTimeout::test_active_amendment_not_expired PASSED [ 70%]
+backend/tests/phase8/test_voting_stress.py::TestVoteTimeout::test_deadline_exactly_now PASSED [ 71%]
+backend/tests/phase8/test_voting_stress.py::TestVoteTimeout::test_no_deadline_never_expires PASSED [ 72%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_rm_rf_root PASSED [ 73%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_rm_rf_variant PASSED [ 74%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_fork_bomb PASSED [ 75%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_wget_pipe_sh PASSED [ 76%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_curl_pipe_bash PASSED [ 77%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_drop_database PASSED [ 78%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_delete_from_constitutions PASSED [ 79%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_truncate_table PASSED [ 80%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_format_c_drive PASSED [ 80%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_shutdown PASSED [ 81%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_mkfs PASSED [ 82%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_dd_if PASSED [ 83%]
+backend/tests/phase8/test_constitutional_guard.py::TestBlacklistEnforcement::test_safe_commands_not_blocked PASSED [ 84%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_head_has_veto PASSED [ 85%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_head_has_spawn PASSED [ 86%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_task_cannot_spawn PASSED [ 87%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_council_has_vote PASSED [ 88%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_lead_has_delegate PASSED [ 89%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_task_can_execute PASSED [ 90%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_all_numeric_tiers_defined PASSED [ 91%]
+backend/tests/phase8/test_constitutional_guard.py::TestTierCapabilityEnforcement::test_all_named_tiers_defined PASSED [ 92%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalDecision::test_to_dict PASSED [ 93%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalDecision::test_default_values PASSED [ 94%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalDecision::test_vote_required_verdict PASSED [ 95%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalDecision::test_affected_agents PASSED [ 96%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalGuardIntegration::test_tier1_blocks_rm_rf PASSED [ 97%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalGuardIntegration::test_tier1_allows_safe_command PASSED [ 98%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalGuardIntegration::test_tier1_blocks_unauthorized_action PASSED [ 99%]
+backend/tests/phase8/test_constitutional_guard.py::TestConstitutionalGuardIntegration::test_tier1_latency PASSED [100%]
+
+=================================== FAILURES ===================================
+_________ TestConcurrentAgentSpawns.test_concurrent_agent_spawns_1000 __________
+backend/tests/phase8/test_database_stress.py:137: in test_concurrent_agent_spawns_1000
+    assert successes == count, f"Only {successes}/{count} succeeded"
+E   AssertionError: Only 0/1000 succeeded
+E   assert 0 == 1000
+----------------------------- Captured stdout call -----------------------------
+
+============================================================
+  1000 Concurrent Agent Spawns
+============================================================
+  Successes   : 0/1000
+  Collisions  : 0
+  Failures    : 1000
+  P50 latency : 0.00 ms
+  P95 latency : 0.00 ms
+  Total time  : 442 ms
+============================================================
+__________ TestForeignKeyEnforcement.test_delete_parent_with_children __________
+backend/tests/phase8/test_database_stress.py:198: in test_delete_parent_with_children
+    with pytest.raises(IntegrityError):
+E   Failed: DID NOT RAISE <class 'sqlalchemy.exc.IntegrityError'>
+________________ TestAuditLogIntegrity.test_10000_audit_entries ________________
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:2125: in _exec_insertmany_context
+    dialect.do_execute(
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+E   psycopg2.errors.StringDataRightTruncation: value too long for type character varying(1)
+
+The above exception was the direct cause of the following exception:
+backend/tests/phase8/test_database_stress.py:286: in test_10000_audit_entries
+    db.commit()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py:2030: in commit
+    trans.commit(_to_root=True)
+<string>:2: in commit
+    ???
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py:1311: in commit
+    self._prepare_impl()
+<string>:2: in _prepare_impl
+    ???
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py:1286: in _prepare_impl
+    self.session.flush()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py:4331: in flush
+    self._flush(objects)
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py:4466: in _flush
+    with util.safe_reraise():
+/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py:224: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py:4427: in _flush
+    flush_context.execute()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py:466: in execute
+    rec.execute(self)
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py:642: in execute
+    util.preloaded.orm_persistence.save_obj(
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py:93: in save_obj
+    _emit_insert_statements(
+/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py:1048: in _emit_insert_statements
+    result = connection.execute(
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:1419: in execute
+    return meth(
+/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py:527: in _execute_on_connection
+    return connection._execute_clauseelement(
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:1641: in _execute_clauseelement
+    ret = self._execute_context(
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:1844: in _execute_context
+    return self._exec_insertmany_context(dialect, context)
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:2133: in _exec_insertmany_context
+    self._handle_dbapi_exception(
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:2363: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:2125: in _exec_insertmany_context
+    dialect.do_execute(
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+E   sqlalchemy.exc.DataError: (psycopg2.errors.StringDataRightTruncation) value too long for type character varying(1)
+E   
+E   [SQL: INSERT INTO audit_logs (level, category, actor_type, actor_id, action, description, target_type, target_id, session_id, ip_address, before_state, after_state, metadata_json, success, result_message, error_code, error_details, parent_audit_id, correla ... 571038 characters truncated ... entium_id__999)s, %(created_at__999)s, %(updated_at__999)s, %(deleted_at__999)s, %(is_active__999)s)]
+E   [parameters: {'target_id__0': 'entry-0', 'updated_at__0': datetime.datetime(2026, 2, 28, 6, 41, 11, 777124), 'ip_address__0': None, 'error_code__0': None, 'target_type__0': 'audit', 'memory_delta_mb__0': None, 'error_details__0': None, 'session_id__0': None, 'before_state__0': None, 'id__0': '6d22447a-7437-4188-85c1-9013be3cb988', 'metadata_json__0': None, 'is_active__0': True, 'after_state__0': None, 'duration_ms__0': None, 'agentium_id__0': 'AL00000', 'parent_audit_id__0': None, 'actor_id__0': 'phase8', 'description__0': 'Phase8-StressTest-0', 'created_at__0': datetime.datetime(2026, 2, 28, 6, 41, 10, 878489), 'correlation_id__0': None, 'category__0': 'SYSTEM', 'action__0': 'stress_test', 'level__0': 'INFO', 'deleted_at__0': None, 'success__0': True, 'result_message__0': None, 'actor_type__0': 'test', 'target_id__1': 'entry-1', 'updated_at__1': datetime.datetime(2026, 2, 28, 6, 41, 11, 777131), 'ip_address__1': None, 'error_code__1': None, 'target_type__1': 'audit', 'memory_delta_mb__1': None, 'error_details__1': None, 'session_id__1': None, 'before_state__1': None, 'id__1': '3370069d-45b9-4469-87d3-a4259bc58efc', 'metadata_json__1': None, 'is_active__1': True, 'after_state__1': None, 'duration_ms__1': None, 'agentium_id__1': 'AL00001', 'parent_audit_id__1': None, 'actor_id__1': 'phase8', 'description__1': 'Phase8-StressTest-1', 'created_at__1': datetime.datetime(2026, 2, 28, 6, 41, 10, 878615), 'correlation_id__1': None, 'category__1': 'SYSTEM', 'action__1': 'stress_test', 'level__1': 'INFO' ... 26900 parameters truncated ... 'target_type__998': 'audit', 'memory_delta_mb__998': None, 'error_details__998': None, 'session_id__998': None, 'before_state__998': None, 'id__998': 'fc23a2f0-2a9f-4a9a-8ef7-17872afe10ad', 'metadata_json__998': None, 'is_active__998': True, 'after_state__998': None, 'duration_ms__998': None, 'agentium_id__998': 'AL00998', 'parent_audit_id__998': None, 'actor_id__998': 'phase8', 'description__998': 'Phase8-StressTest-998', 'created_at__998': datetime.datetime(2026, 2, 28, 6, 41, 10, 918277), 'correlation_id__998': None, 'category__998': 'SYSTEM', 'action__998': 'stress_test', 'level__998': 'INFO', 'deleted_at__998': None, 'success__998': True, 'result_message__998': None, 'actor_type__998': 'test', 'target_id__999': 'entry-999', 'updated_at__999': datetime.datetime(2026, 2, 28, 6, 41, 11, 777838), 'ip_address__999': None, 'error_code__999': None, 'target_type__999': 'audit', 'memory_delta_mb__999': None, 'error_details__999': None, 'session_id__999': None, 'before_state__999': None, 'id__999': 'b5219dd8-8cc0-4a02-9834-0d4b75bb903f', 'metadata_json__999': None, 'is_active__999': True, 'after_state__999': None, 'duration_ms__999': None, 'agentium_id__999': 'AL00999', 'parent_audit_id__999': None, 'actor_id__999': 'phase8', 'description__999': 'Phase8-StressTest-999', 'created_at__999': datetime.datetime(2026, 2, 28, 6, 41, 10, 918310), 'correlation_id__999': None, 'category__999': 'SYSTEM', 'action__999': 'stress_test', 'level__999': 'INFO', 'deleted_at__999': None, 'success__999': True, 'result_message__999': None, 'actor_type__999': 'test'}]
+E   (Background on this error at: https://sqlalche.me/e/20/9h9h)
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'enum'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045: PydanticDeprecatedSince20: `min_items` is deprecated and will be removed, use `min_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`min_items` is deprecated and will be removed, use `min_length` instead', DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051: PydanticDeprecatedSince20: `max_items` is deprecated and will be removed, use `max_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`max_items` is deprecated and will be removed, use `max_length` instead', DeprecationWarning)
+
+backend/models/entities/skill.py:73
+  /app/backend/models/entities/skill.py:73: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('tags')
+
+backend/models/entities/skill.py:77
+  /app/backend/models/entities/skill.py:77: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('skill_name')
+
+../usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854
+  /usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+backend/models/schemas/messages.py:89
+  /app/backend/models/schemas/messages.py:89: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("hop_count")
+
+backend/models/schemas/messages.py:95
+  /app/backend/models/schemas/messages.py:95: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("sender_id", "recipient_id")
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293: PydanticDeprecatedSince20: `json_encoders` is deprecated. See https://docs.pydantic.dev/2.11/concepts/serialization/#custom-serializers for alternatives. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(
+
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_child_with_nonexistent_parent
+  /app/backend/tests/phase8/test_database_stress.py:163: SAWarning: Flushing object <Agent at 0x7559bcfd7690> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    db.flush()
+
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_delete_parent_with_children
+  /app/backend/tests/phase8/test_database_stress.py:180: SAWarning: Flushing object <Agent at 0x7559bb33a7d0> with incompatible polymorphic identity <AgentType.LEAD_AGENT: 'lead_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    db.flush()
+
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_delete_parent_with_children
+  /app/backend/tests/phase8/test_database_stress.py:194: SAWarning: Flushing object <Agent at 0x7559bb33a090> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    db.flush()
+
+backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_delete_parent_with_children
+  /app/backend/tests/phase8/test_database_stress.py:199: SAWarning: Flushing object <Agent at 0x7559bb33a090> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    db.flush()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+------------------- generated xml file: /tmp/phase8_core.xml -------------------
+=========================== short test summary info ============================
+FAILED backend/tests/phase8/test_database_stress.py::TestConcurrentAgentSpawns::test_concurrent_agent_spawns_1000
+FAILED backend/tests/phase8/test_database_stress.py::TestForeignKeyEnforcement::test_delete_parent_with_children
+FAILED backend/tests/phase8/test_database_stress.py::TestAuditLogIntegrity::test_10000_audit_entries
+================== 3 failed, 102 passed, 20 warnings in 5.27s ==================
+Running Phase 8.2 - Performance Benchmarks
+/usr/local/lib/python3.11/site-packages/pytest_asyncio/plugin.py:207: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-8.3.4, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+plugins: Faker-33.3.0, asyncio-0.25.0, anyio-4.12.1, cov-6.0.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collecting ... collected 5 items
+
+backend/tests/phase8/test_performance.py::TestAPIConcurrency::test_100_concurrent_api_requests PASSED [ 20%]
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput PASSED [ 40%]
+backend/tests/phase8/test_performance.py::TestMemoryFootprint::test_10000_agent_db_query_latency PASSED [ 60%]
+backend/tests/phase8/test_performance.py::TestMessageBusThroughput::test_sustained_throughput FAILED [ 80%]
+backend/tests/phase8/test_performance.py::TestConstitutionalCheckThroughput::test_1000_tier1_checks PASSED [100%]
+
+=================================== FAILURES ===================================
+______________ TestMessageBusThroughput.test_sustained_throughput ______________
+backend/tests/phase8/test_performance.py:242: in test_sustained_throughput
+    assert throughput > 50, f"Throughput {throughput:.0f}/sec below 50"
+E   AssertionError: Throughput 31/sec below 50
+E   assert 30.832332695495072 > 50
+---------------------------- Captured stdout setup -----------------------------
+MessageBus connected to redis://redis:6379/0
+----------------------------- Captured stdout call -----------------------------
+
+============================================================
+  Message Bus Throughput (1000 messages)
+============================================================
+  Success     : 1/1000
+  Time        : 0.03 sec
+  Throughput  : 31 msg/sec
+  P50 publish : 0.005 ms
+  P95 publish : 0.013 ms
+============================================================
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'enum'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045: PydanticDeprecatedSince20: `min_items` is deprecated and will be removed, use `min_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`min_items` is deprecated and will be removed, use `min_length` instead', DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051: PydanticDeprecatedSince20: `max_items` is deprecated and will be removed, use `max_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`max_items` is deprecated and will be removed, use `max_length` instead', DeprecationWarning)
+
+backend/models/entities/skill.py:73
+  /app/backend/models/entities/skill.py:73: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('tags')
+
+backend/models/entities/skill.py:77
+  /app/backend/models/entities/skill.py:77: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('skill_name')
+
+../usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854
+  /usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+backend/models/schemas/messages.py:89
+  /app/backend/models/schemas/messages.py:89: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("hop_count")
+
+backend/models/schemas/messages.py:95
+  /app/backend/models/schemas/messages.py:95: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("sender_id", "recipient_id")
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293: PydanticDeprecatedSince20: `json_encoders` is deprecated. See https://docs.pydantic.dev/2.11/concepts/serialization/#custom-serializers for alternatives. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed0736210> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed1b33c90> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed0278bd0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed0278c90> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed0298a10> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed029ad10> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed0299fd0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed029e250> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed0fb9b90> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestAgentSpawnThroughput::test_agent_spawn_throughput
+  /app/backend/tests/phase8/test_performance.py:137: SAWarning: Flushing object <Agent at 0x7d8ed02ab150> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.flush()
+
+backend/tests/phase8/test_performance.py::TestMessageBusThroughput::test_sustained_throughput
+  /usr/local/lib/python3.11/site-packages/pytest_asyncio/plugin.py:854: DeprecationWarning: The event_loop fixture provided by pytest-asyncio has been redefined in
+  /app/backend/tests/phase8/conftest.py:105
+  Replacing the event_loop fixture with a custom implementation is deprecated
+  and will lead to errors in the future.
+  If you want to request an asyncio event loop with a scope other than function
+  scope, use the "scope" argument to the asyncio mark when marking the tests.
+  If you want to return different types of event loops, use the event_loop_policy
+  fixture.
+  
+    warnings.warn(
+
+backend/tests/phase8/test_performance.py: 10 warnings
+  /usr/local/lib/python3.11/site-packages/chromadb/api/types.py:938: DeprecationWarning: The EmbeddingFunction class does not implement name(). This will be required in a future version.
+    self.name() is NotImplemented
+
+backend/tests/phase8/test_performance.py: 10 warnings
+  /usr/local/lib/python3.11/site-packages/chromadb/api/collection_configuration.py:791: DeprecationWarning: The EmbeddingFunction class does not implement name(). This will be required in a future version.
+    embedding_function.name() != "default"
+
+backend/tests/phase8/test_performance.py::TestMessageBusThroughput::test_sustained_throughput
+  /app/backend/services/message_bus.py:307: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
+    await self._pubsub.close()
+
+backend/tests/phase8/test_performance.py::TestMessageBusThroughput::test_sustained_throughput
+  /app/backend/services/message_bus.py:309: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
+    await self._redis.close()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+------------------- generated xml file: /tmp/phase8_perf.xml -------------------
+=========================== short test summary info ============================
+FAILED backend/tests/phase8/test_performance.py::TestMessageBusThroughput::test_sustained_throughput
+================== 1 failed, 4 passed, 49 warnings in 13.27s ===================
+Running Phase 8.3 - Chaos Testing
+/usr/local/lib/python3.11/site-packages/pytest_asyncio/plugin.py:207: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-8.3.4, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+plugins: Faker-33.3.0, asyncio-0.25.0, anyio-4.12.1, cov-6.0.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collecting ... collected 3 items
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load SKIPPED [ 33%]
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load ERROR [ 33%]
+backend/tests/phase8/test_chaos.py::TestRedisKill::test_redis_kill_mid_execution SKIPPED [ 66%]
+backend/tests/phase8/test_chaos.py::TestChromaDBKill::test_chromadb_kill_degraded_mode SKIPPED [100%]
+
+==================================== ERRORS ====================================
+______ ERROR at teardown of TestPostgresKill.test_postgres_kill_mid_load _______
+backend/tests/phase8/test_chaos.py:80: in _ensure_postgres_running
+    assert _wait_for_container("agentium-postgres", timeout=60), \
+E   AssertionError: Failed to restart agentium-postgres
+E   assert False
+E    +  where False = _wait_for_container('agentium-postgres', timeout=60)
+----------------------------- Captured stdout call -----------------------------
+
+  ⚠  Stopping agentium-postgres...
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'enum'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045: PydanticDeprecatedSince20: `min_items` is deprecated and will be removed, use `min_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`min_items` is deprecated and will be removed, use `min_length` instead', DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051: PydanticDeprecatedSince20: `max_items` is deprecated and will be removed, use `max_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`max_items` is deprecated and will be removed, use `max_length` instead', DeprecationWarning)
+
+backend/models/entities/skill.py:73
+  /app/backend/models/entities/skill.py:73: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('tags')
+
+backend/models/entities/skill.py:77
+  /app/backend/models/entities/skill.py:77: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('skill_name')
+
+../usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854
+  /usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+backend/models/schemas/messages.py:89
+  /app/backend/models/schemas/messages.py:89: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("hop_count")
+
+backend/models/schemas/messages.py:95
+  /app/backend/models/schemas/messages.py:95: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("sender_id", "recipient_id")
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293: PydanticDeprecatedSince20: `json_encoders` is deprecated. See https://docs.pydantic.dev/2.11/concepts/serialization/#custom-serializers for alternatives. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x7c87fe3d5bd0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x7c87fe3a9b10> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x7c87fcf38b50> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x7c87fcf38dd0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x7c87fcf392d0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x7c87fcf39550> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x7c87fcf39a50> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+  /app/backend/tests/phase8/test_chaos.py:107: SAWarning: Flushing object <Agent at 0x7c87fcf39cd0> with incompatible polymorphic identity <AgentType.TASK_AGENT: 'task_agent'>; the object may not refresh and/or load correctly (this warning may be suppressed after 10 occurrences)
+    session.commit()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+------------------ generated xml file: /tmp/phase8_chaos.xml -------------------
+=========================== short test summary info ============================
+ERROR backend/tests/phase8/test_chaos.py::TestPostgresKill::test_postgres_kill_mid_load
+============= 3 skipped, 24 warnings, 1 error in 183.70s (0:03:03) =============
+Running Critic Effectiveness Tests
+/usr/local/lib/python3.11/site-packages/pytest_asyncio/plugin.py:207: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-8.3.4, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+plugins: Faker-33.3.0, asyncio-0.25.0, anyio-4.12.1, cov-6.0.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collecting ... collected 18 items
+
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_os_system PASSED [  5%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_eval PASSED [ 11%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_exec PASSED [ 16%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_dunder_import PASSED [ 22%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_subprocess_popen PASSED [ 27%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_rm_rf PASSED [ 33%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_catches_sql_injection PASSED [ 38%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_empty_code_rejected PASSED [ 44%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_clean_code_passes PASSED [ 50%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCodeCritic::test_safe_imports_pass PASSED [ 55%]
+backend/tests/phase8/test_critic_effectiveness.py::TestOutputCritic::test_empty_output_rejected PASSED [ 61%]
+backend/tests/phase8/test_critic_effectiveness.py::TestOutputCritic::test_whitespace_only_rejected PASSED [ 66%]
+backend/tests/phase8/test_critic_effectiveness.py::TestOutputCritic::test_error_traceback_rejected PASSED [ 72%]
+backend/tests/phase8/test_critic_effectiveness.py::TestOutputCritic::test_valid_output_passes PASSED [ 77%]
+backend/tests/phase8/test_critic_effectiveness.py::TestPlanCritic::test_empty_plan_rejected PASSED [ 83%]
+backend/tests/phase8/test_critic_effectiveness.py::TestPlanCritic::test_valid_plan_passes PASSED [ 88%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCriticEffectiveness::test_catch_rate PASSED [ 94%]
+backend/tests/phase8/test_critic_effectiveness.py::TestCriticEffectiveness::test_false_positive_rate PASSED [100%]
+
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'enum'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045: PydanticDeprecatedSince20: `min_items` is deprecated and will be removed, use `min_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`min_items` is deprecated and will be removed, use `min_length` instead', DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051: PydanticDeprecatedSince20: `max_items` is deprecated and will be removed, use `max_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`max_items` is deprecated and will be removed, use `max_length` instead', DeprecationWarning)
+
+backend/models/entities/skill.py:73
+  /app/backend/models/entities/skill.py:73: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('tags')
+
+backend/models/entities/skill.py:77
+  /app/backend/models/entities/skill.py:77: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('skill_name')
+
+../usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854
+  /usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+backend/models/schemas/messages.py:89
+  /app/backend/models/schemas/messages.py:89: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("hop_count")
+
+backend/models/schemas/messages.py:95
+  /app/backend/models/schemas/messages.py:95: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator("sender_id", "recipient_id")
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:293: PydanticDeprecatedSince20: `json_encoders` is deprecated. See https://docs.pydantic.dev/2.11/concepts/serialization/#custom-serializers for alternatives. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+------------------ generated xml file: /tmp/phase8_critic.xml ------------------
+======================= 18 passed, 16 warnings in 0.45s ========================
+Generating Report
+
+============================================================
+  Phase 8 Report Generated
+============================================================
+  Output    : /tmp/phase8_report.md
+  Tests     : 131
+  Pass rate : 94.7%
+  Score     : 94/100
+  Verdict   : ⚠️ CONDITIONALLY READY — address failures before production
+============================================================

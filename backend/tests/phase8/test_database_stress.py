@@ -40,12 +40,13 @@ def _spawn_agent_in_thread(prefix: str, idx: int, results: list, metrics: Metric
     session = SessionLocal()
     try:
         with timer() as t:
-            agentium_id = f"{prefix}{idx:04d}"
+            agentium_id = f"{prefix}{idx:03d}"
             agent = Agent(
                 id=str(uuid.uuid4()),
                 agentium_id=agentium_id,
-                name=f"StressAgent-{idx}",
+                name=f"Stress-Agent-{agentium_id}",
                 agent_type=AgentType.TASK_AGENT,
+                parent_id=None,
                 status=AgentStatus.ACTIVE,
                 is_persistent=False,
                 created_at=datetime.utcnow(),
@@ -58,11 +59,11 @@ def _spawn_agent_in_thread(prefix: str, idx: int, results: list, metrics: Metric
     except IntegrityError:
         session.rollback()
         metrics.increment("id_collisions")
-        results.append({"id": f"{prefix}{idx:04d}", "success": False, "error": "collision"})
+        results.append({"id": f"{prefix}{idx:03d}", "success": False, "error": f"collision: {str(e)}"})
     except Exception as e:
         session.rollback()
         metrics.increment("failures")
-        results.append({"id": f"{prefix}{idx:04d}", "success": False, "error": str(e)})
+        results.append({"id": f"{prefix}{idx:03d}", "success": False, "error": str(e)})
     finally:
         session.close()
 
@@ -89,12 +90,12 @@ def _cleanup_stress_agents(prefix: str):
 class TestConcurrentAgentSpawns:
     """Stress test: 1000 concurrent agent spawns."""
 
-    PREFIX = "3"  # Task agents — will use IDs 3xxxx range in a temp pattern
+    PREFIX = "99"  # Task agents — will use IDs 99xxx range in a temp pattern
 
     @pytest.fixture(autouse=True)
     def _cleanup(self):
         yield
-        _cleanup_stress_agents("39")  # Cleanup 39xxx range we used
+        _cleanup_stress_agents("99")  # Cleanup 99xxx range we used
 
     def test_concurrent_agent_spawns_1000(self):
         """
@@ -111,7 +112,7 @@ class TestConcurrentAgentSpawns:
         with timer() as total:
             with ThreadPoolExecutor(max_workers=50) as pool:
                 futures = [
-                    pool.submit(_spawn_agent_in_thread, "39", i, results, metrics)
+                    pool.submit(_spawn_agent_in_thread, "99", i, results, metrics)
                     for i in range(count)
                 ]
                 for f in as_completed(futures):
@@ -132,6 +133,10 @@ class TestConcurrentAgentSpawns:
         print(f"  P50 latency : {p50:.2f} ms")
         print(f"  P95 latency : {p95:.2f} ms")
         print(f"  Total time  : {total.elapsed_ms:.0f} ms")
+        if failures > 0:
+            print(f"  Sample errors:")
+            for r in [res for res in results if not res["success"]][:5]:
+                print(f"    - {r.get('error', 'Unknown')}")
         print(f"{'='*60}")
 
         assert successes == count, f"Only {successes}/{count} succeeded"
@@ -149,7 +154,7 @@ class TestForeignKeyEnforcement:
         fake_parent_id = str(uuid.uuid4())
         agent = Agent(
             id=str(uuid.uuid4()),
-            agentium_id="39900",
+            agentium_id="77700",
             name="FK-Test-Child",
             agent_type=AgentType.TASK_AGENT,
             status=AgentStatus.ACTIVE,
@@ -168,7 +173,7 @@ class TestForeignKeyEnforcement:
         parent_id = str(uuid.uuid4())
         parent = Agent(
             id=parent_id,
-            agentium_id="29900",
+            agentium_id="77701",
             name="FK-Parent",
             agent_type=AgentType.LEAD_AGENT,
             status=AgentStatus.ACTIVE,
@@ -181,7 +186,7 @@ class TestForeignKeyEnforcement:
 
         child = Agent(
             id=str(uuid.uuid4()),
-            agentium_id="39901",
+            agentium_id="77702",
             name="FK-Child",
             agent_type=AgentType.TASK_AGENT,
             status=AgentStatus.ACTIVE,
@@ -193,10 +198,9 @@ class TestForeignKeyEnforcement:
         db.add(child)
         db.flush()
 
-        # Attempt to delete parent
-        db.delete(parent)
+        # Attempt to delete parent bypass SQLAlchemy active relationship SET NULL cascade
         with pytest.raises(IntegrityError):
-            db.flush()
+            db.execute(text("DELETE FROM agents WHERE id = :pid"), {"pid": parent_id})
         db.rollback()
 
     def test_orphan_detection_query(self, db):
@@ -276,7 +280,7 @@ class TestAuditLogIntegrity:
                 target_type="audit",
                 target_id=f"entry-{i}",
                 description=f"Phase8-StressTest-{i}",
-                success=True,
+                success='Y',
                 created_at=datetime.utcnow(),
             )
             entries_to_insert.append(entry)
