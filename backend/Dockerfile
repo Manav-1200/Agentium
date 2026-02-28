@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     build-essential \
     libffi-dev \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment

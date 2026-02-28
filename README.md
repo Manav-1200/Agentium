@@ -208,7 +208,7 @@ cd Agentium
 
 # Launch the stack
 docker compose up -d
-# First build takes 10–20 minutes
+# First build takes (10–30) minutes
 
 # Watch initialization logs
 docker compose logs -f

@@ -16,6 +16,7 @@ from backend.models.entities.task import Task
 from backend.services.alert_manager import AlertManager
 from backend.models.entities.monitoring import MonitoringAlert, ViolationSeverity
 from backend.core.config import settings
+from backend.models.database import get_system_agent_id
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ class DatabaseMaintenanceService:
                             alert = MonitoringAlert(
                                 alert_type="backup_failure",
                                 severity=ViolationSeverity.CRITICAL,
-                                detected_by_agent_id="system",
+                                detected_by_agent_id=get_system_agent_id(db),
                                 affected_agent_id=None,
                                 message=f"Daily PostgreSQL backup failed: {stderr.decode()}"
                             )

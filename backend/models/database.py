@@ -233,6 +233,18 @@ def create_initial_data(db: Session):
     _ensure_api_key_resilience_columns(db)
 
 
+def get_system_agent_id(db: Session) -> str:
+    """
+    Get the UUID (id) of Head of Council (00001).
+    Used when system-level processes need to create alerts/monitoring records.
+    """
+    from backend.models.entities.agents import Agent
+    
+    head = db.query(Agent).filter(Agent.agentium_id == '00001').first()
+    if not head:
+        raise RuntimeError("Head of Council (00001) not found. Run genesis protocol.")
+    return str(head.id)
+
 def init_db():
     """
     Initialize database — create all tables via SQLAlchemy metadata.

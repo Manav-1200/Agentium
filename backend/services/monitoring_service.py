@@ -14,6 +14,7 @@ from backend.models.entities.monitoring import (
 )
 from backend.models.entities.task import Task, SubTask, TaskStatus
 from backend.models.database import get_db_context, get_next_agentium_id
+from backend.models.database import get_system_agent_id
 import logging
 import asyncio
 
@@ -443,7 +444,7 @@ class MonitoringService:
                             alert = MonitoringAlert(
                                 alert_type="constitutional_patrol_suspension",
                                 severity=ViolationSeverity.CRITICAL,
-                                detected_by_agent_id="system",
+                                detected_by_agent_id=get_system_agent_id(db),
                                 affected_agent_id=agent.id,
                                 message=f"Constitutional Patrol: Auto-suspended {agent.agentium_id} due to {open_violations} open violations."
                             )
@@ -481,7 +482,7 @@ class MonitoringService:
                         alert = MonitoringAlert(
                             alert_type="stale_task_detected",
                             severity=ViolationSeverity.MAJOR,
-                            detected_by_agent_id="system",
+                            detected_by_agent_id=get_system_agent_id(db),
                             affected_agent_id=task.assigned_task_agent_ids[0] if task.assigned_task_agent_ids else None,
                             message=f"Stale Task {task.agentium_id} escalated after 24 hours of inactivity."
                         )
