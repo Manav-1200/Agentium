@@ -410,9 +410,30 @@ class Agent(BaseEntity):
 
     def compress_ethos(self, db: Session, completed_steps: List[str] = None):
         """
-        Remove irrelevant or obsolete Ethos content after a sub-step.
-        Maintains only what is required to complete the active task (Workflow §3).
+        LLM-powered ethos compression using the agent's own configured API key.
+
+        The agent sends its own ethos as working memory to the LLM and receives
+        back a semantically compressed version using the 75/25 strategy:
+          • Oldest 75% of artifacts / lessons → dense digest (no data loss)
+          • Newest 25%                        → kept raw / readable
+          • outcome_summary                   → LLM writes a fresh readable snapshot
+
+        Flow:
+          1. Load ethos from DB
+          2. Check agent has a model config (API key) — fall back to Python if not
+          3. Build compression payload  (ethos.build_compression_payload)
+          4. Call LLM via ModelService  (uses the user-configured API key)
+          5. Parse JSON response
+          6. Write compressed fields back  (ethos.apply_llm_compression)
+          7. Flush to DB
+
+        Falls back to ethos.prune_obsolete_content() (Python heuristic) when:
+          - Agent has no preferred model config
+          - LLM call fails or returns malformed JSON
+          - Content below minimum threshold (nothing to compress)
         """
+        import json
+        import asyncio
         from backend.models.entities.constitution import Ethos
 
         if not self.ethos_id:
@@ -422,7 +443,110 @@ class Agent(BaseEntity):
         if not ethos:
             return
 
-        ethos.prune_obsolete_content(completed_steps=completed_steps)
+        # ── Guard: skip if there is nothing worth compressing ────────────────
+        has_content = any([
+            len(ethos.get_reasoning_artifacts()) > 4,
+            len(ethos.get_lessons_learned()) > 4,
+            len(ethos.get_constitutional_references()) > 2,
+            ethos.current_objective,
+            ethos.active_plan,
+        ])
+        if not has_content:
+            # Still drop completed progress markers even with minimal content
+            if completed_steps:
+                ethos.prune_obsolete_content(completed_steps=completed_steps)
+                db.flush()
+            return
+
+        # ── Resolve model config (the user-added API key) ────────────────────
+        config = self.get_model_config(db)
+        if not config:
+            # No API key configured — fall back to Python compression
+            ethos.prune_obsolete_content(completed_steps=completed_steps)
+            db.flush()
+            return
+
+        # ── Build compression prompt from live ethos payload ─────────────────
+        payload = ethos.build_compression_payload()
+
+        compression_prompt = (
+            "You are an ethos compression engine for an autonomous AI agent.\n"
+            "Compress the working memory below using the 75/25 strategy.\n\n"
+            "RULES:\n"
+            "1. reasoning_artifacts — collapse the OLDEST 75% into ONE object:\n"
+            "   {\"type\": \"compressed_reasoning\", \"compressed_at\": \"<ISO>\","
+            " \"original_count\": N, \"digest\": \"<dense summary of all insights>\"}\n"
+            "   Keep the NEWEST 25% as raw entries after it.\n"
+            "2. lessons_learned — collapse the OLDEST 75% into ONE object:\n"
+            "   {\"type\": \"consolidated_lessons\", \"compressed_at\": \"<ISO>\","
+            " \"source_count\": N, \"key_patterns\": [\"...\"]}\n"
+            "   Keep the NEWEST 25% as raw entries after it.\n"
+            "3. constitutional_refs — deduplicate by section_id/title; keep one entry each.\n"
+            "4. active_plan and task_progress — DO NOT touch these, preserve exactly.\n"
+            "5. outcome_summary — write ONE crisp paragraph: what this agent is doing"
+            " and its recent state. This is the 25%% readable snapshot.\n"
+            "6. ZERO information loss — denser wording is fine, dropping meaning is not.\n\n"
+            "Return ONLY a valid JSON object with these exact top-level keys:\n"
+            "  reasoning_artifacts, lessons_learned, constitutional_refs, outcome_summary\n\n"
+            "No markdown. No explanation. No code fences. JSON only.\n\n"
+            f"ETHOS TO COMPRESS:\n{json.dumps(payload, indent=2, default=str)}"
+        )
+
+        # ── Call LLM via ModelService using the agent's own API key ──────────
+        try:
+            from backend.services.model_provider import ModelService
+
+            llm_response = asyncio.get_event_loop().run_until_complete(
+                ModelService.generate_with_agent(
+                    agent=self,
+                    user_message=compression_prompt,
+                    config_id=str(config.id),
+                )
+            )
+
+            raw_text = llm_response.get("response", "") or llm_response.get("content", "")
+
+            # Strip accidental markdown fences
+            if raw_text.strip().startswith("```"):
+                parts = raw_text.strip().split("```")
+                raw_text = parts[1] if len(parts) > 1 else raw_text
+                if raw_text.startswith("json"):
+                    raw_text = raw_text[4:]
+
+            compressed = json.loads(raw_text.strip())
+
+        except Exception as e:
+            # LLM unavailable or returned malformed JSON — fall back gracefully
+            import logging
+            logging.getLogger(__name__).warning(
+                f"[{self.agentium_id}] Ethos LLM compression failed ({e}), "
+                f"falling back to Python heuristic."
+            )
+            ethos.prune_obsolete_content(completed_steps=completed_steps)
+            db.flush()
+            return
+
+        # ── Guard: reject suspiciously short responses ────────────────────────
+        # A valid compression must describe meaningful content. Responses under
+        # 50 words indicate the LLM returned an error message, refusal, or an
+        # empty/skeletal JSON that would silently wipe ethos data (e.g.
+        # {"reasoning_artifacts": [], "outcome_summary": "Done."}).
+        # json.loads succeeds on those — this guard catches what the JSON parser
+        # cannot. Fall back to Python heuristic to preserve data integrity.
+        response_word_count = len(raw_text.split())
+        if response_word_count < 50:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"[{self.agentium_id}] Ethos LLM compression response too short "
+                f"({response_word_count} words < 50 minimum). "
+                f"Falling back to Python heuristic to preserve data integrity."
+            )
+            ethos.prune_obsolete_content(completed_steps=completed_steps)
+            db.flush()
+            return
+
+        # ── Apply compressed result back to ethos ────────────────────────────
+        ethos.apply_llm_compression(compressed, completed_steps=completed_steps)
         db.flush()
 
     # -----------------------------------------------------------------------

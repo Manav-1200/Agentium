@@ -14,6 +14,8 @@ from typing import Optional, Dict, List, Any, Tuple
 from datetime import datetime, timedelta
 import uuid
 import logging
+import json
+import hashlib
 
 from sqlalchemy.orm import Session
 from backend.models.entities.checkpoint import ExecutionCheckpoint, CheckpointPhase
@@ -448,140 +450,141 @@ class CheckpointService:
                 subtask.completion_summary = snap.get("completion_summary")
 
 
-# Phase 7: Import/Export Operations
 
-@staticmethod
-def export_checkpoint(db: Session, checkpoint_id: str) -> Dict[str, Any]:
-    """
-    Prepare checkpoint for export with integrity metadata.
-    """
-    checkpoint = db.query(ExecutionCheckpoint).filter(
-        ExecutionCheckpoint.id == checkpoint_id
-    ).first()
-    
-    if not checkpoint:
-        raise ValueError(f"Checkpoint {checkpoint_id} not found")
-    
-    export_data = {
-        'checkpoint': checkpoint.to_dict(),
-        'exported_at': datetime.utcnow().isoformat(),
-        'version': '1.0',
-    }
-    
-    # Generate checksum for integrity verification
-    checksum_data = json.dumps(export_data, sort_keys=True, separators=(',', ':'))
-    export_data['checksum'] = hashlib.sha256(checksum_data.encode()).hexdigest()[:16]
-    
-    return export_data
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 7: IMPORT / EXPORT OPERATIONS
+    # ═══════════════════════════════════════════════════════════
 
-
-@staticmethod
-def validate_import_data(data: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
-    """
-    Validate imported checkpoint data.
-    Returns: (is_valid, errors, warnings)
-    """
-    errors = []
-    warnings = []
-    
-    # Check version compatibility
-    version = data.get('version', 'unknown')
-    if version not in ['1.0']:
-        warnings.append(f"Version {version} may have compatibility issues")
-    
-    # Verify checksum if present
-    if 'checksum' in data:
-        stored_checksum = data.pop('checksum')
-        computed = hashlib.sha256(
-            json.dumps(data, sort_keys=True, separators=(',', ':')).encode()
-        ).hexdigest()[:16]
-        
-        if stored_checksum != computed:
-            errors.append("Checksum mismatch - data may be corrupted")
-    
-    # Validate checkpoint structure
-    cp = data.get('checkpoint', {})
-    required_fields = ['id', 'task_id', 'phase', 'agent_states', 'task_state_snapshot']
-    
-    for field in required_fields:
-        if field not in cp:
-            errors.append(f"Missing required field: {field}")
-    
-    # Validate phase value
-    if 'phase' in cp:
-        try:
-            CheckpointPhase(cp['phase'])
-        except ValueError:
-            errors.append(f"Invalid phase value: {cp['phase']}")
-    
-    return len(errors) == 0, errors, warnings
-
-
-@staticmethod
-def import_checkpoint(
-    db: Session,
-    data: Dict[str, Any],
-    target_branch: Optional[str] = None,
-    conflict_resolution: str = 'rename',
-    actor_id: str = 'system'
-) -> Tuple[ExecutionCheckpoint, List[Dict[str, str]]]:
-    """
-    Import checkpoint with conflict resolution.
-    Returns: (checkpoint, conflicts)
-    """
-    conflicts = []
-    checkpoint_data = data['checkpoint']
-    
-    # Handle ID conflicts
-    existing_id = db.query(ExecutionCheckpoint).filter(
-        ExecutionCheckpoint.id == checkpoint_data['id']
-    ).first()
-    
-    final_id = checkpoint_data['id']
-    if existing_id:
-        if conflict_resolution == 'skip':
-            raise ValueError(f"Checkpoint {final_id} already exists")
-        elif conflict_resolution == 'replace':
-            db.delete(existing_id)
-            db.flush()
-        elif conflict_resolution == 'rename':
-            final_id = f"{checkpoint_data['id']}_import_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-            conflicts.append({
-                'type': 'id_collision',
-                'message': f"Renamed to {final_id}",
-                'resolution': 'rename'
-            })
-    
-    # Handle branch name
-    branch = target_branch or checkpoint_data.get('branch_name') or 'imported'
-    if conflict_resolution == 'rename':
-        branch_exists = db.query(ExecutionCheckpoint).filter(
-            ExecutionCheckpoint.branch_name == branch
+    @staticmethod
+    def export_checkpoint(db: Session, checkpoint_id: str) -> Dict[str, Any]:
+        """
+        Prepare checkpoint for export with integrity metadata.
+        """
+        checkpoint = db.query(ExecutionCheckpoint).filter(
+            ExecutionCheckpoint.id == checkpoint_id
         ).first()
-        if branch_exists:
-            branch = f"{branch}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-            conflicts.append({
-                'type': 'branch_conflict',
-                'message': f"Branch renamed to {branch}",
-                'resolution': 'rename'
-            })
-    
-    # Create checkpoint
-    new_checkpoint = ExecutionCheckpoint(
-        id=final_id,
-        session_id=checkpoint_data.get('session_id', f"import_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"),
-        task_id=checkpoint_data['task_id'],
-        phase=CheckpointPhase(checkpoint_data['phase']),
-        agent_states=checkpoint_data.get('agent_states', {}),
-        artifacts=checkpoint_data.get('artifacts', []),
-        task_state_snapshot=checkpoint_data.get('task_state_snapshot', {}),
-        parent_checkpoint_id=checkpoint_data.get('parent_checkpoint_id'),
-        branch_name=branch,
-        is_active=True
-    )
-    
-    db.add(new_checkpoint)
-    db.commit()
-    db.refresh(new_checkpoint)
-    
-    return new_checkpoint, conflicts
+
+        if not checkpoint:
+            raise ValueError(f"Checkpoint {checkpoint_id} not found")
+
+        export_data = {
+            'checkpoint': checkpoint.to_dict(),
+            'exported_at': datetime.utcnow().isoformat(),
+            'version': '1.0',
+        }
+
+        # Generate checksum for integrity verification
+        checksum_data = json.dumps(export_data, sort_keys=True, separators=(',', ':'))
+        export_data['checksum'] = hashlib.sha256(checksum_data.encode()).hexdigest()[:16]
+
+        return export_data
+
+    @staticmethod
+    def validate_import_data(data: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
+        """
+        Validate imported checkpoint data.
+        Returns: (is_valid, errors, warnings)
+        """
+        errors = []
+        warnings = []
+
+        # Check version compatibility
+        version = data.get('version', 'unknown')
+        if version not in ['1.0']:
+            warnings.append(f"Version {version} may have compatibility issues")
+
+        # Verify checksum if present
+        if 'checksum' in data:
+            stored_checksum = data.pop('checksum')
+            computed = hashlib.sha256(
+                json.dumps(data, sort_keys=True, separators=(',', ':')).encode()
+            ).hexdigest()[:16]
+
+            if stored_checksum != computed:
+                errors.append("Checksum mismatch - data may be corrupted")
+
+        # Validate checkpoint structure
+        cp = data.get('checkpoint', {})
+        required_fields = ['id', 'task_id', 'phase', 'agent_states', 'task_state_snapshot']
+
+        for field in required_fields:
+            if field not in cp:
+                errors.append(f"Missing required field: {field}")
+
+        # Validate phase value
+        if 'phase' in cp:
+            try:
+                CheckpointPhase(cp['phase'])
+            except ValueError:
+                errors.append(f"Invalid phase value: {cp['phase']}")
+
+        return len(errors) == 0, errors, warnings
+
+    @staticmethod
+    def import_checkpoint(
+        db: Session,
+        data: Dict[str, Any],
+        target_branch: Optional[str] = None,
+        conflict_resolution: str = 'rename',
+        actor_id: str = 'system'
+    ) -> Tuple[ExecutionCheckpoint, List[Dict[str, str]]]:
+        """
+        Import checkpoint with conflict resolution.
+        Returns: (checkpoint, conflicts)
+        """
+        conflicts = []
+        checkpoint_data = data['checkpoint']
+
+        # Handle ID conflicts
+        existing_id = db.query(ExecutionCheckpoint).filter(
+            ExecutionCheckpoint.id == checkpoint_data['id']
+        ).first()
+
+        final_id = checkpoint_data['id']
+        if existing_id:
+            if conflict_resolution == 'skip':
+                raise ValueError(f"Checkpoint {final_id} already exists")
+            elif conflict_resolution == 'replace':
+                db.delete(existing_id)
+                db.flush()
+            elif conflict_resolution == 'rename':
+                final_id = f"{checkpoint_data['id']}_import_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+                conflicts.append({
+                    'type': 'id_collision',
+                    'message': f"Renamed to {final_id}",
+                    'resolution': 'rename'
+                })
+
+        # Handle branch name
+        branch = target_branch or checkpoint_data.get('branch_name') or 'imported'
+        if conflict_resolution == 'rename':
+            branch_exists = db.query(ExecutionCheckpoint).filter(
+                ExecutionCheckpoint.branch_name == branch
+            ).first()
+            if branch_exists:
+                branch = f"{branch}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+                conflicts.append({
+                    'type': 'branch_conflict',
+                    'message': f"Branch renamed to {branch}",
+                    'resolution': 'rename'
+                })
+
+        # Create checkpoint
+        new_checkpoint = ExecutionCheckpoint(
+            id=final_id,
+            session_id=checkpoint_data.get('session_id', f"import_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"),
+            task_id=checkpoint_data['task_id'],
+            phase=CheckpointPhase(checkpoint_data['phase']),
+            agent_states=checkpoint_data.get('agent_states', {}),
+            artifacts=checkpoint_data.get('artifacts', []),
+            task_state_snapshot=checkpoint_data.get('task_state_snapshot', {}),
+            parent_checkpoint_id=checkpoint_data.get('parent_checkpoint_id'),
+            branch_name=branch,
+            is_active=True
+        )
+
+        db.add(new_checkpoint)
+        db.commit()
+        db.refresh(new_checkpoint)
+
+        return new_checkpoint, conflicts

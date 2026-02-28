@@ -87,8 +87,15 @@ class AgentOrchestrator:
         # Update agent with allocated model
         agent.preferred_config_id = config_id
 
-        # Get the model info
+        # Get the model info — refresh then eagerly load the relationship
+        # to avoid a lazy-load / DetachedInstanceError after the session refresh.
         db.refresh(agent)
+        db.refresh(agent, attribute_names=["preferred_config"])
+        if agent.preferred_config is None:
+            raise ValueError(
+                f"Agent {agent.agentium_id} has preferred_config_id={config_id!r} "
+                "but the related ModelConfig row was not found."
+            )
         model_key = f"{agent.preferred_config.provider}:{agent.preferred_config.default_model}"
         model = api_manager.models.get(model_key)
 
@@ -509,7 +516,53 @@ class AgentOrchestrator:
 
         return await self.message_bus.route_up(msg, auto_find_parent=True)
 
-    # NEW: Tool suggestion method
+    async def clarify_agent_confusion(
+        self,
+        agent: Agent,
+        question: str,
+        context: str = "",
+        escalate: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Called when a reincarnated or confused agent needs guidance about its
+        inherited state.  Delegates to ClarificationService and, if the immediate
+        supervisor cannot help, escalates up the hierarchy chain.
+
+        Args:
+            agent:     The confused agent requesting clarification.
+            question:  The specific question the agent is asking.
+            context:   Additional context about what confused the agent.
+            escalate:  If True, walk the full hierarchy instead of asking only
+                       the immediate supervisor.
+
+        Returns:
+            ClarificationService response dict (see ClarificationService docs).
+        """
+        token_optimizer.record_activity()
+
+        if escalate:
+            result = ClarificationService.escalate_clarification(
+                agent=agent,
+                question=question,
+                db=self.db,
+            )
+        else:
+            result = ClarificationService.consult_supervisor(
+                agent=agent,
+                db=self.db,
+                question=question,
+                context=context,
+            )
+
+        await self._log(
+            actor=agent.agentium_id,
+            action="clarification_requested",
+            desc=f"Agent {agent.agentium_id} requested clarification: {question[:120]}",
+        )
+
+        return result
+
+
     def _suggest_tools_for_issue(self, issue: str) -> List[str]:
         """Suggest tools that might help resolve the issue."""
         suggestions = []

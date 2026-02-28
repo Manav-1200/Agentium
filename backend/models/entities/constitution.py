@@ -221,6 +221,13 @@ class Ethos(BaseEntity):
 
     Created by higher authority, updated by the agent itself, verified by lead.
     Ethos is short-term working cognition; ChromaDB is long-term institutional memory.
+
+    LLM-powered compression flow (Workflow §IDLE / §3):
+      Agent.compress_ethos(db)
+          → ethos.build_compression_payload()    # serialise working memory for prompt
+          → ModelService.generate_with_agent()   # agent calls LLM via its own API key
+          → ethos.apply_llm_compression(result)  # write compressed fields back
+      Falls back to ethos.prune_obsolete_content() if no model config is available.
     """
     
     __tablename__ = 'ethos'
@@ -362,13 +369,91 @@ class Ethos(BaseEntity):
         lessons.append(lesson)
         # Keep only the last 20 lessons to prevent unbounded growth
         self.lessons_learned = json.dumps(lessons[-20:])
-    
+
+    # -----------------------------------------------------------------------
+    # LLM Compression Interface (Workflow §IDLE / §3)
+    # The agent drives the LLM call; these two methods are the before/after.
+    # -----------------------------------------------------------------------
+
+    def build_compression_payload(self) -> Dict[str, Any]:
+        """
+        Serialise current working memory into a dict ready to be embedded
+        inside the LLM compression prompt.
+
+        Called by Agent.compress_ethos() BEFORE the ModelService call so the
+        agent can include this in the message it sends to the LLM.
+
+        Returns a plain dict — safe to json.dumps() into a prompt.
+        """
+        return {
+            "agent_type":          self.agent_type,
+            "mission_statement":   self.mission_statement,
+            "current_objective":   self.current_objective,
+            "active_plan":         self.get_active_plan(),
+            "task_progress":       self.get_task_progress(),
+            "reasoning_artifacts": self.get_reasoning_artifacts(),
+            "lessons_learned":     self.get_lessons_learned(),
+            "constitutional_refs": self.get_constitutional_references(),
+            "outcome_summary":     self.outcome_summary,
+        }
+
+    def apply_llm_compression(
+        self,
+        compressed: Dict[str, Any],
+        completed_steps: List[str] = None,
+    ) -> None:
+        """
+        Write the LLM-produced compressed working memory back onto this Ethos.
+
+        Called by Agent.compress_ethos() AFTER the ModelService call returns.
+        This method is intentionally dumb — it just applies what the LLM gave
+        back. All prompt construction and API calls live in Agent.compress_ethos.
+
+        Expected keys in `compressed` (all optional; missing keys are skipped):
+          - reasoning_artifacts  → list  (compressed digest + newest 25% raw)
+          - lessons_learned      → list  (consolidated entry + newest 25% raw)
+          - constitutional_refs  → list  (deduplicated)
+          - outcome_summary      → str   (readable 25% snapshot paragraph)
+
+        Args:
+            compressed:      Parsed JSON dict from the LLM response.
+            completed_steps: Progress-marker keys to drop before writing
+                             (forwarded from Agent.compress_ethos).
+        """
+        import json
+
+        # ── Step 0: Drop explicitly completed progress markers ───────────────
+        if completed_steps and self.task_progress_markers:
+            progress = self.get_task_progress()
+            for step in completed_steps:
+                progress.pop(step, None)
+            self.task_progress_markers = json.dumps(progress) if progress else None
+
+        # ── Step 1: Apply compressed reasoning artifacts ─────────────────────
+        if "reasoning_artifacts" in compressed:
+            self.reasoning_artifacts = json.dumps(compressed["reasoning_artifacts"])
+
+        # ── Step 2: Apply consolidated lessons learned ───────────────────────
+        if "lessons_learned" in compressed:
+            self.lessons_learned = json.dumps(compressed["lessons_learned"])
+
+        # ── Step 3: Apply deduplicated constitutional references ─────────────
+        if "constitutional_refs" in compressed:
+            self.constitutional_references = json.dumps(compressed["constitutional_refs"])
+
+        # ── Step 4: Apply outcome summary (25% readable snapshot) ────────────
+        # Only update during true idle compression (no completed_steps passed).
+        # Mid-task pruning must not overwrite the last full outcome summary.
+        if not completed_steps and "outcome_summary" in compressed:
+            self.outcome_summary = compressed["outcome_summary"]
+
+        # ── Step 5: Bump version to record this compression cycle ────────────
+        self.increment_version()
+
     def compress(self):
         """
-        Compress the Ethos by removing obsolete working state.
-        Retains core identity (mission, values, rules, restrictions, capabilities)
-        and outcome/lessons. Clears transient execution artifacts.
-        Called after task completion (Workflow §5).
+        Hard-clear transient working state after task completion (Workflow §5).
+        Retains core identity and outcome/lessons; clears execution artifacts.
         """
         self.active_plan = None
         self.task_progress_markers = None
@@ -378,11 +463,10 @@ class Ethos(BaseEntity):
     
     def clear_working_state(self):
         """
-        Fully reset the working state for a fresh task cycle.
+        Fully reset working state for a fresh task cycle (Workflow §5.4).
         Preserves: mission, values, rules, restrictions, capabilities,
                    constitutional_references, lessons_learned, outcome_summary.
         Clears: objective, plan, progress, reasoning artifacts.
-        Called during post-task recalibration (Workflow §5.4).
         """
         self.current_objective = None
         self.active_plan = None
@@ -390,14 +474,15 @@ class Ethos(BaseEntity):
         self.reasoning_artifacts = None
 
     # -----------------------------------------------------------------------
-    # Idle-time Ethos Compression (Workflow §IDLE)
+    # Python-only Fallback Compression (Workflow §IDLE)
+    # Used when no model config is available on the agent.
     # -----------------------------------------------------------------------
 
     def _build_activity_snapshot(self) -> Dict[str, Any]:
         """
-        Build a structured snapshot of what this agent is currently doing.
-        Captures the 25% 'what is happening now' summary written to outcome_summary
-        during idle compression.
+        Build a structured snapshot of current agent state.
+        Used by the Python-fallback prune_obsolete_content(). The LLM path
+        produces a richer, plain-text outcome_summary paragraph instead.
         """
         active_plan = self.get_active_plan()
         progress = self.get_task_progress()
@@ -405,7 +490,6 @@ class Ethos(BaseEntity):
         artifacts = self.get_reasoning_artifacts()
         refs = self.get_constitutional_references()
 
-        # Summarise active plan at a high level
         plan_summary = None
         if active_plan:
             plan_summary = {
@@ -414,21 +498,18 @@ class Ethos(BaseEntity):
                 "status": active_plan.get("status"),
             }
 
-        # Collapse progress markers into a lightweight overview
         progress_overview = {
             "total_steps": len(progress),
             "completed": sum(1 for v in progress.values() if v in (True, "done", "completed")),
             "step_keys": list(progress.keys()),
         } if progress else None
 
-        # Extract the most recent lesson key points (last 3 raw, rest as count)
         recent_lesson_points = []
         for lesson in lessons[-3:]:
             point = lesson.get("key_point") or lesson.get("lesson") or lesson.get("summary")
             if point:
                 recent_lesson_points.append(str(point)[:120])
 
-        # Summarise constitutional references (section titles only)
         ref_titles = list({
             ref.get("title") or ref.get("section_id") or str(ref)[:40]
             for ref in refs
@@ -450,9 +531,8 @@ class Ethos(BaseEntity):
 
     def _compress_reasoning_artifacts(self) -> None:
         """
-        Compress reasoning artifacts: collapse the oldest 75% into a single
-        compressed entry, keep the newest 25% raw.
-        Minimum threshold: only compress if more than 4 artifacts exist.
+        Fallback: collapse oldest 75% of reasoning artifacts into a single
+        compressed entry; keep newest 25% raw. Skips if ≤ 4 artifacts.
         """
         import json
 
@@ -460,17 +540,14 @@ class Ethos(BaseEntity):
         if len(artifacts) <= 4:
             return
 
-        # Split: oldest 75% get compressed, newest 25% stay raw
         keep_raw_count = max(1, len(artifacts) * 25 // 100)
         old_artifacts = artifacts[:-keep_raw_count]
         recent_artifacts = artifacts[-keep_raw_count:]
 
-        # Merge old ones into a single compressed entry
         compressed_entry = {
             "type": "compressed_reasoning",
             "compressed_at": datetime.utcnow().isoformat(),
             "original_count": len(old_artifacts),
-            # Truncate each to 100 chars and join as a readable digest
             "digest": " | ".join(str(a)[:100] for a in old_artifacts),
         }
 
@@ -478,9 +555,8 @@ class Ethos(BaseEntity):
 
     def _compress_lessons_learned(self) -> None:
         """
-        Compress lessons learned: collapse the oldest 75% into a consolidated
-        entry extracting unique key patterns, keep the newest 25% raw.
-        Minimum threshold: only compress if more than 4 lessons exist.
+        Fallback: collapse oldest 75% of lessons into a consolidated entry;
+        keep newest 25% raw. Skips if ≤ 4 lessons.
         """
         import json
 
@@ -488,12 +564,10 @@ class Ethos(BaseEntity):
         if len(lessons) <= 4:
             return
 
-        # Split: oldest 75% get consolidated, newest 25% stay raw
         keep_raw_count = max(1, len(lessons) * 25 // 100)
         old_lessons = lessons[:-keep_raw_count]
         recent_lessons = lessons[-keep_raw_count:]
 
-        # Extract unique key patterns from old lessons
         key_patterns = list({
             l.get("key_point") or l.get("lesson") or l.get("summary") or str(l)[:80]
             for l in old_lessons
@@ -511,8 +585,8 @@ class Ethos(BaseEntity):
 
     def _deduplicate_constitutional_references(self) -> None:
         """
-        Deduplicate constitutional references, keeping the most recent occurrence
-        of each unique section. Preserves order (most recently seen wins).
+        Fallback: deduplicate constitutional references, keeping the most
+        recent occurrence of each unique section_id / title.
         """
         import json
 
@@ -523,61 +597,59 @@ class Ethos(BaseEntity):
         seen: Dict[str, Any] = {}
         for ref in refs:
             key = ref.get("section_id") or ref.get("title") or str(ref)[:60]
-            seen[key] = ref  # last occurrence wins, deduplicates cleanly
+            seen[key] = ref  # last occurrence wins
 
         self.constitutional_references = json.dumps(list(seen.values()))
 
     def prune_obsolete_content(self, completed_steps: List[str] = None):
         """
-        Idle-time ethos compression using a 75/25 strategy:
+        Python-only fallback compression using the 75/25 heuristic strategy.
 
-          75% — Compress historical data:
-            - Collapse oldest 75% of reasoning_artifacts into a compressed digest
-            - Consolidate oldest 75% of lessons_learned into key patterns
-            - Deduplicate constitutional_references
-            - Remove explicitly completed progress markers
+        Only called directly by Agent.compress_ethos() when the agent has no
+        model config (no API key). When a key IS configured, the agent uses
+        the LLM path instead:
 
-          25% — Summarise current activity:
-            - Build a structured snapshot of what the agent is doing right now
-            - Write it to outcome_summary so higher-tier agents and future task
-              cycles have readable context on this agent's recent state
+            build_compression_payload() → ModelService → apply_llm_compression()
 
-        Called during idle ETHOS_OPTIMIZATION task (Workflow §IDLE).
-        Also called after sub-steps when completed_steps is provided (Workflow §3).
+        75% — Compress historical data:
+          - Collapse oldest 75% of reasoning_artifacts into a digest
+          - Consolidate oldest 75% of lessons_learned into key patterns
+          - Deduplicate constitutional_references
+          - Remove explicitly completed progress markers
+
+        25% — Summarise current activity:
+          - Write a structured snapshot to outcome_summary
         """
         import json
 
-        # ── Step 1: Remove explicitly completed progress markers ────────────────
+        # ── Step 1: Remove explicitly completed progress markers ─────────────
         if completed_steps and self.task_progress_markers:
             progress = self.get_task_progress()
             for step in completed_steps:
                 progress.pop(step, None)
             self.task_progress_markers = json.dumps(progress) if progress else None
 
-        # ── Step 2 (75%): Compress reasoning artifacts ──────────────────────────
+        # ── Step 2 (75%): Compress reasoning artifacts ───────────────────────
         self._compress_reasoning_artifacts()
 
-        # ── Step 3 (75%): Consolidate lessons learned ───────────────────────────
+        # ── Step 3 (75%): Consolidate lessons learned ────────────────────────
         self._compress_lessons_learned()
 
-        # ── Step 4 (75%): Deduplicate constitutional references ─────────────────
+        # ── Step 4 (75%): Deduplicate constitutional references ──────────────
         self._deduplicate_constitutional_references()
 
-        # ── Step 5 (25%): Write activity snapshot to outcome_summary ────────────
-        # Only build the snapshot during true idle compression (no specific steps
-        # were passed), so we don't overwrite outcome_summary mid-task.
+        # ── Step 5 (25%): Write activity snapshot ────────────────────────────
         if not completed_steps:
             snapshot = self._build_activity_snapshot()
             self.outcome_summary = json.dumps(snapshot)
 
-        # ── Bump version to record the compression ───────────────────────────────
+        # ── Bump version ──────────────────────────────────────────────────────
         self.increment_version()
 
     def get_outcome_snapshot(self) -> Optional[Dict[str, Any]]:
         """
-        Parse outcome_summary as a snapshot dict if it was written by
-        prune_obsolete_content. Falls back to returning the raw string
-        wrapped in a dict if it's plain text from an older format.
+        Parse outcome_summary as a dict. Falls back to wrapping raw string
+        if it was written in plain-text format by an older code path.
         """
         import json
         if not self.outcome_summary:
@@ -619,7 +691,6 @@ class Ethos(BaseEntity):
 def log_constitution_creation(mapper, connection, target):
     """Log when a new constitution is created."""
     from backend.models.entities.audit import AuditLog, AuditLevel, AuditCategory
-    # Create audit log entry
     audit = AuditLog(
         level=AuditLevel.INFO,
         category=AuditCategory.GOVERNANCE,
@@ -628,7 +699,7 @@ def log_constitution_creation(mapper, connection, target):
         action="constitution_created",
         target_type="constitution",
         target_id=target.agentium_id,
-        description=f"Constitution v{target.version} (revision {target.version_number}) created",  # FIXED
+        description=f"Constitution v{target.version} (revision {target.version_number}) created",
         after_state={
             'version': target.version,
             'version_number': target.version_number,

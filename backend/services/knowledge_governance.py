@@ -74,12 +74,20 @@ class KnowledgeGovernanceService:
     APPROVAL_QUORUM = 0.5  # 50% of Council must vote
     APPROVAL_THRESHOLD = 0.6  # 60% of votes must be "for"
     KNOWLEDGE_TIMEOUT_HOURS = 24
+
+    # Class-level registry so submissions survive across per-request instantiations.
+    # In production this should be replaced with a Redis/DB-backed store.
+    _staged_submissions: Dict[str, "KnowledgeSubmission"] = {}
     
     def __init__(self, db: Session):
         self.db = db
         self.vector_store = get_vector_store()
         self.knowledge_service = get_knowledge_service()
-        self.staged_submissions: Dict[str, KnowledgeSubmission] = {}
+
+    @property
+    def staged_submissions(self) -> Dict[str, "KnowledgeSubmission"]:
+        """Proxy to the class-level submission registry."""
+        return KnowledgeGovernanceService._staged_submissions
     
     async def submit_knowledge(self,
                               agent: Agent,
