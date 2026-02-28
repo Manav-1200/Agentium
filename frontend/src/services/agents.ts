@@ -4,6 +4,8 @@ import { Agent } from '../types';
 export interface SpawnAgentRequest {
     child_type: 'council_member' | 'lead_agent' | 'task_agent';
     name: string;
+    description: string;
+    parent_agentium_id: string;
 }
 
 export const agentsService = {
@@ -22,12 +24,30 @@ export const agentsService = {
     },
 
     spawnAgent: async (parentId: string, data: SpawnAgentRequest): Promise<Agent> => {
-        const response = await api.post<{ agent: Agent }>(`/api/v1/agents/lifecycle/spawn?child_type=${data.child_type}&name=${encodeURIComponent(data.name)}`);
+        // Backend has two separate spawn endpoints: /spawn/task and /spawn/lead.
+        // task_agent -> POST /spawn/task  (parent must be Lead 2xxxx or Council 1xxxx)
+        // lead_agent / council_member -> POST /spawn/lead  (parent must be Council 1xxxx or Head 0xxxx)
+        const endpoint = data.child_type === 'task_agent'
+            ? '/api/v1/agents/lifecycle/spawn/task'
+            : '/api/v1/agents/lifecycle/spawn/lead';
+
+        const response = await api.post<{ agent: Agent }>(endpoint, {
+            parent_agentium_id: data.parent_agentium_id,
+            name: data.name,
+            description: data.description,
+        });
         return response.data.agent;
     },
 
-    terminateAgent: async (id: string, reason: string): Promise<void> => {
-        await api.post(`/api/v1/agents/lifecycle/${id}/terminate?reason=${encodeURIComponent(reason)}`);
+    terminateAgent: async (id: string, reason: string, authorizedById: string): Promise<void> => {
+        // Backend uses "liquidate" (not terminate) — POST /liquidate does full cleanup:
+        // cancels tasks, notifies child agents, revokes capabilities.
+        await api.post('/api/v1/agents/lifecycle/liquidate', {
+            target_agentium_id: id,
+            liquidated_by_agentium_id: authorizedById,
+            reason,
+            force: false,
+        });
     }
 };
 export interface ReassignAgentRequest {

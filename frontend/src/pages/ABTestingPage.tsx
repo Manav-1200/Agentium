@@ -87,7 +87,7 @@ function CreateExperimentModal({ onClose, onCreated }: CreateModalProps) {
   const { data: modelsData } = useQuery({
     queryKey: ['model-configs'],
     queryFn: async () => {
-      const res = await api.get('/models/configs');
+      const res = await api.get('/api/v1/models/configs');
       return res.data;
     },
   });

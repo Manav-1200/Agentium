@@ -144,6 +144,112 @@ async def get_popular_skills(
     }
 
 
+
+@router.get("/{skill_id}/full")
+async def get_skill_full(
+    skill_id: str,
+    db: Session = Depends(get_db),
+    auth_context: dict = Depends(get_current_user_or_agent)
+):
+    """
+    Get a skill with extended metadata beyond the base GET /{skill_id} response:
+      - submission_history: all review submissions for this skill
+      - versions: all versions sharing the same name, newest first
+      - stats: usage count, success rate, average execution time, last used
+      - related_skills: up to 5 other verified skills in the same domain
+
+    Access control mirrors GET /{skill_id}: unverified skills are visible to
+    privileged users/agents only.
+    """
+    skill = skill_manager.get_skill_by_id(skill_id, db)
+    if not skill:
+        raise HTTPException(404, "Skill not found")
+
+    if skill.verification_status != "verified":
+        if not auth_context["is_privileged"]:
+            raise HTTPException(403, "Skill pending verification")
+
+    skill_dict = skill.dict()
+
+    skill_db = db.query(SkillDB).filter_by(skill_id=skill_id).first()
+
+    # Submission history
+    submissions = (
+        db.query(SkillSubmission)
+        .filter_by(skill_id=skill_id)
+        .order_by(SkillSubmission.submitted_at.desc())
+        .all()
+    )
+    skill_dict["submission_history"] = [
+        {
+            "submission_id": s.submission_id,
+            "status": s.status,
+            "submitted_by": s.submitted_by,
+            "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
+            "reviewed_by": s.reviewed_by,
+            "reviewed_at": s.reviewed_at.isoformat() if s.reviewed_at else None,
+            "review_notes": s.review_notes,
+        }
+        for s in submissions
+    ]
+
+    if skill_db:
+        # All versions of this skill (matched by name), newest first
+        versions = (
+            db.query(SkillDB)
+            .filter(SkillDB.name == skill_db.name)
+            .order_by(SkillDB.version.desc())
+            .all()
+        )
+        skill_dict["versions"] = [
+            {
+                "skill_id": v.skill_id,
+                "version": v.version,
+                "verification_status": v.verification_status,
+                "created_at": v.created_at.isoformat() if v.created_at else None,
+                "verified_by": v.verified_by,
+            }
+            for v in versions
+        ]
+
+        # Usage stats
+        skill_dict["stats"] = {
+            "usage_count": skill_db.usage_count,
+            "success_rate": skill_db.success_rate,
+            "average_execution_time_ms": getattr(skill_db, "average_execution_time_ms", None),
+            "last_used_at": (
+                skill_db.last_used_at.isoformat()
+                if getattr(skill_db, "last_used_at", None)
+                else None
+            ),
+        }
+
+        # Related skills: same domain, verified, excluding self, top 5 by usage
+        related = (
+            db.query(SkillDB)
+            .filter(
+                SkillDB.domain == skill_db.domain,
+                SkillDB.skill_id != skill_id,
+                SkillDB.verification_status == "verified",
+            )
+            .order_by(SkillDB.usage_count.desc())
+            .limit(5)
+            .all()
+        )
+        skill_dict["related_skills"] = [
+            {
+                "skill_id": r.skill_id,
+                "name": r.name,
+                "domain": r.domain,
+                "usage_count": r.usage_count,
+                "success_rate": r.success_rate,
+            }
+            for r in related
+        ]
+
+    return skill_dict
+
+
 @router.get("/{skill_id}")
 async def get_skill(
     skill_id: str,
@@ -201,6 +307,40 @@ async def create_skill(
         }
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+
+@router.post("/{skill_id}/deprecate")
+async def deprecate_skill(
+    skill_id: str,
+    reason: str = "Deprecated",
+    db: Session = Depends(get_db),
+    auth_context: dict = Depends(get_current_user_or_agent)
+):
+    """
+    Mark a skill as deprecated (soft-delete).
+    Deprecated skills are excluded from search results and cannot be executed.
+    Only the creator, privileged agents, or admin users may deprecate a skill.
+    """
+    skill_db = db.query(SkillDB).filter_by(skill_id=skill_id).first()
+    if not skill_db:
+        raise HTTPException(404, "Skill not found")
+
+    requester_id = auth_context.get("agentium_id") or auth_context.get("identifier") or ""
+    is_creator = str(skill_db.creator_id) == str(auth_context.get("id", ""))
+
+    if not is_creator and not auth_context["is_privileged"]:
+        raise HTTPException(403, "Only the skill creator or privileged users may deprecate this skill")
+
+    skill_db.verification_status = "deprecated"
+    skill_db.rejection_reason = reason
+    db.commit()
+
+    return {
+        "message": "Skill deprecated successfully",
+        "skill_id": skill_id,
+        "reason": reason,
+    }
 
 
 @router.post("/{skill_id}/update")

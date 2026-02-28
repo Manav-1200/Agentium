@@ -13,7 +13,7 @@ export interface Skill {
   usage_count: number;
   verification_status: string;
   creator_id: string;
-  // Optional extended fields
+  // Optional content fields
   prerequisites?: string[];
   steps?: string[];
   code_template?: string;
@@ -21,6 +21,39 @@ export interface Skill {
   common_pitfalls?: string[];
   validation_criteria?: string[];
   created_at?: string;
+}
+
+// Extended response shape returned by GET /skills/{skill_id}/full
+export interface SkillFull extends Skill {
+  submission_history: {
+    submission_id: string;
+    status: string;
+    submitted_by: string;
+    submitted_at: string | null;
+    reviewed_by: string | null;
+    reviewed_at: string | null;
+    review_notes: string | null;
+  }[];
+  versions: {
+    skill_id: string;
+    version: string;
+    verification_status: string;
+    created_at: string | null;
+    verified_by: string | null;
+  }[];
+  stats: {
+    usage_count: number;
+    success_rate: number;
+    average_execution_time_ms: number | null;
+    last_used_at: string | null;
+  };
+  related_skills: {
+    skill_id: string;
+    name: string;
+    domain: string;
+    usage_count: number;
+    success_rate: number;
+  }[];
 }
 
 export interface SkillSearchResult {
@@ -50,7 +83,7 @@ export const skillsApi = {
   },
 
   // Get skill details with full content (includes content_preview / raw content)
-  getFull: async (skillId: string): Promise<Skill> => {
+  getFull: async (skillId: string): Promise<SkillFull> => {
     const response = await api.get(`/api/v1/skills/${skillId}/full`);
     return response.data;
   },
