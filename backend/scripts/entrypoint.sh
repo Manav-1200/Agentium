@@ -20,15 +20,18 @@ if command -v xauth >/dev/null 2>&1; then
     xauth add "${DISPLAY_NUM}" . "${COOKIE}" 2>/dev/null || true
 fi
 
-# ── 2. Start Xvfb (virtual display) ────────────
 start_xvfb() {
     echo "🖥️  Starting Xvfb on display ${DISPLAY_NUM} (${RESOLUTION})..."
 
-    # Clean up stale lock files from unclean restarts
+    # Ensure X11 socket directory exists (defensive)
+    mkdir -p /tmp/.X11-unix 2>/dev/null || sudo mkdir -p /tmp/.X11-unix 2>/dev/null || true
+    
+    # Clean up stale lock files
     rm -f "/tmp/.X${DISPLAY_NUM_CLEAN}-lock" 2>/dev/null || true
 
-    # -auth uses our Xauthority file for proper auth
-    Xvfb "${DISPLAY_NUM}" -screen 0 "${RESOLUTION}" -auth "${XAUTHORITY}" +extension GLX +render -noreset &
+    # Start Xvfb - the directory should now exist
+    Xvfb "${DISPLAY_NUM}" -screen 0 "${RESOLUTION}" -auth "${XAUTHORITY}" \
+        +extension GLX +render -noreset &
     XVFB_PID=$!
 
     # Wait up to 5 seconds for Xvfb to be ready
