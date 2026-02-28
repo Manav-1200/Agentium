@@ -1708,8 +1708,6 @@ export function ChatPage() {
                     </div>
                 </div>
             )}
-        </div>
-
             {/* Image Preview Modal (chat attachments) */}
             {imagePreview && (
                 <div className="fixed inset-0 bg-black/90 dark:bg-black/95 z-50 flex items-center justify-center p-6 backdrop-blur-sm" onClick={() => setImagePreview(null)}>
@@ -1758,5 +1756,6 @@ export function ChatPage() {
                 </div>
             )}
         </div>
+
     );
 }
