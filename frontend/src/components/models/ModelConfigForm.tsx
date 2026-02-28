@@ -320,7 +320,11 @@ export const ModelConfigForm: React.FC<ModelConfigFormProps> = ({ initialConfig,
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                             {providers && providers.length > 0 ? (
-                                providers.filter(p => p && p.id !== 'custom').map((provider) => {
+                                providers.filter(p => {
+                                    if (!p) return false;
+                                    const nid = normaliseId(p.id);
+                                    return !nid.includes('custom') && !nid.includes('universal');
+                                }).map((provider) => {
                                     console.log(`🔍 provider.id="${provider.id}"  normalised="${normaliseId(provider.id)}"  display="${provider.display_name}"`);
                                     return (
                                     <button

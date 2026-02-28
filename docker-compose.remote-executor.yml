@@ -1,6 +1,4 @@
 # Docker Compose extension for Remote Executor service
-# Usage: docker compose -f docker-compose.yml -f docker-compose.remote-executor.yml up
-version: '3.8'
 
 services:
   remote-executor:

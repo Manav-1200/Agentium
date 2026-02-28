@@ -236,16 +236,6 @@ async def list_providers():
             description="Run models locally with Ollama or LM Studio",
             popular_models=["llama3.1", "mistral", "gemma2", "qwen2"]
         ),
-        ProviderInfo(
-            id=ProviderType.CUSTOM.value,
-            name="custom",
-            display_name="Custom Provider",
-            requires_api_key=True,
-            requires_base_url=True,
-            default_base_url=None,
-            description="Any OpenAI-compatible API endpoint",
-            popular_models=[]
-        ),
     ]
     return providers
 
