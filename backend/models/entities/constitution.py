@@ -84,15 +84,6 @@ class Constitution(BaseEntity):
         lazy="dynamic",
     )
 
-    # Optional forward: newer versions that replace this one
-    # replaced_by = relationship(
-    #     "Constitution",
-    #     foreign_keys=[replaces_version_id],
-    #     remote_side=["Constitution.id"],       # string again
-    #     back_populates="replaces_version",
-    # )
-
-
     voting_sessions = relationship("AmendmentVoting", back_populates="amendment")
     
     def __init__(self, **kwargs):
@@ -397,27 +388,208 @@ class Ethos(BaseEntity):
         self.active_plan = None
         self.task_progress_markers = None
         self.reasoning_artifacts = None
-    
-    def prune_obsolete_content(self, completed_steps: List[str] = None):
+
+    # -----------------------------------------------------------------------
+    # Idle-time Ethos Compression (Workflow §IDLE)
+    # -----------------------------------------------------------------------
+
+    def _build_activity_snapshot(self) -> Dict[str, Any]:
         """
-        Remove irrelevant or obsolete content during task execution.
-        Called after each sub-step to prevent cognitive bloat (Workflow §3).
+        Build a structured snapshot of what this agent is currently doing.
+        Captures the 25% 'what is happening now' summary written to outcome_summary
+        during idle compression.
+        """
+        active_plan = self.get_active_plan()
+        progress = self.get_task_progress()
+        lessons = self.get_lessons_learned()
+        artifacts = self.get_reasoning_artifacts()
+        refs = self.get_constitutional_references()
+
+        # Summarise active plan at a high level
+        plan_summary = None
+        if active_plan:
+            plan_summary = {
+                "title": active_plan.get("title") or active_plan.get("objective"),
+                "step_count": len(active_plan.get("steps", [])),
+                "status": active_plan.get("status"),
+            }
+
+        # Collapse progress markers into a lightweight overview
+        progress_overview = {
+            "total_steps": len(progress),
+            "completed": sum(1 for v in progress.values() if v in (True, "done", "completed")),
+            "step_keys": list(progress.keys()),
+        } if progress else None
+
+        # Extract the most recent lesson key points (last 3 raw, rest as count)
+        recent_lesson_points = []
+        for lesson in lessons[-3:]:
+            point = lesson.get("key_point") or lesson.get("lesson") or lesson.get("summary")
+            if point:
+                recent_lesson_points.append(str(point)[:120])
+
+        # Summarise constitutional references (section titles only)
+        ref_titles = list({
+            ref.get("title") or ref.get("section_id") or str(ref)[:40]
+            for ref in refs
+            if ref
+        })
+
+        return {
+            "snapshot_at": datetime.utcnow().isoformat(),
+            "agent_type": self.agent_type,
+            "current_objective": self.current_objective,
+            "active_plan": plan_summary,
+            "progress": progress_overview,
+            "reasoning_artifact_count": len(artifacts),
+            "total_lessons": len(lessons),
+            "recent_lesson_points": recent_lesson_points,
+            "constitutional_refs": ref_titles,
+            "ethos_version": self.version,
+        }
+
+    def _compress_reasoning_artifacts(self) -> None:
+        """
+        Compress reasoning artifacts: collapse the oldest 75% into a single
+        compressed entry, keep the newest 25% raw.
+        Minimum threshold: only compress if more than 4 artifacts exist.
         """
         import json
-        
-        # Prune completed steps from progress markers
+
+        artifacts = self.get_reasoning_artifacts()
+        if len(artifacts) <= 4:
+            return
+
+        # Split: oldest 75% get compressed, newest 25% stay raw
+        keep_raw_count = max(1, len(artifacts) * 25 // 100)
+        old_artifacts = artifacts[:-keep_raw_count]
+        recent_artifacts = artifacts[-keep_raw_count:]
+
+        # Merge old ones into a single compressed entry
+        compressed_entry = {
+            "type": "compressed_reasoning",
+            "compressed_at": datetime.utcnow().isoformat(),
+            "original_count": len(old_artifacts),
+            # Truncate each to 100 chars and join as a readable digest
+            "digest": " | ".join(str(a)[:100] for a in old_artifacts),
+        }
+
+        self.reasoning_artifacts = json.dumps([compressed_entry] + recent_artifacts)
+
+    def _compress_lessons_learned(self) -> None:
+        """
+        Compress lessons learned: collapse the oldest 75% into a consolidated
+        entry extracting unique key patterns, keep the newest 25% raw.
+        Minimum threshold: only compress if more than 4 lessons exist.
+        """
+        import json
+
+        lessons = self.get_lessons_learned()
+        if len(lessons) <= 4:
+            return
+
+        # Split: oldest 75% get consolidated, newest 25% stay raw
+        keep_raw_count = max(1, len(lessons) * 25 // 100)
+        old_lessons = lessons[:-keep_raw_count]
+        recent_lessons = lessons[-keep_raw_count:]
+
+        # Extract unique key patterns from old lessons
+        key_patterns = list({
+            l.get("key_point") or l.get("lesson") or l.get("summary") or str(l)[:80]
+            for l in old_lessons
+            if l
+        })
+
+        consolidated_entry = {
+            "type": "consolidated_lessons",
+            "compressed_at": datetime.utcnow().isoformat(),
+            "source_count": len(old_lessons),
+            "key_patterns": key_patterns,
+        }
+
+        self.lessons_learned = json.dumps([consolidated_entry] + recent_lessons)
+
+    def _deduplicate_constitutional_references(self) -> None:
+        """
+        Deduplicate constitutional references, keeping the most recent occurrence
+        of each unique section. Preserves order (most recently seen wins).
+        """
+        import json
+
+        refs = self.get_constitutional_references()
+        if not refs:
+            return
+
+        seen: Dict[str, Any] = {}
+        for ref in refs:
+            key = ref.get("section_id") or ref.get("title") or str(ref)[:60]
+            seen[key] = ref  # last occurrence wins, deduplicates cleanly
+
+        self.constitutional_references = json.dumps(list(seen.values()))
+
+    def prune_obsolete_content(self, completed_steps: List[str] = None):
+        """
+        Idle-time ethos compression using a 75/25 strategy:
+
+          75% — Compress historical data:
+            - Collapse oldest 75% of reasoning_artifacts into a compressed digest
+            - Consolidate oldest 75% of lessons_learned into key patterns
+            - Deduplicate constitutional_references
+            - Remove explicitly completed progress markers
+
+          25% — Summarise current activity:
+            - Build a structured snapshot of what the agent is doing right now
+            - Write it to outcome_summary so higher-tier agents and future task
+              cycles have readable context on this agent's recent state
+
+        Called during idle ETHOS_OPTIMIZATION task (Workflow §IDLE).
+        Also called after sub-steps when completed_steps is provided (Workflow §3).
+        """
+        import json
+
+        # ── Step 1: Remove explicitly completed progress markers ────────────────
         if completed_steps and self.task_progress_markers:
             progress = self.get_task_progress()
             for step in completed_steps:
                 progress.pop(step, None)
             self.task_progress_markers = json.dumps(progress) if progress else None
-        
-        # Clear stale reasoning artifacts (keep only the last 5)
-        if self.reasoning_artifacts:
-            artifacts = self.get_reasoning_artifacts()
-            if len(artifacts) > 5:
-                self.reasoning_artifacts = json.dumps(artifacts[-5:])
-    
+
+        # ── Step 2 (75%): Compress reasoning artifacts ──────────────────────────
+        self._compress_reasoning_artifacts()
+
+        # ── Step 3 (75%): Consolidate lessons learned ───────────────────────────
+        self._compress_lessons_learned()
+
+        # ── Step 4 (75%): Deduplicate constitutional references ─────────────────
+        self._deduplicate_constitutional_references()
+
+        # ── Step 5 (25%): Write activity snapshot to outcome_summary ────────────
+        # Only build the snapshot during true idle compression (no specific steps
+        # were passed), so we don't overwrite outcome_summary mid-task.
+        if not completed_steps:
+            snapshot = self._build_activity_snapshot()
+            self.outcome_summary = json.dumps(snapshot)
+
+        # ── Bump version to record the compression ───────────────────────────────
+        self.increment_version()
+
+    def get_outcome_snapshot(self) -> Optional[Dict[str, Any]]:
+        """
+        Parse outcome_summary as a snapshot dict if it was written by
+        prune_obsolete_content. Falls back to returning the raw string
+        wrapped in a dict if it's plain text from an older format.
+        """
+        import json
+        if not self.outcome_summary:
+            return None
+        try:
+            parsed = json.loads(self.outcome_summary)
+            if isinstance(parsed, dict):
+                return parsed
+            return {"raw": self.outcome_summary}
+        except (json.JSONDecodeError, TypeError):
+            return {"raw": self.outcome_summary}
+
     def to_dict(self) -> Dict[str, Any]:
         base = super().to_dict()
         base.update({
@@ -432,7 +604,7 @@ class Ethos(BaseEntity):
             'active_plan': self.get_active_plan(),
             'constitutional_references': self.get_constitutional_references(),
             'task_progress': self.get_task_progress(),
-            'outcome_summary': self.outcome_summary,
+            'outcome_summary': self.get_outcome_snapshot(),
             'lessons_learned': self.get_lessons_learned(),
             'version': self.version,
             'created_by': self.created_by_agentium_id,
