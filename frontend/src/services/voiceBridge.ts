@@ -98,6 +98,13 @@ class VoiceBridgeService {
   private _getSessionToken(): string {
     // Reads from localStorage where authStore persists the JWT
     try {
+      // First try the direct access_token key used by auth.ts
+      const directToken = localStorage.getItem('access_token');
+      if (directToken) {
+        return directToken;
+      }
+      
+      // Fallback to auth-storage (Zustand persist format)
       const raw = localStorage.getItem('auth-storage');
       if (raw) {
         const parsed = JSON.parse(raw);
