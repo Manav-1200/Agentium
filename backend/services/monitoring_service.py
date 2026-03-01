@@ -525,7 +525,7 @@ class MonitoringService:
         Phase 9.1 requirement.
         """
         from backend.services.alert_manager import AlertManager
-        from backend.models.entities.voting import Vote
+        from backend.models.entities.voting import IndividualVote as Vote
 
         while True:
             try:
@@ -556,7 +556,7 @@ class MonitoringService:
 
                         # Check voting participation
                         votes_cast = db.query(Vote).filter(
-                            Vote.voter_id == agent.agentium_id,
+                            Vote.voter_agentium_id == agent.agentium_id,
                             Vote.created_at >= week_ago
                         ).count()
 
@@ -579,7 +579,7 @@ class MonitoringService:
         """
         while True:
             try:
-                from backend.core.vector_db import VectorStore
+                from backend.core.vector_store import VectorStore
                 vs = VectorStore()
                 removed = 0
 
@@ -644,7 +644,7 @@ class MonitoringService:
         """
         while True:
             try:
-                from backend.core.vector_db import VectorStore
+                from backend.core.vector_store import VectorStore
                 vs = VectorStore()
                 orphaned_count = 0
 
