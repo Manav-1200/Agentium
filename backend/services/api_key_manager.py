@@ -29,9 +29,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from threading import Lock
 
-from backend.models.database import get_db_context
+from backend.models.database import get_db_context, get_system_agent_id
 from backend.models.entities.user_config import UserModelConfig, ConnectionStatus, ProviderType
 from backend.models.entities.channels import ExternalChannel, ChannelType
+from backend.models.entities.monitoring import MonitoringAlert, ViolationSeverity
 from backend.core.security import decrypt_api_key
 
 logger = logging.getLogger(__name__)
@@ -799,8 +800,87 @@ class APIKeyManager:
             return wrapper
         return decorator
 
+    # =====================================================================
+    # Phase 9.5: API Key Resilience Enhancements
+    # =====================================================================
 
-# Global singleton instance
+    async def notify_all_keys_down(
+        self, db: Optional[Session] = None
+    ):
+        """
+        Dispatch a formal MonitoringAlert via AlertManager when no healthy keys
+        remain across ALL configured providers.
+        Phase 9.5 requirement.
+        """
+        from backend.services.alert_manager import AlertManager, ALERT_TYPE_ALL_KEYS_DOWN
+
+        def _dispatch(db_session: Session):
+            alert_manager = AlertManager(db_session)
+            alert = MonitoringAlert(
+                alert_type=ALERT_TYPE_ALL_KEYS_DOWN,
+                severity=ViolationSeverity.CRITICAL,
+                detected_by_agent_id=get_system_agent_id(db_session),
+                affected_agent_id=None,
+                message=(
+                    "All API keys are down across every configured provider. "
+                    "AI services are completely unavailable."
+                ),
+            )
+            db_session.add(alert)
+            db_session.commit()
+            asyncio.create_task(alert_manager.dispatch_alert(alert))
+            logger.critical(
+                "🔑❌ All API keys are down — formal alert dispatched."
+            )
+
+        if db:
+            _dispatch(db)
+        else:
+            with get_db_context() as db_session:
+                _dispatch(db_session)
+
+    def verify_multi_key_support(
+        self, provider: str, db: Optional[Session] = None
+    ) -> Dict[str, Any]:
+        """
+        Diagnostic: confirm multiple keys per provider work correctly.
+        Returns summary of all keys for the provider, their priorities,
+        and which one would be selected via failover.
+        Phase 9.5 requirement.
+        """
+        def _verify(db_session: Session) -> Dict[str, Any]:
+            keys = (
+                db_session.query(UserModelConfig)
+                .filter_by(provider=provider, is_active=True)
+                .order_by(UserModelConfig.priority.asc())
+                .all()
+            )
+            selected = self.get_active_key(provider, db=db_session)
+
+            return {
+                "provider": provider,
+                "total_keys": len(keys),
+                "keys": [
+                    {
+                        "id": str(k.id),
+                        "priority": k.priority,
+                        "status": self._get_key_status(k),
+                        "failure_count": k.failure_count,
+                    }
+                    for k in keys
+                ],
+                "selected_key_id": str(selected.id) if selected else None,
+                "multi_key_operational": len(keys) > 1
+                and selected is not None,
+            }
+
+        if db:
+            return _verify(db)
+        else:
+            with get_db_context() as db_session:
+                return _verify(db_session)
+
+
 api_key_manager = APIKeyManager()
 
 

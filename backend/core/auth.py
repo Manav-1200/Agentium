@@ -22,7 +22,7 @@ security = HTTPBearer(auto_error=False)
 # JWT Settings
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+REFRESH_TOKEN_EXPIRE_DAYS = settings.TOKEN_EXPIRY_DAYS  # Phase 9.4: configurable
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create JWT access token for frontend authentication."""
