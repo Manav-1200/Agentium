@@ -8,28 +8,18 @@ import uuid
 import tempfile
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from backend.models.database import get_db
 from backend.core.auth import get_current_active_user
 from backend.models.entities.user import User
+from backend.services.storage_service import storage_service
 
 router = APIRouter(prefix="/voice", tags=["Voice"])
-
-
-# Configuration - use /tmp as primary storage (temporary)
-def get_upload_dir() -> Path:
-    """Get upload directory in /tmp."""
-    path = Path("/tmp/agentium_uploads/voice")
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-UPLOAD_DIR = get_upload_dir()
-print(f"[Voice] Using upload directory: {UPLOAD_DIR}")
 
 MAX_AUDIO_SIZE = 25 * 1024 * 1024  # 25MB (OpenAI limit)
 ALLOWED_AUDIO_TYPES = [
@@ -337,14 +327,27 @@ async def text_to_speech(
             speed=speed
         )
         
-        # Save to file
+        # stream_to_file needs a local file path
         audio_id = str(uuid.uuid4())
         audio_filename = f"{audio_id}.mp3"
-        user_dir = UPLOAD_DIR / user_id
-        user_dir.mkdir(parents=True, exist_ok=True)
         
-        audio_path = user_dir / audio_filename
-        response.stream_to_file(str(audio_path))
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
+            response.stream_to_file(tmp_file.name)
+            
+            # Upload to StorageService
+            object_name = f"voice/{user_id}/{audio_filename}"
+            with open(tmp_file.name, "rb") as f:
+                url = storage_service.upload_file(f, object_name=object_name, content_type="audio/mpeg")
+                
+            if not url:
+                raise Exception("StorageService returned None")
+                
+        # Cleanup
+        if os.path.exists(tmp_file.name):
+            try:
+                os.remove(tmp_file.name)
+            except:
+                pass
         
         return {
             "success": True,
@@ -352,7 +355,7 @@ async def text_to_speech(
             "duration_estimate": len(text) / 15,
             "voice": voice,
             "speed": speed,
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": datetime.now(timezone.utc).isoformat()
         }
         
     except Exception as e:
@@ -379,19 +382,16 @@ async def get_audio_file(
             detail="Access denied"
         )
     
-    audio_path = UPLOAD_DIR / user_id / filename
+    object_name = f"voice/{user_id}/{filename}"
+    url = storage_service.generate_presigned_url(object_name, expiration=3600)
     
-    if not audio_path.exists():
+    if not url:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Audio file not found"
+            detail="Audio file not found or failed to generate URL"
         )
     
-    return FileResponse(
-        path=audio_path,
-        media_type="audio/mpeg",
-        filename=filename
-    )
+    return RedirectResponse(url=url)
 
 
 @router.get("/languages")

@@ -4,31 +4,23 @@ Handles multipart file uploads, storage, and retrieval.
 """
 
 import os
+import io
 import uuid
 import mimetypes
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 import aiofiles
 
 from backend.models.database import get_db
 from backend.core.auth import get_current_active_user
 from backend.models.entities.user import User
+from backend.services.storage_service import storage_service
 
 router = APIRouter(prefix="/files", tags=["Files"])
-
-# Configuration - use /tmp as primary storage (temporary)
-def get_upload_dir() -> Path:
-    """Get upload directory in /tmp."""
-    path = Path("/tmp/agentium_uploads/files")
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-UPLOAD_DIR = get_upload_dir()
-print(f"[Files] Using upload directory: {UPLOAD_DIR}")
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB max file size
 ALLOWED_EXTENSIONS = {
@@ -150,27 +142,28 @@ async def upload_files(
             })
             continue
 
-        # Generate safe filename and storage path
-        safe_filename = generate_safe_filename(file.filename)
-        user_dir = UPLOAD_DIR / str(current_user.id)
-        user_dir.mkdir(parents=True, exist_ok=True)
-        
-        file_path = user_dir / safe_filename
-
-        # Save file to disk
-        try:
-            async with aiofiles.open(file_path, 'wb') as f:
-                await f.write(content)
-        except Exception as e:
-            errors.append({
-                "filename": file.filename,
-                "error": f"Failed to save file: {str(e)}"
-            })
-            continue
-
         # Determine MIME type
         mime_type = file.content_type or mimetypes.guess_type(file.filename)[0] or 'application/octet-stream'
         category = get_file_category(file.filename)
+
+        # Build S3 Object Key
+        object_name = f"files/{current_user.id}/{safe_filename}"
+
+        # Upload to StorageService
+        try:
+            url = storage_service.upload_file(
+                io.BytesIO(content),
+                object_name=object_name,
+                content_type=mime_type
+            )
+            if not url:
+                raise Exception("StorageService returned None")
+        except Exception as e:
+            errors.append({
+                "filename": file.filename,
+                "error": f"Failed to upload file to storage: {str(e)}"
+            })
+            continue
 
         # Build response metadata
         file_info = {
@@ -181,7 +174,7 @@ async def upload_files(
             "type": mime_type,
             "category": category,
             "size": len(content),
-            "uploaded_at": datetime.utcnow().isoformat()
+            "uploaded_at": datetime.now(timezone.utc).isoformat()
         }
         uploaded_files.append(file_info)
 
@@ -218,22 +211,16 @@ async def download_file(
             detail="Access denied"
         )
 
-    file_path = UPLOAD_DIR / user_id / filename
-
-    if not file_path.exists():
+    object_name = f"files/{user_id}/{filename}"
+    url = storage_service.generate_presigned_url(object_name, expiration=3600)
+    
+    if not url:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="File not found"
+            detail="File not found or failed to generate URL"
         )
 
-    # Determine media type
-    media_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-
-    return FileResponse(
-        path=file_path,
-        media_type=media_type,
-        filename=filename
-    )
+    return RedirectResponse(url=url)
 
 
 @router.get("/list")
@@ -242,34 +229,28 @@ async def list_files(
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    List all files for the current user.
+    List all files for the current user from S3.
     """
-    user_dir = UPLOAD_DIR / str(current_user.id)
-    
-    if not user_dir.exists():
-        return {
-            "files": [],
-            "total": 0,
-            "storage_used_bytes": 0
-        }
+    prefix = f"files/{current_user.id}/"
+    objects = storage_service.list_files(prefix)
 
     files = []
     total_size = 0
 
-    for file_path in user_dir.iterdir():
-        if file_path.is_file():
-            stat = file_path.stat()
-            size = stat.st_size
-            total_size += size
-            
-            files.append({
-                "filename": file_path.name,
-                "stored_name": file_path.name,
-                "url": f"/api/v1/files/download/{current_user.id}/{file_path.name}",
-                "size": size,
-                "category": get_file_category(file_path.name),
-                "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
-            })
+    for obj in objects:
+        size = obj.get('Size', 0)
+        total_size += size
+        
+        filename = obj['Key'].split("/")[-1]
+        
+        files.append({
+            "filename": filename,
+            "stored_name": filename,
+            "url": f"/api/v1/files/download/{current_user.id}/{filename}",
+            "size": size,
+            "category": get_file_category(filename),
+            "uploaded_at": str(obj.get('LastModified', ''))
+        })
 
     # Sort by upload time (newest first)
     files.sort(key=lambda x: x["uploaded_at"], reverse=True)
@@ -290,26 +271,20 @@ async def delete_file(
     """
     Delete a file.
     """
-    user_dir = UPLOAD_DIR / str(current_user.id)
-    file_path = user_dir / filename
+    object_name = f"files/{current_user.id}/{filename}"
+    
+    success = storage_service.delete_file(object_name)
 
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File not found"
-        )
-
-    try:
-        file_path.unlink()
-        return {
-            "success": True,
-            "message": f"File {filename} deleted successfully"
-        }
-    except Exception as e:
+    if not success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete file: {str(e)}"
+            detail=f"Failed to delete file"
         )
+        
+    return {
+        "success": True,
+        "message": f"File {filename} deleted successfully"
+    }
 
 
 @router.get("/stats")
@@ -318,9 +293,10 @@ async def get_file_stats(
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Get file statistics for the current user.
+    Get file statistics for the current user from S3.
     """
-    user_dir = UPLOAD_DIR / str(current_user.id)
+    prefix = f"files/{current_user.id}/"
+    objects = storage_service.list_files(prefix)
     
     stats = {
         "total_files": 0,
@@ -330,21 +306,17 @@ async def get_file_stats(
         "storage_used_percent": 0
     }
 
-    if not user_dir.exists():
-        return stats
+    for obj in objects:
+        size = obj.get('Size', 0)
+        filename = obj['Key'].split("/")[-1]
+        category = get_file_category(filename)
 
-    for file_path in user_dir.iterdir():
-        if file_path.is_file():
-            stat = file_path.stat()
-            size = stat.st_size
-            category = get_file_category(file_path.name)
-
-            stats["total_files"] += 1
-            stats["total_size_bytes"] += size
-            
-            if category not in stats["by_category"]:
-                stats["by_category"][category] = 0
-            stats["by_category"][category] += size
+        stats["total_files"] += 1
+        stats["total_size_bytes"] += size
+        
+        if category not in stats["by_category"]:
+            stats["by_category"][category] = 0
+        stats["by_category"][category] += size
 
     # Calculate percentage
     stats["storage_used_percent"] = round(
@@ -373,14 +345,6 @@ async def preview_file(
             detail="Access denied"
         )
 
-    file_path = UPLOAD_DIR / user_id / filename
-
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File not found"
-        )
-
     media_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
 
     # Only allow preview for safe types
@@ -390,8 +354,15 @@ async def preview_file(
             detail="File type not supported for preview"
         )
 
-    return FileResponse(
-        path=file_path,
-        media_type=media_type,
-        content_disposition_type="inline"
-    )
+    object_name = f"files/{user_id}/{filename}"
+    url = storage_service.generate_presigned_url(object_name, expiration=3600)
+    
+    if not url:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found or failed to generate URL"
+        )
+
+    # For S3, presigned GETs often force download or rely on Content-Disposition.
+    # A simple redirect is usually sufficient.
+    return RedirectResponse(url=url)

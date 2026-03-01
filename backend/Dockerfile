@@ -58,10 +58,7 @@ ENV PYTHONPATH="/app"
 # Set working directory
 WORKDIR /app
 
-# Create temp directories
-RUN mkdir -p /tmp/agentium_uploads/files /tmp/agentium_uploads/voice && \
-    chmod -R 777 /tmp/agentium_uploads
-
+# Removed secure upload directory creation (now handled by object storage)
 # Copy application code
 COPY . .
 

@@ -81,8 +81,7 @@ RUN useradd -m -s /bin/bash -G sudo,docker agentium && \
 WORKDIR /app
 
 # Create necessary directories
-RUN mkdir -p /app/backend /host /host_home /tmp/agentium_uploads/files /tmp/agentium_uploads/voice && \
-    chmod -R 777 /tmp/agentium_uploads
+RUN mkdir -p /app/backend /host /host_home
 
 RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 
