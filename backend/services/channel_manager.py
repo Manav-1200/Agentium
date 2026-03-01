@@ -115,50 +115,77 @@ PLATFORM_RATE_LIMITS: Dict[ChannelType, RateLimitConfig] = {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Global Rate Limiter & Circuit Breaker Manager
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+import redis
+from backend.core.config import settings
+
+def get_redis_client():
+    try:
+        url = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
+        client = redis.Redis.from_url(url, decode_responses=True)
+        client.ping()
+        return client
+    except Exception as e:
+        print(f"[RateLimiter/CircuitBreaker] Redis unavailable, using memory fallback: {e}")
+        return None
+
+_redis_client = get_redis_client()
 
 class RateLimiter:
-    """Token bucket rate limiter per channel."""
+    """Token bucket rate limiter per channel (Redis or Memory)."""
     
     def __init__(self):
         self._buckets: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
     
-    def _get_bucket(self, channel_id: str, config: RateLimitConfig) -> Dict[str, Any]:
-        """Get or create token bucket for channel."""
-        with self._lock:
-            if channel_id not in self._buckets:
-                now = time.time()
-                self._buckets[channel_id] = {
-                    'tokens': config.burst_allowance,
-                    'last_update': now,
-                    'config': config,
-                    'minute_window': [],
-                    'hour_window': [],
-                }
-            return self._buckets[channel_id]
-    
     def acquire(self, channel_id: str, config: RateLimitConfig, channel_config: Optional[Dict[str, Any]] = None) -> tuple[bool, Optional[int]]:
-        """
-        Attempt to acquire rate limit token.
-        Checks for channel-specific overrides in `channel_config`, falls back to base `config`.
-        Returns (success, retry_after_seconds).
-        """
-        bucket = self._get_bucket(channel_id, config)
-        now = time.time()
-        
-        # Apply custom limits from channel config if present
+        """Attempt to acquire rate limit token."""
         req_per_min = config.requests_per_minute
         req_per_hour = config.requests_per_hour
         if channel_config:
             req_per_min = int(channel_config.get('rate_limit_minute', req_per_min))
             req_per_hour = int(channel_config.get('rate_limit_hour', req_per_hour))
+            
+        now = time.time()
         
+        if _redis_client:
+            try:
+                pipe = _redis_client.pipeline()
+                min_key = f"rate:min:{channel_id}"
+                hour_key = f"rate:hour:{channel_id}"
+                # Clean old
+                pipe.zremrangebyscore(min_key, 0, now - 60)
+                pipe.zremrangebyscore(hour_key, 0, now - 3600)
+                # Count
+                pipe.zcard(min_key)
+                pipe.zcard(hour_key)
+                results = pipe.execute()
+                
+                min_count = results[2]
+                hour_count = results[3]
+                
+                if min_count >= req_per_min:
+                    return False, 60
+                if hour_count >= req_per_hour:
+                    return False, 3600
+                
+                pipe = _redis_client.pipeline()
+                pipe.zadd(min_key, {str(now): now})
+                pipe.zadd(hour_key, {str(now): now})
+                pipe.expire(min_key, 60)
+                pipe.expire(hour_key, 3600)
+                pipe.execute()
+                return True, None
+            except Exception as e:
+                print(f"[RateLimiter] Redis error, falling back: {e}")
+                
+        # In-memory fallback
         with self._lock:
-            # Clean old window entries
+            if channel_id not in self._buckets:
+                self._buckets[channel_id] = {'minute_window': [], 'hour_window': [], 'config': config}
+            bucket = self._buckets[channel_id]
             bucket['minute_window'] = [t for t in bucket['minute_window'] if now - t < 60]
             bucket['hour_window'] = [t for t in bucket['hour_window'] if now - t < 3600]
             
-            # Check limits
             if len(bucket['minute_window']) >= req_per_min:
                 retry_after = 60 - int(now - bucket['minute_window'][0])
                 return False, max(retry_after, 1)
@@ -167,12 +194,10 @@ class RateLimiter:
                 retry_after = 3600 - int(now - bucket['hour_window'][0])
                 return False, max(retry_after, 1)
             
-            # Add token to windows
             bucket['minute_window'].append(now)
             bucket['hour_window'].append(now)
-            
             return True, None
-    
+
     def get_status(self, channel_id: str, channel_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Get current rate limit status."""
         bucket = self._buckets.get(channel_id, {})
@@ -184,16 +209,34 @@ class RateLimiter:
             req_per_min = int(channel_config.get('rate_limit_minute', req_per_min))
             req_per_hour = int(channel_config.get('rate_limit_hour', req_per_hour))
             
+        min_usage = len(bucket.get('minute_window', []))
+        hour_usage = len(bucket.get('hour_window', []))
+        
+        if _redis_client:
+            try:
+                now = time.time()
+                min_key = f"rate:min:{channel_id}"
+                hour_key = f"rate:hour:{channel_id}"
+                pipe = _redis_client.pipeline()
+                pipe.zremrangebyscore(min_key, 0, now - 60)
+                pipe.zremrangebyscore(hour_key, 0, now - 3600)
+                pipe.zcard(min_key)
+                pipe.zcard(hour_key)
+                results = pipe.execute()
+                min_usage = results[2]
+                hour_usage = results[3]
+            except Exception:
+                pass
+                
         return {
-            'minute_usage': len(bucket.get('minute_window', [])),
-            'hour_usage': len(bucket.get('hour_window', [])),
+            'minute_usage': min_usage,
+            'hour_usage': hour_usage,
             'minute_limit': req_per_min,
             'hour_limit': req_per_hour,
         }
 
-
 class CircuitBreaker:
-    """Circuit breaker for channel failure recovery."""
+    """Circuit breaker for channel failure recovery (Redis or Memory)."""
     
     def __init__(self):
         self._metrics: Dict[str, ChannelMetrics] = defaultdict(ChannelMetrics)
@@ -201,90 +244,144 @@ class CircuitBreaker:
         self._lock = threading.Lock()
     
     def register_channel(self, channel_id: str, config: CircuitBreakerConfig = None):
-        """Register channel with circuit breaker."""
         self._configs[channel_id] = config or CircuitBreakerConfig()
     
+    def _get_state(self, channel_id: str, config: CircuitBreakerConfig):
+        if _redis_client:
+            try:
+                state_val = _redis_client.get(f"cb:state:{channel_id}")
+                if state_val:
+                    state = CircuitState(state_val)
+                    opened_at = _redis_client.get(f"cb:opened_at:{channel_id}")
+                    if state == CircuitState.OPEN and opened_at:
+                        elapsed = time.time() - float(opened_at)
+                        if elapsed >= config.recovery_timeout:
+                            self._set_state(channel_id, CircuitState.HALF_OPEN)
+                            return CircuitState.HALF_OPEN, 0
+                    
+                    half_calls = int(_redis_client.get(f"cb:half_calls:{channel_id}") or 0)
+                    return state, half_calls
+            except Exception:
+                pass
+                
+        metrics = self._metrics[channel_id]
+        if metrics.circuit_state == CircuitState.OPEN and metrics.circuit_opened_at:
+            elapsed = (datetime.utcnow() - metrics.circuit_opened_at).total_seconds()
+            if elapsed >= config.recovery_timeout:
+                metrics.circuit_state = CircuitState.HALF_OPEN
+                metrics.half_open_calls = 0
+        return metrics.circuit_state, metrics.half_open_calls
+        
+    def _set_state(self, channel_id: str, state: CircuitState):
+        if _redis_client:
+            try:
+                _redis_client.set(f"cb:state:{channel_id}", state.value)
+                if state == CircuitState.OPEN:
+                    _redis_client.set(f"cb:opened_at:{channel_id}", time.time())
+                elif state == CircuitState.CLOSED:
+                    _redis_client.delete(f"cb:opened_at:{channel_id}")
+                    _redis_client.set(f"cb:fails:{channel_id}", 0)
+                    _redis_client.set(f"cb:half_calls:{channel_id}", 0)
+            except Exception:
+                pass
+                
+        metrics = self._metrics[channel_id]
+        metrics.circuit_state = state
+        if state == CircuitState.OPEN:
+            metrics.circuit_opened_at = datetime.utcnow()
+        elif state == CircuitState.CLOSED:
+            metrics.circuit_opened_at = None
+            metrics.consecutive_failures = 0
+            metrics.half_open_calls = 0
+
     def can_execute(self, channel_id: str) -> bool:
-        """Check if request can execute based on circuit state."""
+        config = self._configs.get(channel_id, CircuitBreakerConfig())
         with self._lock:
-            metrics = self._metrics[channel_id]
-            config = self._configs.get(channel_id, CircuitBreakerConfig())
-            
-            if metrics.circuit_state == CircuitState.OPEN:
-                # Check if recovery timeout elapsed
-                if metrics.circuit_opened_at:
-                    elapsed = (datetime.utcnow() - metrics.circuit_opened_at).total_seconds()
-                    if elapsed >= config.recovery_timeout:
-                        metrics.circuit_state = CircuitState.HALF_OPEN
-                        metrics.half_open_calls = 0
-                        print(f"[CircuitBreaker] Channel {channel_id} entering HALF_OPEN state")
-                        return True
+            state, half_calls = self._get_state(channel_id, config)
+            if state == CircuitState.OPEN:
                 return False
-            
-            if metrics.circuit_state == CircuitState.HALF_OPEN:
-                if metrics.half_open_calls >= config.half_open_max_calls:
+            if state == CircuitState.HALF_OPEN:
+                if half_calls >= config.half_open_max_calls:
                     return False
-                metrics.half_open_calls += 1
-                return True
-            
+                if _redis_client:
+                    try: _redis_client.incr(f"cb:half_calls:{channel_id}")
+                    except: pass
+                else:
+                    self._metrics[channel_id].half_open_calls += 1
             return True
-    
+            
     def record_success(self, channel_id: str):
-        """Record successful request."""
+        config = self._configs.get(channel_id, CircuitBreakerConfig())
         with self._lock:
+            if _redis_client:
+                try:
+                    _redis_client.incr(f"cb:total:{channel_id}")
+                    _redis_client.incr(f"cb:success:{channel_id}")
+                    _redis_client.set(f"cb:fails:{channel_id}", 0)
+                except: pass
+                
             metrics = self._metrics[channel_id]
             metrics.total_requests += 1
             metrics.successful_requests += 1
             metrics.consecutive_failures = 0
             metrics.last_request_time = datetime.utcnow()
             
-            if metrics.circuit_state == CircuitState.HALF_OPEN:
-                # Recovery successful, close circuit
-                metrics.circuit_state = CircuitState.CLOSED
-                metrics.circuit_opened_at = None
-                metrics.half_open_calls = 0
+            state, _ = self._get_state(channel_id, config)
+            if state == CircuitState.HALF_OPEN:
+                self._set_state(channel_id, CircuitState.CLOSED)
                 print(f"[CircuitBreaker] Channel {channel_id} circuit CLOSED (recovered)")
     
     def record_failure(self, channel_id: str) -> bool:
-        """
-        Record failed request.
-        Returns True if circuit opened.
-        """
+        config = self._configs.get(channel_id, CircuitBreakerConfig())
         with self._lock:
             metrics = self._metrics[channel_id]
-            config = self._configs.get(channel_id, CircuitBreakerConfig())
-            
             metrics.total_requests += 1
             metrics.failed_requests += 1
             metrics.consecutive_failures += 1
             metrics.last_failure_time = datetime.utcnow()
             
-            # Check if should open circuit
-            if metrics.circuit_state == CircuitState.CLOSED:
-                if metrics.consecutive_failures >= config.failure_threshold:
-                    metrics.circuit_state = CircuitState.OPEN
-                    metrics.circuit_opened_at = datetime.utcnow()
-                    print(f"[CircuitBreaker] Channel {channel_id} circuit OPENED (too many failures)")
+            consecutive_failures = metrics.consecutive_failures
+            if _redis_client:
+                try:
+                    _redis_client.incr(f"cb:total:{channel_id}")
+                    _redis_client.incr(f"cb:failed:{channel_id}")
+                    consecutive_failures = _redis_client.incr(f"cb:fails:{channel_id}")
+                except: pass
+            
+            state, _ = self._get_state(channel_id, config)
+            if state == CircuitState.CLOSED:
+                if consecutive_failures >= config.failure_threshold:
+                    self._set_state(channel_id, CircuitState.OPEN)
+                    print(f"[CircuitBreaker] Channel {channel_id} circuit OPENED")
                     return True
-            
-            elif metrics.circuit_state == CircuitState.HALF_OPEN:
-                # Failure in half-open, re-open circuit
-                metrics.circuit_state = CircuitState.OPEN
-                metrics.circuit_opened_at = datetime.utcnow()
-                metrics.half_open_calls = 0
-                print(f"[CircuitBreaker] Channel {channel_id} circuit RE-OPENED (recovery failed)")
+            elif state == CircuitState.HALF_OPEN:
+                self._set_state(channel_id, CircuitState.OPEN)
+                print(f"[CircuitBreaker] Channel {channel_id} circuit RE-OPENED")
                 return True
-            
             return False
-    
+            
     def get_metrics(self, channel_id: str) -> Dict[str, Any]:
-        """Get circuit breaker metrics."""
         metrics = self._metrics[channel_id]
+        config = self._configs.get(channel_id, CircuitBreakerConfig())
+        state, _ = self._get_state(channel_id, config)
+        
+        consec_fails = metrics.consecutive_failures
+        total = metrics.total_requests
+        success_rate = metrics.success_rate
+        
+        if _redis_client:
+            try:
+                consec_fails = int(_redis_client.get(f"cb:fails:{channel_id}") or 0)
+                total = int(_redis_client.get(f"cb:total:{channel_id}") or 0)
+                succ = int(_redis_client.get(f"cb:success:{channel_id}") or 0)
+                success_rate = succ / total if total > 0 else 1.0
+            except: pass
+            
         return {
-            'circuit_state': metrics.circuit_state.value,
-            'success_rate': metrics.success_rate,
-            'consecutive_failures': metrics.consecutive_failures,
-            'total_requests': metrics.total_requests,
+            'circuit_state': state.value,
+            'success_rate': success_rate,
+            'consecutive_failures': consec_fails,
+            'total_requests': total,
             'last_failure': metrics.last_failure_time.isoformat() if metrics.last_failure_time else None,
         }
 

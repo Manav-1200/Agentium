@@ -28,7 +28,7 @@ router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 # Webhook Security & Validation
 # ═══════════════════════════════════════════════════════════
 
-async def get_channel_by_path(
+def get_channel_by_path(
     channel_type: str,
     webhook_path: str,
     db: Session = Depends(get_db)
@@ -78,7 +78,7 @@ def verify_signature(secret: str, body: bytes, signature: str, algorithm: str = 
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/whatsapp/{webhook_path}")
-async def whatsapp_verify(
+def whatsapp_verify(
     webhook_path: str,
     request: Request,
     db: Session = Depends(get_db)

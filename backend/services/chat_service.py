@@ -159,6 +159,12 @@ Address the Sovereign respectfully. If they issue a command that requires execut
         tokens_used = result.get("tokens_used", 0)
         context_status = context_manager.update_usage(head.agentium_id, tokens_used)
 
+        # TODO [Phase 7+]: Implement System-Generated Media Interception
+        # If the LLM generates a media artifact (e.g., an image URL or markdown `![img](url)`),
+        # intercept it here, process/download the media, and upload it to the `StorageService`.
+        # Update `result["content"]` with the new permanent S3/MinIO URLs before broadcasting.
+        # Example: result["content"] = await MediaProcessor.process_and_upload(result["content"])
+
         # Broadcast response to user's external channels (Unified Inbox)
         # Getting user_id from db session isn't directly passed here typically,
         # but the conversation context should have a linked user. 

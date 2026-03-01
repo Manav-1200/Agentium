@@ -23,8 +23,8 @@ class ChatMessage(Base):
     # Conversation grouping
     conversation_id = Column(String(36), ForeignKey("conversations.id"), nullable=True)
     
-    # User who sent/received the message – CHANGED to Integer
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # User who sent/received the message – CHANGED to String
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     
     # Message metadata
     role = Column(String(50), nullable=False)  # 'sovereign', 'head_of_council', 'system'
@@ -154,8 +154,8 @@ class Conversation(Base):
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     
-    # CHANGED to Integer to match users.id
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # CHANGED to String to match users.id
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     
     # Conversation metadata
     title = Column(String(200), nullable=True)  # Auto-generated or user-set

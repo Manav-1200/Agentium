@@ -76,6 +76,13 @@ from backend.api.routes.ab_testing import router as ab_testing_router
 from backend.api.routes import provider_analytics as provider_analytics_routes
 from backend.api.routes import skills as skills_routes
 
+# Phase 9.4: Security Middleware
+from backend.core.security_middleware import (
+    RateLimitMiddleware,
+    SessionLimitMiddleware,
+    InputSanitizationMiddleware,
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -343,6 +350,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Phase 9.4: Security Hardening Middleware
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SessionLimitMiddleware)
+app.add_middleware(InputSanitizationMiddleware)
 
 
 # ═══════════════════════════════════════════════════════════

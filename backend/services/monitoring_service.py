@@ -494,9 +494,256 @@ class MonitoringService:
                 logger.error(f"Error in stale_task_detector loop: {e}")
             
             await asyncio.sleep(86400)  # Daily
-            
+
+    @staticmethod
+    async def resource_rebalancing():
+        """
+        Background task: Hourly resource rebalancing.
+        Delegates to IdleGovernanceEngine's rebalancing logic.
+        Phase 9.1 requirement.
+        """
+        while True:
+            try:
+                from backend.services.idle_governance import idle_governance
+                with get_db_context() as db:
+                    result = idle_governance.resource_rebalancing(db)
+                    if result and result.get("tasks_redistributed", 0) > 0:
+                        logger.info(
+                            f"Resource rebalancing: redistributed "
+                            f"{result['tasks_redistributed']} tasks"
+                        )
+            except Exception as e:
+                logger.error(f"Error in resource_rebalancing loop: {e}")
+            await asyncio.sleep(3600)  # Every hour
+
+    @staticmethod
+    async def council_health_check():
+        """
+        Background task: Weekly council health check.
+        Verifies all Council (1xxxx) agents are ACTIVE and checks
+        voting participation within the last 7 days.
+        Phase 9.1 requirement.
+        """
+        from backend.services.alert_manager import AlertManager
+        from backend.models.entities.voting import Vote
+
+        while True:
+            try:
+                with get_db_context() as db:
+                    alert_manager = AlertManager(db)
+                    council_agents = db.query(Agent).filter(
+                        Agent.agent_type == AgentType.COUNCIL_MEMBER
+                    ).all()
+
+                    week_ago = datetime.utcnow() - timedelta(days=7)
+
+                    for agent in council_agents:
+                        # Check if agent is active
+                        if agent.status.value != "active":
+                            alert = MonitoringAlert(
+                                alert_type="council_member_inactive",
+                                severity=ViolationSeverity.MAJOR,
+                                detected_by_agent_id=get_system_agent_id(db),
+                                affected_agent_id=agent.id,
+                                message=(
+                                    f"Council member {agent.agentium_id} is "
+                                    f"{agent.status.value}, not active."
+                                )
+                            )
+                            db.add(alert)
+                            db.commit()
+                            await alert_manager.dispatch_alert(alert)
+
+                        # Check voting participation
+                        votes_cast = db.query(Vote).filter(
+                            Vote.voter_id == agent.agentium_id,
+                            Vote.created_at >= week_ago
+                        ).count()
+
+                        if votes_cast == 0:
+                            logger.warning(
+                                f"Council member {agent.agentium_id} has "
+                                f"not voted in the past 7 days."
+                            )
+
+            except Exception as e:
+                logger.error(f"Error in council_health_check loop: {e}")
+            await asyncio.sleep(604800)  # Weekly (7 days)
+
+    @staticmethod
+    async def knowledge_consolidation():
+        """
+        Background task: Daily knowledge consolidation.
+        Merges duplicate embeddings and prunes stale entries in ChromaDB.
+        Phase 9.1 requirement.
+        """
+        while True:
+            try:
+                from backend.core.vector_db import VectorStore
+                vs = VectorStore()
+                removed = 0
+
+                for collection_name in [
+                    "constitution", "task_learnings",
+                    "domain_knowledge", "execution_patterns"
+                ]:
+                    try:
+                        col = vs.client.get_or_create_collection(
+                            name=collection_name
+                        )
+                        count = col.count()
+                        if count == 0:
+                            continue
+
+                        # Fetch all entries and deduplicate by high similarity
+                        all_docs = col.get(
+                            include=["documents", "metadatas", "embeddings"]
+                        )
+                        if not all_docs or not all_docs.get("ids"):
+                            continue
+
+                        ids = all_docs["ids"]
+                        seen_ids = set()
+                        ids_to_delete = []
+
+                        # Simple dedup: mark entries with identical documents
+                        doc_set: dict = {}
+                        for i, doc in enumerate(all_docs.get("documents", [])):
+                            if doc in doc_set:
+                                ids_to_delete.append(ids[i])
+                            else:
+                                doc_set[doc] = ids[i]
+                                seen_ids.add(ids[i])
+
+                        if ids_to_delete:
+                            col.delete(ids=ids_to_delete)
+                            removed += len(ids_to_delete)
+
+                    except Exception as col_err:
+                        logger.warning(
+                            f"Knowledge consolidation skipped "
+                            f"collection {collection_name}: {col_err}"
+                        )
+
+                if removed > 0:
+                    logger.info(
+                        f"Knowledge consolidation: removed "
+                        f"{removed} duplicate entries."
+                    )
+            except Exception as e:
+                logger.error(f"Error in knowledge_consolidation loop: {e}")
+            await asyncio.sleep(86400)  # Daily
+
+    @staticmethod
+    async def orphaned_knowledge_check():
+        """
+        Background task: Weekly scan for orphaned knowledge entries.
+        Finds vector DB entries whose agent_id no longer exists
+        in the agents table.
+        Phase 9.1 requirement.
+        """
+        while True:
+            try:
+                from backend.core.vector_db import VectorStore
+                vs = VectorStore()
+                orphaned_count = 0
+
+                with get_db_context() as db:
+                    # Build set of valid agent IDs
+                    valid_ids = {
+                        a.agentium_id
+                        for a in db.query(Agent.agentium_id).all()
+                    }
+
+                    for collection_name in [
+                        "task_learnings", "domain_knowledge",
+                        "execution_patterns"
+                    ]:
+                        try:
+                            col = vs.client.get_or_create_collection(
+                                name=collection_name
+                            )
+                            all_docs = col.get(include=["metadatas"])
+                            if not all_docs or not all_docs.get("ids"):
+                                continue
+
+                            ids_to_delete = []
+                            for i, meta in enumerate(
+                                all_docs.get("metadatas", [])
+                            ):
+                                agent_id = (meta or {}).get("agent_id")
+                                if agent_id and agent_id not in valid_ids:
+                                    ids_to_delete.append(
+                                        all_docs["ids"][i]
+                                    )
+
+                            if ids_to_delete:
+                                col.delete(ids=ids_to_delete)
+                                orphaned_count += len(ids_to_delete)
+
+                        except Exception as col_err:
+                            logger.warning(
+                                f"Orphan check skipped "
+                                f"collection {collection_name}: {col_err}"
+                            )
+
+                if orphaned_count > 0:
+                    logger.info(
+                        f"Orphaned knowledge check: removed "
+                        f"{orphaned_count} orphaned entries."
+                    )
+            except Exception as e:
+                logger.error(f"Error in orphaned_knowledge_check loop: {e}")
+            await asyncio.sleep(604800)  # Weekly
+
+    @staticmethod
+    async def critic_queue_monitor():
+        """
+        Background task: Every minute, checks for CritiqueReview entries
+        stuck in PENDING status for >10 minutes and creates alerts.
+        Phase 9.1 requirement.
+        """
+        from backend.services.alert_manager import AlertManager
+
+        while True:
+            try:
+                with get_db_context() as db:
+                    from backend.models.entities.critics import CritiqueReview
+                    alert_manager = AlertManager(db)
+
+                    threshold = datetime.utcnow() - timedelta(minutes=10)
+                    stuck_reviews = db.query(CritiqueReview).filter(
+                        CritiqueReview.verdict == "PENDING",
+                        CritiqueReview.created_at < threshold
+                    ).all()
+
+                    for review in stuck_reviews:
+                        alert = MonitoringAlert(
+                            alert_type="critic_queue_stuck",
+                            severity=ViolationSeverity.MODERATE,
+                            detected_by_agent_id=get_system_agent_id(db),
+                            affected_agent_id=None,
+                            message=(
+                                f"Critique review {review.id} for task "
+                                f"{review.task_id} has been PENDING for "
+                                f">{int((datetime.utcnow() - review.created_at).total_seconds() / 60)} min."
+                            )
+                        )
+                        db.add(alert)
+                        db.commit()
+                        await alert_manager.dispatch_alert(alert)
+
+            except Exception as e:
+                logger.error(f"Error in critic_queue_monitor loop: {e}")
+            await asyncio.sleep(60)  # Every minute
+
     @classmethod
     def start_background_monitors(cls):
-        """Starts the detached asynchronous monitoring loops."""
+        """Starts all detached asynchronous monitoring loops (Phase 9)."""
         asyncio.create_task(cls.constitutional_patrol())
         asyncio.create_task(cls.stale_task_detector())
+        asyncio.create_task(cls.resource_rebalancing())
+        asyncio.create_task(cls.council_health_check())
+        asyncio.create_task(cls.knowledge_consolidation())
+        asyncio.create_task(cls.orphaned_knowledge_check())
+        asyncio.create_task(cls.critic_queue_monitor())

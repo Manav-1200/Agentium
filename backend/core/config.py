@@ -75,6 +75,24 @@ class Settings(BaseSettings):
     # Monitoring
     HEALTH_CHECK_INTERVAL: int = 300  # seconds
     
+    # Phase 9: Alerting (SMTP — skipped if not configured)
+    SMTP_HOST: Optional[str] = Field(default=None, env="SMTP_HOST")
+    SMTP_PORT: int = Field(default=587, env="SMTP_PORT")
+    SMTP_USER: Optional[str] = Field(default=None, env="SMTP_USER")
+    SMTP_PASSWORD: Optional[str] = Field(default=None, env="SMTP_PASSWORD")
+    ALERT_EMAIL_TO: Optional[str] = Field(default=None, env="ALERT_EMAIL_TO")
+    WEBHOOK_ALERT_URL: Optional[str] = Field(default=None, env="WEBHOOK_ALERT_URL")
+    
+    # Phase 9: Memory Management — retention / archival periods
+    AUDIT_LOG_RETENTION_DAYS: int = Field(default=90, env="AUDIT_LOG_RETENTION_DAYS")
+    TASK_ARCHIVE_DAYS: int = Field(default=30, env="TASK_ARCHIVE_DAYS")
+    CONSTITUTION_MAX_VERSIONS: int = Field(default=10, env="CONSTITUTION_MAX_VERSIONS")
+    
+    # Phase 9: Security Hardening
+    TOKEN_EXPIRY_DAYS: int = Field(default=7, env="TOKEN_EXPIRY_DAYS")
+    MAX_CONCURRENT_SESSIONS: int = Field(default=5, env="MAX_CONCURRENT_SESSIONS")
+    API_RATE_LIMIT_PER_MINUTE: int = Field(default=100, env="API_RATE_LIMIT_PER_MINUTE")
+    
     # Remote Executor (Phase 6.6)
     REMOTE_EXECUTOR_ENABLED: bool = Field(default=True, env="REMOTE_EXECUTOR_ENABLED")
     SANDBOX_TIMEOUT_SECONDS: int = Field(default=300, env="SANDBOX_TIMEOUT_SECONDS")

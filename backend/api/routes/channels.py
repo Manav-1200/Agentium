@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Optional, List, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, BackgroundTasks
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -87,7 +88,7 @@ def _get_channel_or_404(channel_id: str, db: Session) -> ExternalChannel:
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/channels/")
-async def list_channels(
+def list_channels(
     status: Optional[str] = None,
     channel_type: Optional[str] = None,
     current_user: dict = Depends(get_current_active_user),
@@ -120,7 +121,7 @@ async def list_channels(
 
 
 @router.post("/channels/", status_code=status.HTTP_201_CREATED)
-async def create_channel(
+def create_channel(
     request: ChannelCreateRequest,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_active_user),
@@ -234,7 +235,7 @@ def _get_setup_instructions(channel_type: ChannelType, webhook_url: str) -> Dict
 
 
 @router.get("/channels/metrics")
-async def get_all_channels_metrics(
+def get_all_channels_metrics(
     current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -273,7 +274,7 @@ async def get_all_channels_metrics(
     }
 
 @router.get("/channels/{channel_id}")
-async def get_channel(
+def get_channel(
     channel_id: str,
     current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -289,7 +290,7 @@ async def get_channel(
 
 
 @router.put("/channels/{channel_id}")
-async def update_channel(
+def update_channel(
     channel_id: str,
     request: ChannelUpdateRequest,
     current_user: dict = Depends(get_current_active_user),
@@ -336,7 +337,7 @@ async def update_channel(
 
 
 @router.delete("/channels/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_channel(
+def delete_channel(
     channel_id: str,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_active_user),
@@ -355,7 +356,7 @@ async def delete_channel(
 
 
 @router.get("/channels/{channel_id}/messages")
-async def list_channel_messages(
+def list_channel_messages(
     channel_id: str,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -400,7 +401,7 @@ async def test_channel(
     Test that the channel credentials are valid.
     Updates channel status to ACTIVE on success, ERROR on failure.
     """
-    channel = _get_channel_or_404(channel_id, db)
+    channel = await run_in_threadpool(_get_channel_or_404, channel_id, db)
     cfg = channel.config or {}
     success = False
     error_msg = None
@@ -604,11 +605,15 @@ async def test_channel(
         success = False
 
     # Update channel status
-    old_status = channel.status
-    channel.status = ChannelStatus.ACTIVE if success else ChannelStatus.ERROR
-    channel.error_message = error_msg
-    channel.last_tested_at = datetime.utcnow()
-    db.commit()
+    def _update_status():
+        old_stat = channel.status
+        channel.status = ChannelStatus.ACTIVE if success else ChannelStatus.ERROR
+        channel.error_message = error_msg
+        channel.last_tested_at = datetime.utcnow()
+        db.commit()
+        return old_stat
+    
+    old_status = await run_in_threadpool(_update_status)
 
     return {
         "success": success,
@@ -634,7 +639,7 @@ async def send_test_message(
     db: Session = Depends(get_db)
 ):
     """Send a test message through the channel."""
-    channel = _get_channel_or_404(channel_id, db)
+    channel = await run_in_threadpool(_get_channel_or_404, channel_id, db)
     
     if channel.status != ChannelStatus.ACTIVE:
         raise HTTPException(status_code=400, detail="Channel is not active")
@@ -657,8 +662,10 @@ async def send_test_message(
         )
         
         if success:
-            channel.messages_sent += 1
-            db.commit()
+            def _commit_msg():
+                channel.messages_sent += 1
+                db.commit()
+            await run_in_threadpool(_commit_msg)
             return {"success": True, "message": "Test message sent successfully"}
         else:
             raise HTTPException(status_code=500, detail="Failed to send message")
@@ -686,7 +693,7 @@ async def get_channel_qr(
       not applicable.
     - Returns ``status='active'`` immediately if the channel is already active.
     """
-    channel = _get_channel_or_404(channel_id, db)
+    channel = await run_in_threadpool(_get_channel_or_404, channel_id, db)
 
     if channel.channel_type != ChannelType.WHATSAPP:
         raise HTTPException(status_code=400, detail="QR polling only applies to WhatsApp channels")
@@ -734,7 +741,7 @@ async def get_whatsapp_detailed_status(
     Get detailed WhatsApp connection status including provider-specific fields.
     Works for both ``cloud_api`` and ``web_bridge`` providers.
     """
-    channel = _get_channel_or_404(channel_id, db)
+    channel = await run_in_threadpool(_get_channel_or_404, channel_id, db)
 
     if channel.channel_type != ChannelType.WHATSAPP:
         raise HTTPException(status_code=400, detail="Not a WhatsApp channel")
@@ -778,7 +785,7 @@ async def switch_whatsapp_provider(
 
     Query param ``new_provider``: ``"cloud_api"`` or ``"web_bridge"``.
     """
-    channel = _get_channel_or_404(channel_id, db)
+    channel = await run_in_threadpool(_get_channel_or_404, channel_id, db)
 
     if channel.channel_type != ChannelType.WHATSAPP:
         raise HTTPException(status_code=400, detail="Not a WhatsApp channel")
@@ -806,12 +813,14 @@ async def switch_whatsapp_provider(
         pass  # Best-effort; continue regardless
 
     # Persist the new provider choice and reset status
-    merged_config = dict(channel.config or {})
-    merged_config["provider"] = new_provider
-    channel.config = merged_config
-    channel.status = ChannelStatus.PENDING
-    channel.error_message = None
-    db.commit()
+    def _update_channel():
+        merged_config = dict(channel.config or {})
+        merged_config["provider"] = new_provider
+        channel.config = merged_config
+        channel.status = ChannelStatus.PENDING
+        channel.error_message = None
+        db.commit()
+    await run_in_threadpool(_update_channel)
 
     # Initialise the new adapter (starts bridge handshake if web_bridge)
     new_adapter = UnifiedWhatsAppAdapter(channel)
@@ -832,7 +841,7 @@ async def switch_whatsapp_provider(
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/channels/{channel_id}/health")
-async def get_channel_health(
+def get_channel_health(
     channel_id: str,
     current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -869,7 +878,7 @@ async def get_channel_health(
 
 
 @router.post("/channels/{channel_id}/reset")
-async def reset_channel(
+def reset_channel(
     channel_id: str,
     current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -899,7 +908,7 @@ async def reset_channel(
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/channels/{channel_id}/metrics")
-async def get_channel_metrics(
+def get_channel_metrics(
     channel_id: str,
     current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -941,7 +950,7 @@ def _calculate_health_status(metrics: ChannelMetrics) -> str:
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/channels/messages/log")
-async def get_message_log(
+def get_message_log(
     # Filters
     channel_id: Optional[str] = Query(None, description="Filter by channel ID"),
     channel_type: Optional[str] = Query(None, description="Filter by channel type (whatsapp, slack, etc.)"),
