@@ -1,4 +1,4 @@
-# 🏛️ Agentium – Advanced Task Governance & Execution Architecture (Done) [Verify at the End]
+# 🏛️ Agentium – Advanced Task Governance & Execution Architecture
 
 ---
 
@@ -42,25 +42,7 @@ Tasks must:
 
 ## 1️⃣ Task Entity Structure (PostgreSQL – Source of Truth)
 
-```sql
-Task {
-    id: UUID
-    hierarchical_id: 3xxxx
-    created_by: user_id | system
-    task_type: one_time | recurring | system
-    description: TEXT
-    constitutional_basis: TEXT
-    status: pending | deliberating | approved | running | failed | completed | stopped | escalated
-    priority: low | medium | high | sovereign
-    retry_count: INT (max 5 before escalation)
-    recurrence_pattern: cron_expression (nullable)
-    parent_task_id: UUID (nullable)
-    execution_plan_id: UUID
-    created_at
-    updated_at
-    completed_at
-}
-```
+As per the Project setup
 
 ---
 
@@ -202,6 +184,19 @@ Agents must query:
    - Past learnings
    - Constitution embeddings
    - Best practices
+
+3. Self Reasoning:
+   - Ethos is the working memory of the agent.
+   - Ethos should be updated during self reasoning
+   - Example for Update:
+     - Read the constituion - Append to ethos
+     - Recive the task - Append to ethos
+     - Self Reasoning - Append to ethos
+     - Steps do do - Append to ethos
+     - Steps complited - append to ethos
+     - What to do next - append to ethos
+   - Continues Resoning Untill Task Complition
+   - If Resoning Stops due to some reason Trigger a prompt to summurize the ongoing task and start again untill the task compliton.
 
 Agents must answer internally:
 
