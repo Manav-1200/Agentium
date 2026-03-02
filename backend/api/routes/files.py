@@ -194,6 +194,85 @@ async def upload_files(
     }
 
 
+@router.get("/list")
+async def list_files(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    List all files for the current user from S3.
+    """
+    prefix = f"files/{current_user.id}/"
+    objects = storage_service.list_files(prefix)
+
+    files = []
+    total_size = 0
+
+    for obj in objects:
+        size = obj.get('Size', 0)
+        total_size += size
+
+        filename = obj['Key'].split("/")[-1]
+
+        files.append({
+            "filename": filename,
+            "stored_name": filename,
+            "url": f"/api/v1/files/download/{current_user.id}/{filename}",
+            "size": size,
+            "category": get_file_category(filename),
+            "uploaded_at": str(obj.get('LastModified', ''))
+        })
+
+    files.sort(key=lambda x: x["uploaded_at"], reverse=True)
+
+    return {
+        "files": files,
+        "total": len(files),
+        "storage_used_bytes": total_size
+    }
+
+
+@router.get("/stats")
+async def get_file_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get file statistics for the current user from S3.
+    Must be defined before /{filename} and /download/{user_id}/{filename}
+    to prevent FastAPI matching 'stats' as a path parameter.
+    """
+    prefix = f"files/{current_user.id}/"
+    objects = storage_service.list_files(prefix)
+
+    stats = {
+        "total_files": 0,
+        "total_size_bytes": 0,
+        "by_category": {},
+        "storage_limit_bytes": 500 * 1024 * 1024,  # 500MB limit per user
+        "storage_used_percent": 0
+    }
+
+    for obj in objects:
+        size = obj.get('Size', 0)
+        filename = obj['Key'].split("/")[-1]
+        category = get_file_category(filename)
+
+        stats["total_files"] += 1
+        stats["total_size_bytes"] += size
+
+        if category not in stats["by_category"]:
+            stats["by_category"][category] = 0
+        stats["by_category"][category] += size
+
+    stats["storage_used_percent"] = round(
+        (stats["total_size_bytes"] / stats["storage_limit_bytes"]) * 100,
+        2
+    )
+
+    return stats
+
+
 @router.get("/download/{user_id}/{filename}")
 async def download_file(
     user_id: str,
@@ -224,44 +303,6 @@ async def download_file(
     return RedirectResponse(url=url)
 
 
-@router.get("/list")
-async def list_files(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    List all files for the current user from S3.
-    """
-    prefix = f"files/{current_user.id}/"
-    objects = storage_service.list_files(prefix)
-
-    files = []
-    total_size = 0
-
-    for obj in objects:
-        size = obj.get('Size', 0)
-        total_size += size
-        
-        filename = obj['Key'].split("/")[-1]
-        
-        files.append({
-            "filename": filename,
-            "stored_name": filename,
-            "url": f"/api/v1/files/download/{current_user.id}/{filename}",
-            "size": size,
-            "category": get_file_category(filename),
-            "uploaded_at": str(obj.get('LastModified', ''))
-        })
-
-    # Sort by upload time (newest first)
-    files.sort(key=lambda x: x["uploaded_at"], reverse=True)
-
-    return {
-        "files": files,
-        "total": len(files),
-        "storage_used_bytes": total_size
-    }
-
 
 @router.delete("/{filename}")
 async def delete_file(
@@ -288,44 +329,7 @@ async def delete_file(
     }
 
 
-@router.get("/stats")
-async def get_file_stats(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Get file statistics for the current user from S3.
-    """
-    prefix = f"files/{current_user.id}/"
-    objects = storage_service.list_files(prefix)
-    
-    stats = {
-        "total_files": 0,
-        "total_size_bytes": 0,
-        "by_category": {},
-        "storage_limit_bytes": 500 * 1024 * 1024,  # 500MB limit per user
-        "storage_used_percent": 0
-    }
 
-    for obj in objects:
-        size = obj.get('Size', 0)
-        filename = obj['Key'].split("/")[-1]
-        category = get_file_category(filename)
-
-        stats["total_files"] += 1
-        stats["total_size_bytes"] += size
-        
-        if category not in stats["by_category"]:
-            stats["by_category"][category] = 0
-        stats["by_category"][category] += size
-
-    # Calculate percentage
-    stats["storage_used_percent"] = round(
-        (stats["total_size_bytes"] / stats["storage_limit_bytes"]) * 100, 
-        2
-    )
-
-    return stats
 
 
 @router.get("/preview/{user_id}/{filename}")
