@@ -4,6 +4,8 @@ Thumbs.db
 *~
 *.swp
 
+logs.txt
+
 # IDE
 .vscode/
 .idea/
