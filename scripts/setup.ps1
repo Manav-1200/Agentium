@@ -4,7 +4,10 @@
 
 $ErrorActionPreference = "Stop"
 
-# --- Self-elevation: re-launch as Administrator if not already ---------------
+# --- Resolve repo root BEFORE elevation (PSScriptRoot is valid here) ---------
+# We pass it as an argument to the elevated process so it survives the re-launch.
+$RepoRoot = Split-Path $PSScriptRoot -Parent
+
 function Test-IsAdmin {
     ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -16,15 +19,12 @@ if (-not (Test-IsAdmin)) {
     Write-Host ""
 
     $scriptPath = $MyInvocation.MyCommand.Path
-    if (-not $scriptPath) {
-        $scriptPath = Join-Path $env:TEMP "agentium-setup-elevated.ps1"
-        Copy-Item $PSCommandPath $scriptPath -Force
-    }
 
+    # FIX: pass -RepoRoot explicitly so the elevated copy knows where the repo is
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "powershell.exe"
-    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
-    $psi.Verb = "runas"
+    $psi.FileName        = "powershell.exe"
+    $psi.Arguments       = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -RepoRoot `"$RepoRoot`""
+    $psi.Verb            = "runas"
     $psi.UseShellExecute = $true
 
     try {
@@ -43,18 +43,26 @@ if (-not (Test-IsAdmin)) {
 }
 
 # --- Now running as Administrator --------------------------------------------
-$REPO_ROOT = Split-Path $PSScriptRoot -Parent
+# Accept -RepoRoot param (passed by the non-admin re-launch above)
+param(
+    [string]$RepoRoot = ""
+)
+
+# If not passed (user ran directly as admin), derive it normally
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path $PSScriptRoot -Parent
+}
 
 Write-Host "=== Agentium Voice Bridge Windows Installer ===" -ForegroundColor Cyan
-Write-Host "Running as Administrator: YES" -ForegroundColor Green
-Write-Host "Repo root: $REPO_ROOT"
+Write-Host "Running as Administrator: YES"          -ForegroundColor Green
+Write-Host "Repo root: $RepoRoot"
 Write-Host ""
 
 # Phase 1: OS detection
 Write-Host "[setup.ps1] Running OS detection..." -ForegroundColor Yellow
-$detectScript = Join-Path $REPO_ROOT "scripts\detect-host.ps1"
+$detectScript = Join-Path $RepoRoot "scripts\detect-host.ps1"
 if (Test-Path $detectScript) {
-    & $detectScript
+    & $detectScript -RepoRoot $RepoRoot
 } else {
     Write-Error "detect-host.ps1 not found at $detectScript"
     exit 1
@@ -62,9 +70,9 @@ if (Test-Path $detectScript) {
 
 # Phase 2+3: deps + service registration
 Write-Host "[setup.ps1] Running dependency installer..." -ForegroundColor Yellow
-$installScript = Join-Path $REPO_ROOT "scripts\install-voice-bridge.ps1"
+$installScript = Join-Path $RepoRoot "scripts\install-voice-bridge.ps1"
 if (Test-Path $installScript) {
-    & $installScript
+    & $installScript -RepoRoot $RepoRoot
 } else {
     Write-Error "install-voice-bridge.ps1 not found at $installScript"
     exit 1
@@ -80,21 +88,13 @@ Write-Host "[setup.ps1] Verifying scheduled task..." -ForegroundColor Yellow
 $task = Get-ScheduledTask -TaskName "AgentiumVoiceBridge" -ErrorAction SilentlyContinue
 if ($task) {
     $state = $task.State
-    if ($state -eq "Running") {
-        Write-Host "  Task state: $state" -ForegroundColor Green
-    } else {
-        Write-Host "  Task state: $state" -ForegroundColor Yellow
-    }
+    Write-Host "  Task state: $state" -ForegroundColor $(if ($state -eq "Running") { "Green" } else { "Yellow" })
     if ($state -ne "Running") {
         Write-Host "  Starting task now..." -ForegroundColor Yellow
         Start-ScheduledTask -TaskName "AgentiumVoiceBridge" -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 3
         $state = (Get-ScheduledTask -TaskName "AgentiumVoiceBridge").State
-        if ($state -eq "Running") {
-            Write-Host "  Task state after start: $state" -ForegroundColor Green
-        } else {
-            Write-Host "  Task state after start: $state" -ForegroundColor Red
-        }
+        Write-Host "  Task state after start: $state" -ForegroundColor $(if ($state -eq "Running") { "Green" } else { "Red" })
     }
 } else {
     Write-Warning "AgentiumVoiceBridge task not found -- check install.log"
@@ -102,9 +102,10 @@ if ($task) {
 
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor Cyan
-Write-Host "  Check status : Get-ScheduledTask -TaskName AgentiumVoiceBridge"
-Write-Host "  Start bridge : Start-ScheduledTask -TaskName AgentiumVoiceBridge"
-Write-Host "  View logs    : Get-Content `"$env:USERPROFILE\.agentium\voice-bridge.log`" -Tail 50"
+Write-Host "  Check task  : Get-ScheduledTask -TaskName AgentiumVoiceBridge"
+Write-Host "  Start bridge: Start-ScheduledTask -TaskName AgentiumVoiceBridge"
+Write-Host "  View logs   : Get-Content `"$env:USERPROFILE\.agentium\voice-bridge.log`" -Tail 50"
+Write-Host "  Check port  : netstat -ano | findstr :9999"
 Write-Host ""
 
 if ($Host.Name -eq "ConsoleHost") {

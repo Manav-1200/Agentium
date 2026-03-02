@@ -1,11 +1,16 @@
 # scripts/detect-host.ps1 - Agentium OS probe for Windows
 # Writes $env:USERPROFILE\.agentium\env.conf
+# Usage: detect-host.ps1 [-RepoRoot <path>]
 
-$ErrorActionPreference = "Stop"
+param(
+    [string]$RepoRoot = ""
+)
 
-$CONF_DIR = Join-Path $env:USERPROFILE ".agentium"
+$ErrorActionPreference = "Continue"
+
+$CONF_DIR  = Join-Path $env:USERPROFILE ".agentium"
 $CONF_FILE = Join-Path $CONF_DIR "env.conf"
-$LOG_FILE = Join-Path $CONF_DIR "detect.log"
+$LOG_FILE  = Join-Path $CONF_DIR "detect.log"
 
 New-Item -ItemType Directory -Force -Path $CONF_DIR | Out-Null
 "" | Set-Content $CONF_FILE
@@ -14,7 +19,7 @@ New-Item -ItemType Directory -Force -Path $CONF_DIR | Out-Null
 $WARN_COUNT = 0
 
 function Write-Log($msg) {
-    $ts = Get-Date -Format "HH:mm:ss"
+    $ts   = Get-Date -Format "HH:mm:ss"
     $line = "[$ts] $msg"
     Add-Content -Path $LOG_FILE -Value $line
     Write-Host $line
@@ -23,7 +28,7 @@ function Write-Log($msg) {
 function Write-Warn($msg) {
     $line = "[WARN] $msg"
     Add-Content -Path $LOG_FILE -Value $line
-    Write-Warning $line
+    Write-Warning $msg
     $script:WARN_COUNT++
 }
 
@@ -31,29 +36,19 @@ function Write-Conf($key, $val) {
     Add-Content -Path $CONF_FILE -Value "$key=$val"
 }
 
-function Write-SafeConf($key, $val, $fallback) {
-    if ([string]::IsNullOrWhiteSpace($val)) {
-        Write-Warn "Could not detect $key - using fallback: $fallback"
-        Write-Conf $key $fallback
-    } else {
-        Write-Conf $key $val
-    }
-}
-
 Write-Log "=== Agentium OS Detection Started ==="
 
 # Step 1.1 - OS family
 Write-Log "Step 1.1 - Detecting OS family"
-$OS_FAMILY = "windows"
-Write-Conf "OS_FAMILY" $OS_FAMILY
-Write-Log "  OS_FAMILY=$OS_FAMILY"
+Write-Conf "OS_FAMILY" "windows"
+Write-Log "  OS_FAMILY=windows"
 
 # Step 1.2 - Windows version
 Write-Log "Step 1.2 - Detecting Windows version"
 try {
-    $WIN_VERSION = (Get-ComputerInfo).OsName
+    $WIN_VERSION = (Get-CimInstance Win32_OperatingSystem).Caption
 } catch {
-    $WIN_VERSION = "Windows (unknown version)"
+    $WIN_VERSION = "Windows (unknown)"
 }
 Write-Conf "WIN_VERSION" $WIN_VERSION
 Write-Log "  WIN_VERSION=$WIN_VERSION"
@@ -72,7 +67,7 @@ Write-Log "  PKG_MGR=$PKG_MGR"
 # Step 1.4 - Python
 Write-Log "Step 1.4 - Locating Python 3.10 or newer"
 $PYTHON_BIN = $null
-$candidates = @("python3.12", "python3.11", "python3.10", "python3", "python")
+$candidates = @("python3.13","python3.12","python3.11","python3.10","python3","python")
 foreach ($candidate in $candidates) {
     $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
     if ($cmd) {
@@ -87,7 +82,7 @@ foreach ($candidate in $candidates) {
 }
 
 if (-not $PYTHON_BIN) {
-    Write-Warn "No Python 3.10+ found - voice bridge venv will not be created"
+    Write-Warn "No Python 3.10+ found -- voice bridge venv will not be created"
     Write-Conf "PYTHON_BIN" "python3_missing"
 } else {
     $verStr = & $PYTHON_BIN --version 2>&1
@@ -96,32 +91,46 @@ if (-not $PYTHON_BIN) {
 }
 
 # Step 1.5 - Microphone
-Write-Log "Step 1.5 - Checking microphone"
-$HAS_MIC = "true"
-Write-Conf "HAS_MIC" $HAS_MIC
-Write-Log "  HAS_MIC=$HAS_MIC (runtime detection via PyAudio)"
+Write-Log "Step 1.5 - Microphone (runtime detection via PyAudio)"
+Write-Conf "HAS_MIC" "true"
+Write-Log "  HAS_MIC=true"
 
-# Step 1.6 - Docker gateway
-Write-Log "Step 1.6 - Detecting Docker gateway"
-$DOCKER_GW = "172.17.0.1"
-try {
-    $dockerInfo = docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>$null
-    if ($dockerInfo) {
-        $DOCKER_GW = $dockerInfo
-    }
-} catch { }
-$BACKEND_URL = "http://${DOCKER_GW}:8000"
+# Step 1.6 - Docker / backend URL
+# FIX: On Docker Desktop for Windows the backend is reachable via host.docker.internal
+# or 127.0.0.1 (since ports are forwarded to the host).
+# The docker bridge gateway (172.17.0.1) is NOT reachable from the Windows host.
+Write-Log "Step 1.6 - Detecting backend URL"
+$BACKEND_URL = "http://127.0.0.1:8000"
+
+# Verify the backend is actually reachable before committing to a URL
+$urlsToTry = @("http://127.0.0.1:8000", "http://localhost:8000", "http://host.docker.internal:8000")
+foreach ($url in $urlsToTry) {
+    try {
+        $resp = Invoke-WebRequest -Uri "$url/api/health" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) {
+            $BACKEND_URL = $url
+            Write-Log "  Backend reachable at $url"
+            break
+        }
+    } catch { }
+}
+
 Write-Conf "BACKEND_URL" $BACKEND_URL
 Write-Log "  BACKEND_URL=$BACKEND_URL"
 
 # Step 1.7 - Service manager
 Write-Log "Step 1.7 - Detecting service manager"
-$SVC_MGR = "task_scheduler"
-Write-Conf "SVC_MGR" $SVC_MGR
-Write-Log "  SVC_MGR=$SVC_MGR"
+Write-Conf "SVC_MGR" "task_scheduler"
+Write-Log "  SVC_MGR=task_scheduler"
 
 # Step 1.8 - WS port and wake word
-Write-Conf "WS_PORT" "9999"
+Write-Conf "WS_PORT"   "9999"
 Write-Conf "WAKE_WORD" "agentium"
+
+# Write REPO_ROOT so install script can find it even when run from TEMP
+if (-not [string]::IsNullOrWhiteSpace($RepoRoot)) {
+    Write-Conf "REPO_ROOT" $RepoRoot
+    Write-Log "  REPO_ROOT=$RepoRoot"
+}
 
 Write-Log "=== Detection complete - $WARN_COUNT warning(s) - written to $CONF_FILE ==="
