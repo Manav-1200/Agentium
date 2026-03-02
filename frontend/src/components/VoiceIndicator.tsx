@@ -14,7 +14,11 @@ const STATUS_CONFIG: Record<BridgeStatus, { label: string; color: string; pulse:
   error:      { label: 'Voice error',     color: 'text-red-500 dark:text-red-400',      pulse: false },
 };
 
-export function VoiceIndicator() {
+interface VoiceIndicatorProps {
+  iconOnly?: boolean;
+}
+
+export function VoiceIndicator({ iconOnly = false }: VoiceIndicatorProps) {
   const { status } = useVoiceBridge();
   const cfg = STATUS_CONFIG[status];
 
@@ -28,14 +32,14 @@ export function VoiceIndicator() {
       ) : status === 'offline' || status === 'error' ? (
         <MicOff className="w-3.5 h-3.5" />
       ) : (
-        <span className="relative flex h-2 w-2 items-center">
+        <span className="relative flex items-center justify-center">
           {cfg.pulse && (
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
           )}
           <Mic className="w-3.5 h-3.5" />
         </span>
       )}
-      <span className="hidden sm:inline">{cfg.label}</span>
+      {!iconOnly && <span className="hidden sm:inline">{cfg.label}</span>}
     </div>
   );
 }

@@ -163,11 +163,8 @@ export function MainLayout() {
                                 {user?.role || 'Member'}
                             </p>
                         </div>
-                    </div>
-
-                    {/* ── Voice Bridge status indicator ── */}
-                    <div className="mb-2 px-1">
-                        <VoiceIndicator />
+                        {/* ── Voice Bridge status indicator (icon only) ── */}
+                        <VoiceIndicator iconOnly />
                     </div>
 
                     <button
