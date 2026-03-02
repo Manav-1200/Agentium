@@ -12,12 +12,20 @@ const { Boom }   = require('@hapi/boom');
 const WebSocket  = require('ws');
 const express    = require('express');
 const pino       = require('pino');
+const fs         = require('fs');
+const path       = require('path');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const PORT         = parseInt(process.env.PORT        || '3001', 10);
 const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN         || null;   // null = no auth
 const AUTH_DIR     = process.env.AUTH_DIR             || './auth_info';
 const LOG_LEVEL    = process.env.LOG_LEVEL            || 'info';
+
+// How long to wait before retrying after a transient disconnect (ms)
+const RECONNECT_DELAY_MS = 5_000;
+// Interval at which we ping WhatsApp to prevent server-side 408 timeouts (ms)
+// WhatsApp closes idle connections after ~60 s; ping every 25 s to stay alive.
+const KEEPALIVE_INTERVAL_MS = 25_000;
 
 const logger = pino({ level: LOG_LEVEL, transport: { target: 'pino-pretty' } });
 const baileysLogger = pino({ level: 'silent' }); // suppress Baileys internal logs
@@ -32,6 +40,7 @@ let qrExpiresAt     = null;
 let isConnected     = false;
 let isAuthenticated = false;
 let reconnectTimer  = null;
+let keepaliveTimer  = null;   // periodic ping to prevent 408 timeouts
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -62,6 +71,43 @@ function statusSnapshot() {
     };
 }
 
+/**
+ * Returns true when valid Baileys credentials are already saved on disk.
+ * Baileys stores a `creds.json` file containing the noiseKey and other
+ * session material.  If that file exists the next startWhatsApp() call
+ * will resume the existing session — no new QR should be generated.
+ */
+function hasSavedCreds() {
+    try {
+        return fs.existsSync(path.join(AUTH_DIR, 'creds.json'));
+    } catch {
+        return false;
+    }
+}
+
+/** Start / restart the keepalive ping loop */
+function startKeepalive() {
+    stopKeepalive();
+    keepaliveTimer = setInterval(() => {
+        if (sock && isConnected) {
+            // sendPresenceUpdate is a lightweight no-op that keeps the
+            // WhatsApp Web socket alive without sending a visible message.
+            sock.sendPresenceUpdate('available').catch(() => {
+                // Ignore — if the socket is already dead the connection.update
+                // handler will fire and schedule a reconnect.
+            });
+        }
+    }, KEEPALIVE_INTERVAL_MS);
+    logger.debug(`[Bridge] Keepalive started (every ${KEEPALIVE_INTERVAL_MS / 1000}s)`);
+}
+
+function stopKeepalive() {
+    if (keepaliveTimer) {
+        clearInterval(keepaliveTimer);
+        keepaliveTimer = null;
+    }
+}
+
 // ── Baileys WhatsApp connection ───────────────────────────────────────────────
 
 async function startWhatsApp() {
@@ -83,6 +129,10 @@ async function startWhatsApp() {
         printQRInTerminal: true,   // handy for debugging via docker logs
         generateHighQualityLinkPreview: false,
         syncFullHistory: false,
+        // keepAliveIntervalMs tells Baileys to send its own internal WS pings.
+        // Setting it here provides a defence-in-depth layer on top of our own
+        // sendPresenceUpdate keepalive.
+        keepAliveIntervalMs: KEEPALIVE_INTERVAL_MS,
     });
 
     // ── Persist credentials whenever they change ───────────────────────────
@@ -106,11 +156,14 @@ async function startWhatsApp() {
             isAuthenticated = true;
             logger.info('[Bridge] ✅ WhatsApp connected & authenticated');
             broadcast('authenticated', { connected: true, authenticated: true });
+            startKeepalive();
         }
 
         if (connection === 'close') {
             isConnected     = false;
             isAuthenticated = false;
+            stopKeepalive();
+
             const statusCode = (lastDisconnect?.error instanceof Boom)
                 ? lastDisconnect.error.output.statusCode
                 : 0;
@@ -124,10 +177,16 @@ async function startWhatsApp() {
                 currentQR   = null;
                 qrExpiresAt = null;
                 logger.warn('[Bridge] Logged out — auth cleared. Reconnecting for fresh QR…');
+            } else if (statusCode === 408) {
+                // Timeout (server-side keepalive missed).  Our saved credentials
+                // are still valid — reconnect silently without clearing QR state.
+                // The next startWhatsApp() will resume the session automatically
+                // so no new QR will be generated.
+                logger.warn('[Bridge] Timeout (408) — resuming existing session on reconnect…');
             }
 
             // Always attempt to reconnect (fresh QR if logged out, resume if transient)
-            reconnectTimer = setTimeout(startWhatsApp, 5_000);
+            reconnectTimer = setTimeout(startWhatsApp, RECONNECT_DELAY_MS);
         }
     });
 
@@ -274,5 +333,6 @@ server.on('upgrade', (req, socket, head) => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
     logger.info('[Bridge] SIGTERM received — shutting down');
+    stopKeepalive();
     server.close(() => process.exit(0));
 });

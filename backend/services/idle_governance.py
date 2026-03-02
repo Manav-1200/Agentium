@@ -1062,8 +1062,8 @@ class EnhancedIdleGovernanceEngine:
             from backend.core.vector_store import get_vector_store
             vector_store = get_vector_store()
             
-            # List all collections
-            collections = ["constitution", "ethos", "task_patterns", "critic_case_law", "sovereign_prefs"]
+            # List all collections — must match keys in VectorStore.COLLECTIONS
+            collections = ["constitution", "ethos", "task_patterns", "sovereign_prefs"]
             
             for collection_name in collections:
                 try:

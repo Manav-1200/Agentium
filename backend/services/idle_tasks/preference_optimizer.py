@@ -56,7 +56,9 @@ class PreferenceOptimizerIdleTask:
             try:
                 # 1. Run optimization
                 opt_results = service.optimize_preferences()
-                results["optimization"] = opt_results
+                # Ensure opt_results is a dict for JSON serialization — the service
+                # may return a list, which cannot be stored directly in a JSON object field.
+                results["optimization"] = opt_results if isinstance(opt_results, dict) else {"items": opt_results}
 
                 # 2. Generate recommendations
                 recommendations = service.get_optimization_recommendations()
@@ -72,6 +74,9 @@ class PreferenceOptimizerIdleTask:
 
                 # Log completion - FIX: Remove 'db=' parameter, use correct 'meta_data' parameter name
                 # Create audit log entry and add to session
+                # FIX: Ensure after_state is always a plain dict; AuditLog JSON columns
+                # expect a dict (not a list). Wrap results to guarantee this.
+                safe_results = results if isinstance(results, dict) else {"data": results}
                 audit = AuditLog.log(
                     level=AuditLevel.INFO,
                     category=AuditCategory.GOVERNANCE,
@@ -79,8 +84,8 @@ class PreferenceOptimizerIdleTask:
                     actor_id="IDLE_GOVERNANCE",
                     action="preference_optimization_completed",
                     description=f"Preference optimization completed: {opt_results}",
-                    after_state=results,
-                    meta_data={"results": results}  # FIXED: use meta_data not metadata
+                    after_state=safe_results,
+                    meta_data={"results": safe_results}  # FIXED: use meta_data not metadata
                 )
                 db.add(audit)  # FIXED: Explicitly add to session
 

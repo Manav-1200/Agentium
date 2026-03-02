@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-# scripts/install-voice-bridge.sh — Agentium voice bridge installer (Phase 2+3)
+# scripts/install-voice-bridge.sh -- Agentium voice bridge installer (Phase 2+3)
 # Reads ~/.agentium/env.conf written by detect-host.sh
-# Creates a venv, installs Python deps, registers the OS service.
+# Creates a venv, installs Python deps, registers + STARTS the OS service.
 # Every step is wrapped in run_or_warn() so one failure never stops the rest.
+#
+# Supported service managers (all auto-start the bridge immediately):
+#   systemd  -- Linux with systemd user session
+#   launchd  -- macOS
+#   wsl2     -- WSL2 (starts via nohup, adds to .bashrc for persistence)
+#   none     -- Linux without systemd (starts via nohup, adds rc file entry)
 # =============================================================================
 set -euo pipefail
 
@@ -17,88 +23,149 @@ BRIDGE_DIR="$REPO_ROOT/voice-bridge"
 mkdir -p "$CONF_DIR"
 : > "$LOG_FILE"
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-log()        { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
-warn()       { echo "[WARN]  $*" | tee -a "$LOG_FILE" >&2; }
+# -- helpers ------------------------------------------------------------------
+log()  { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
+warn() { echo "[WARN] $*" | tee -a "$LOG_FILE" >&2; }
+
 run_or_warn() {
-  local label="$1"; shift
-  if "$@" >> "$LOG_FILE" 2>&1; then
-    log "  ✓ $label"
-  else
-    warn "$label failed (exit $?) — continuing"
-  fi
+    local label="$1"; shift
+    if "$@" >> "$LOG_FILE" 2>&1; then
+        log "  OK: $label"
+    else
+        warn "$label failed (exit $?) -- continuing"
+    fi
 }
 
-# ── Load env.conf ─────────────────────────────────────────────────────────────
+# -- Load env.conf ------------------------------------------------------------
 if [[ ! -f "$CONF_FILE" ]]; then
-  warn "env.conf not found — run detect-host.sh first"
-  exit 1
+    warn "env.conf not found -- run detect-host.sh first"
+    exit 1
 fi
 # shellcheck disable=SC1090
 source "$CONF_FILE"
 
 log "=== Agentium Voice Bridge Installer ==="
-log "OS_FAMILY=$OS_FAMILY  PKG_MGR=$PKG_MGR  PYTHON_BIN=$PYTHON_BIN"
+log "OS_FAMILY=$OS_FAMILY  PKG_MGR=$PKG_MGR  PYTHON_BIN=$PYTHON_BIN  SVC_MGR=$SVC_MGR"
 
-# ── Step 2.1  System audio packages ───────────────────────────────────────────
-log "Step 2.1 — Installing system audio packages"
+# =============================================================================
+# Step 2.1 -- System audio packages
+# =============================================================================
+log "Step 2.1 -- Installing system audio packages"
 case "$PKG_MGR" in
-  apt)
-    run_or_warn "apt update"         sudo apt-get update -qq
-    run_or_warn "portaudio19-dev"    sudo apt-get install -y -qq portaudio19-dev
-    run_or_warn "python3-pyaudio"    sudo apt-get install -y -qq python3-pyaudio
-    run_or_warn "espeak"             sudo apt-get install -y -qq espeak espeak-data
-    run_or_warn "alsa-utils"         sudo apt-get install -y -qq alsa-utils
-    ;;
-  brew)
-    run_or_warn "portaudio"          brew install portaudio
-    run_or_warn "espeak"             brew install espeak
-    ;;
-  dnf)
-    run_or_warn "portaudio-devel"    sudo dnf install -y portaudio-devel
-    run_or_warn "espeak"             sudo dnf install -y espeak
-    ;;
-  pacman)
-    run_or_warn "portaudio"          sudo pacman -S --noconfirm portaudio
-    run_or_warn "espeak-ng"          sudo pacman -S --noconfirm espeak-ng
-    ;;
-  *)
-    warn "Unknown pkg manager '$PKG_MGR' — skipping system packages"
-    ;;
+    apt)
+        run_or_warn "apt update"        sudo apt-get update -qq
+        run_or_warn "portaudio19-dev"   sudo apt-get install -y -qq portaudio19-dev
+        run_or_warn "python3-pyaudio"   sudo apt-get install -y -qq python3-pyaudio
+        run_or_warn "espeak"            sudo apt-get install -y -qq espeak espeak-data
+        run_or_warn "alsa-utils"        sudo apt-get install -y -qq alsa-utils
+        ;;
+    brew)
+        # brew must NOT run as root -- run as the actual user
+        BREW_USER="${SUDO_USER:-$USER}"
+        run_or_warn "portaudio"   sudo -u "$BREW_USER" brew install portaudio
+        run_or_warn "espeak-ng"   sudo -u "$BREW_USER" brew install espeak-ng
+        ;;
+    dnf)
+        run_or_warn "portaudio-devel"   sudo dnf install -y portaudio-devel
+        run_or_warn "espeak"            sudo dnf install -y espeak
+        ;;
+    pacman)
+        run_or_warn "portaudio"         sudo pacman -S --noconfirm portaudio
+        run_or_warn "espeak-ng"         sudo pacman -S --noconfirm espeak-ng
+        ;;
+    zypper)
+        run_or_warn "portaudio-devel"   sudo zypper install -y portaudio-devel
+        run_or_warn "espeak-ng"         sudo zypper install -y espeak-ng
+        ;;
+    *)
+        warn "Unknown pkg manager '$PKG_MGR' -- skipping system audio packages"
+        ;;
 esac
 
-# ── Step 2.2  Python venv ─────────────────────────────────────────────────────
-log "Step 2.2 — Creating Python venv at $VENV_DIR"
+# =============================================================================
+# Step 2.2 -- Python venv
+# =============================================================================
+log "Step 2.2 -- Creating Python venv at $VENV_DIR"
+
 if [[ "$PYTHON_BIN" == "python3_missing" ]]; then
-  warn "Python ≥ 3.10 not found — skipping venv and pip installs"
+    warn "Python 3.10+ not found -- skipping venv and pip installs"
 else
-  run_or_warn "create venv"  "$PYTHON_BIN" -m venv "$VENV_DIR"
+    run_or_warn "create venv"   "$PYTHON_BIN" -m venv "$VENV_DIR"
 
-  # Step 2.3 — pip install
-  log "Step 2.3 — Installing Python packages"
-  VENV_PIP="$VENV_DIR/bin/pip"
-  run_or_warn "pip upgrade"           "$VENV_PIP" install --upgrade pip
-  run_or_warn "install websockets"    "$VENV_PIP" install "websockets>=12.0"
-  run_or_warn "install SpeechRecog"   "$VENV_PIP" install "SpeechRecognition>=3.10.4"
-  run_or_warn "install PyAudio"       "$VENV_PIP" install "PyAudio>=0.2.14"
-  run_or_warn "install pyttsx3"       "$VENV_PIP" install "pyttsx3>=2.90"
-  run_or_warn "install python-jose"   "$VENV_PIP" install "python-jose[cryptography]>=3.3.0"
+    log "Step 2.3 -- Installing Python packages"
+    VENV_PIP="$VENV_DIR/bin/pip"
+    run_or_warn "pip upgrade"           "$VENV_PIP" install --upgrade pip
+    run_or_warn "install websockets"    "$VENV_PIP" install "websockets>=12.0"
+    run_or_warn "install SpeechRecog"   "$VENV_PIP" install "SpeechRecognition>=3.10.4"
+    run_or_warn "install PyAudio"       "$VENV_PIP" install "PyAudio>=0.2.14"
+    run_or_warn "install pyttsx3"       "$VENV_PIP" install "pyttsx3>=2.90"
+    run_or_warn "install python-jose"   "$VENV_PIP" install "python-jose[cryptography]>=3.3.0"
 
-  # Write the venv path to env.conf so main.py can find it
-  echo "VENV_PYTHON=$VENV_DIR/bin/python" >> "$CONF_FILE"
+    # Write venv path so main.py can find it
+    grep -q "^VENV_PYTHON=" "$CONF_FILE" 2>/dev/null || \
+        echo "VENV_PYTHON=$VENV_DIR/bin/python" >> "$CONF_FILE"
 fi
 
-# ── Step 3  Service registration ──────────────────────────────────────────────
-log "Step 3 — Registering OS service (SVC_MGR=$SVC_MGR)"
+# =============================================================================
+# Step 3 -- Service registration + immediate start
+# =============================================================================
+log "Step 3 -- Registering OS service (SVC_MGR=$SVC_MGR)"
 
-BRIDGE_CMD="${VENV_DIR}/bin/python ${BRIDGE_DIR}/main.py"
+BRIDGE_PY="$VENV_DIR/bin/python"
+BRIDGE_SCRIPT="$BRIDGE_DIR/main.py"
+BRIDGE_CMD="$BRIDGE_PY $BRIDGE_SCRIPT"
+BRIDGE_LOG="$CONF_DIR/voice-bridge.log"
+PID_FILE="$CONF_DIR/voice-bridge.pid"
+
+# Helper: start the bridge right now via nohup (used by wsl2 + none paths)
+start_bridge_now() {
+    # Kill any existing instance first
+    if [[ -f "$PID_FILE" ]]; then
+        local old_pid
+        old_pid=$(cat "$PID_FILE" 2>/dev/null || true)
+        if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+            kill "$old_pid" 2>/dev/null || true
+            sleep 1
+        fi
+        rm -f "$PID_FILE"
+    fi
+
+    nohup $BRIDGE_CMD >> "$BRIDGE_LOG" 2>&1 &
+    echo $! > "$PID_FILE"
+    sleep 1
+
+    if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        log "  Bridge started (PID $(cat "$PID_FILE")). Log: $BRIDGE_LOG"
+    else
+        warn "Bridge process exited immediately -- check $BRIDGE_LOG"
+    fi
+}
+
+# Helper: add a line to a shell rc file only once
+add_to_rc() {
+    local rc_file="$1"
+    local line="$2"
+    touch "$rc_file"
+    if ! grep -qF "$line" "$rc_file" 2>/dev/null; then
+        echo "" >> "$rc_file"
+        echo "# Agentium Voice Bridge -- auto-added by installer" >> "$rc_file"
+        echo "$line" >> "$rc_file"
+        log "  Added to $rc_file: $line"
+    else
+        log "  Already in $rc_file: $line"
+    fi
+}
 
 case "$SVC_MGR" in
 
-  systemd)
-    SERVICE_FILE="$HOME/.config/systemd/user/agentium-voice.service"
-    mkdir -p "$(dirname "$SERVICE_FILE")"
-    cat > "$SERVICE_FILE" <<EOF
+    # -------------------------------------------------------------------------
+    # systemd (Linux desktop / server)
+    # -------------------------------------------------------------------------
+    systemd)
+        SERVICE_FILE="$HOME/.config/systemd/user/agentium-voice.service"
+        mkdir -p "$(dirname "$SERVICE_FILE")"
+
+        cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=Agentium Voice Bridge
 After=network.target
@@ -115,16 +182,45 @@ EnvironmentFile=$CONF_FILE
 [Install]
 WantedBy=default.target
 EOF
-    run_or_warn "systemctl daemon-reload"   systemctl --user daemon-reload
-    run_or_warn "systemctl enable"          systemctl --user enable agentium-voice
-    run_or_warn "systemctl start"           systemctl --user start  agentium-voice
-    log "  Service: systemctl --user status agentium-voice"
-    ;;
 
-  launchd)
-    PLIST="$HOME/Library/LaunchAgents/com.agentium.voice.plist"
-    mkdir -p "$(dirname "$PLIST")"
-    cat > "$PLIST" <<EOF
+        # Ensure the user systemd session is reachable.
+        # On some distros DBUS_SESSION_BUS_ADDRESS is not exported to sub-shells.
+        if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+            # Try to find it from the running user session
+            local_uid=$(id -u)
+            dbus_addr=$(grep -r "DBUS_SESSION_BUS_ADDRESS" \
+                /proc/*/environ 2>/dev/null \
+                | grep "uid=$local_uid" 2>/dev/null \
+                | head -1 \
+                | tr '\0' '\n' \
+                | grep DBUS_SESSION \
+                | cut -d= -f2- || true)
+            if [[ -n "$dbus_addr" ]]; then
+                export DBUS_SESSION_BUS_ADDRESS="$dbus_addr"
+                log "  Recovered DBUS_SESSION_BUS_ADDRESS"
+            fi
+        fi
+
+        if systemctl --user daemon-reload >> "$LOG_FILE" 2>&1; then
+            run_or_warn "systemctl enable"  systemctl --user enable agentium-voice
+            run_or_warn "systemctl start"   systemctl --user start  agentium-voice
+            log "  systemd service running. Check: systemctl --user status agentium-voice"
+        else
+            warn "systemctl --user not reachable (no D-Bus session) -- falling back to nohup start"
+            # Still enable so it auto-starts on next login
+            systemctl --user enable agentium-voice >> "$LOG_FILE" 2>&1 || true
+            start_bridge_now
+        fi
+        ;;
+
+    # -------------------------------------------------------------------------
+    # launchd (macOS)
+    # -------------------------------------------------------------------------
+    launchd)
+        PLIST="$HOME/Library/LaunchAgents/com.agentium.voice.plist"
+        mkdir -p "$(dirname "$PLIST")"
+
+        cat > "$PLIST" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -134,43 +230,114 @@ EOF
   <key>ProgramArguments</key>
   <array>
     <string>${VENV_DIR}/bin/python</string>
-    <string>${BRIDGE_DIR}/main.py</string>
+    <string>${BRIDGE_SCRIPT}</string>
   </array>
   <key>RunAtLoad</key>         <true/>
   <key>KeepAlive</key>         <true/>
-  <key>StandardOutPath</key>   <string>${CONF_DIR}/voice-bridge.log</string>
-  <key>StandardErrorPath</key> <string>${CONF_DIR}/voice-bridge.log</string>
+  <key>StandardOutPath</key>   <string>${BRIDGE_LOG}</string>
+  <key>StandardErrorPath</key> <string>${BRIDGE_LOG}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>BACKEND_URL</key> <string>${BACKEND_URL}</string>
-    <key>WS_PORT</key>     <string>9999</string>
-    <key>WAKE_WORD</key>   <string>agentium</string>
+    <key>WS_PORT</key>     <string>${WS_PORT:-9999}</string>
+    <key>WAKE_WORD</key>   <string>${WAKE_WORD:-agentium}</string>
   </dict>
 </dict>
 </plist>
 EOF
-    run_or_warn "launchctl load" launchctl load -w "$PLIST"
-    log "  Service: launchctl list com.agentium.voice"
-    ;;
 
-  wsl2)
-    STARTUP="$CONF_DIR/start-voice-bridge.sh"
-    cat > "$STARTUP" <<EOF
+        # Unload any old version first, then load the new one
+        launchctl unload -w "$PLIST" >> "$LOG_FILE" 2>&1 || true
+        if launchctl load -w "$PLIST" >> "$LOG_FILE" 2>&1; then
+            log "  launchd service loaded and running."
+            log "  Check: launchctl list com.agentium.voice"
+        else
+            warn "launchctl load failed -- falling back to nohup start"
+            start_bridge_now
+        fi
+        ;;
+
+    # -------------------------------------------------------------------------
+    # WSL2 -- no native service manager accessible from inside WSL
+    # Strategy: start via nohup right now + add to .bashrc for persistence
+    # -------------------------------------------------------------------------
+    wsl2)
+        log "  WSL2 detected -- starting bridge via nohup and persisting in .bashrc"
+
+        # Write a dedicated start script
+        STARTUP_SCRIPT="$CONF_DIR/start-voice-bridge.sh"
+        cat > "$STARTUP_SCRIPT" << EOF
 #!/usr/bin/env bash
-# Auto-generated by install-voice-bridge.sh
+# Auto-generated by Agentium installer
+# Starts the voice bridge if it is not already running.
+PID_FILE="$PID_FILE"
+BRIDGE_LOG="$BRIDGE_LOG"
+if [[ -f "\$PID_FILE" ]] && kill -0 "\$(cat "\$PID_FILE")" 2>/dev/null; then
+    exit 0   # already running
+fi
 source "$CONF_FILE"
-exec $BRIDGE_CMD >> "$CONF_DIR/voice-bridge.log" 2>&1 &
-echo \$! > "$CONF_DIR/voice-bridge.pid"
+nohup $BRIDGE_CMD >> "\$BRIDGE_LOG" 2>&1 &
+echo \$! > "\$PID_FILE"
 EOF
-    chmod +x "$STARTUP"
-    log "  WSL2: run '$STARTUP' manually or add to your .bashrc/.profile"
-    warn "WSL2 has no native service manager — manual start required"
-    ;;
+        chmod +x "$STARTUP_SCRIPT"
 
-  *)
-    warn "No service manager detected — start the bridge manually:"
-    warn "  $BRIDGE_CMD"
-    ;;
+        # Start it right now
+        start_bridge_now
+
+        # Persist across shell sessions -- add to every common rc file found
+        for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+            if [[ -f "$rc" ]] || [[ "$rc" == "$HOME/.bashrc" ]]; then
+                add_to_rc "$rc" "bash '$STARTUP_SCRIPT' &"
+            fi
+        done
+
+        log "  Bridge started. It will restart automatically on each new WSL2 shell."
+        ;;
+
+    # -------------------------------------------------------------------------
+    # none -- Linux without systemd (e.g. Alpine, Docker-in-Docker, old distros)
+    # Strategy: nohup start now + add to /etc/rc.local or ~/.profile
+    # -------------------------------------------------------------------------
+    none)
+        log "  No systemd -- starting bridge via nohup and adding to startup"
+
+        STARTUP_SCRIPT="$CONF_DIR/start-voice-bridge.sh"
+        cat > "$STARTUP_SCRIPT" << EOF
+#!/usr/bin/env bash
+# Auto-generated by Agentium installer
+PID_FILE="$PID_FILE"
+BRIDGE_LOG="$BRIDGE_LOG"
+if [[ -f "\$PID_FILE" ]] && kill -0 "\$(cat "\$PID_FILE")" 2>/dev/null; then
+    exit 0
+fi
+source "$CONF_FILE"
+nohup $BRIDGE_CMD >> "\$BRIDGE_LOG" 2>&1 &
+echo \$! > "\$PID_FILE"
+EOF
+        chmod +x "$STARTUP_SCRIPT"
+
+        # Start immediately
+        start_bridge_now
+
+        # Persist: try /etc/rc.local first (system-wide), fall back to ~/.profile
+        if [[ -f /etc/rc.local ]] && [[ -w /etc/rc.local ]]; then
+            add_to_rc /etc/rc.local "bash '$STARTUP_SCRIPT'"
+        elif sudo test -f /etc/rc.local 2>/dev/null; then
+            # Add via sudo
+            if ! sudo grep -qF "$STARTUP_SCRIPT" /etc/rc.local 2>/dev/null; then
+                echo "bash '$STARTUP_SCRIPT'" | sudo tee -a /etc/rc.local >> "$LOG_FILE" 2>&1
+                log "  Added to /etc/rc.local (via sudo)"
+            fi
+        else
+            add_to_rc "$HOME/.profile" "bash '$STARTUP_SCRIPT' &"
+            add_to_rc "$HOME/.bashrc"  "bash '$STARTUP_SCRIPT' &"
+        fi
+        ;;
+
+    *)
+        warn "Unknown SVC_MGR='$SVC_MGR' -- starting bridge via nohup only (no persistence)"
+        start_bridge_now
+        ;;
 esac
 
 log "=== Installation complete. Check $LOG_FILE for any warnings. ==="
