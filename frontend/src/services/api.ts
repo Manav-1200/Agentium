@@ -46,6 +46,14 @@ api.interceptors.response.use(
             }
         } else if (status >= 500) {
             toast.error(`Server Error: ${message}`);
+        } else if (status === 429) {
+            // Rate limited — retry after the suggested delay (default 5 s)
+            const retryAfter = parseInt(error.response?.headers?.['retry-after'] || '5', 10);
+            return new Promise((resolve, reject) => {
+                setTimeout(() => {
+                    api.request(error.config).then(resolve).catch(reject);
+                }, retryAfter * 1000);
+            });
         } else if (status !== undefined && status !== 401) {
             // 400, 422, etc. — show the detail message
             toast.error(message);

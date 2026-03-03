@@ -773,7 +773,7 @@ const TaskSubtaskAccordion: React.FC<{ task: Task }> = ({ task }) => {
 // ─── Main Task Card ───────────────────────────────────────────────────────────
 
 const MainTaskCard: React.FC<{ task: Task; onUpdated?: (updated: Task) => void }> = ({ task, onUpdated }) => {
-    const [subtasksOpen, setSubtasksOpen]         = useState(true);
+    const [subtasksOpen, setSubtasksOpen]         = useState(false);
     const [governanceOpen, setGovernanceOpen]     = useState(false);
     const [isEditing, setIsEditing]               = useState(false);
     const [isSaving, setIsSaving]                 = useState(false);

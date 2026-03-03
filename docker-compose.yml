@@ -178,15 +178,6 @@ services:
     security_opt:
       - seccomp:unconfined
       - apparmor:unconfined
-    volumes:
-      - ./backend:/app/backend
-      - chroma_data:/app/chroma_data
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-      - /:/host:rw
-      - ${USERPROFILE:-~}:/host_home:rw
-      - /sys:/sys:rw
-      - /proc:/proc:rw
-      - /dev:/dev:rw
     environment:
       - DATABASE_URL=postgresql://agentium:agentium@postgres:5432/agentium
       - PYTHONPATH=/app
@@ -265,15 +256,6 @@ services:
     security_opt:
       - seccomp:unconfined
       - apparmor:unconfined
-    volumes:
-      - ./backend:/app/backend
-      - chroma_data:/app/chroma_data
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-      - /:/host:rw
-      - ${USERPROFILE:-~}:/host_home:rw
-      - /sys:/sys:rw
-      - /proc:/proc:rw
-      - /dev:/dev:rw
     environment:
       - DATABASE_URL=postgresql://agentium:agentium@postgres:5432/agentium
       - CHROMA_HOST=chromadb
