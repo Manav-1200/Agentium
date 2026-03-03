@@ -7,16 +7,17 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from backend.models.database import get_db
 from backend.models.entities.agents import Agent
 from backend.models.entities.monitoring import (
-    AgentHealthReport, 
+    AgentHealthReport,
     ViolationReport,
     ViolationSeverity
 )
 from backend.core.auth import get_current_active_user
+from backend.services.reasoning_trace_service import reasoning_trace_service
 
 router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 
@@ -371,4 +372,237 @@ async def get_monitoring_stats(
             "total_reports": total_reports
         },
         "generated_at": datetime.utcnow().isoformat()
+    }
+
+
+# =============================================================================
+# REASONING TRACE ENDPOINTS  (Issue #6 — Agent Self-Reasoning Flow)
+# =============================================================================
+
+@router.get("/tasks/{task_id}/reasoning-trace")
+async def get_task_reasoning_trace(
+    task_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Return all persisted reasoning traces for a task.
+
+    Each trace includes:
+      - The 5-phase execution record:
+          goal_interpretation → context_retrieval → plan_generation
+          → step_execution → outcome_validation → completed / failed
+      - Per-step rationale, alternatives considered, inputs/outputs, and outcome
+      - Outcome validation result (passed / failed + notes)
+      - Total tokens consumed and wall-clock duration
+
+    Use this to inspect *why* an agent made each decision, not just *what* it
+    produced.
+    """
+    traces = reasoning_trace_service.get_traces_for_task(task_id, db)
+    return {
+        "task_id":     task_id,
+        "trace_count": len(traces),
+        "traces":      traces,
+    }
+
+
+@router.get("/tasks/{task_id}/reasoning-trace/summary")
+async def get_task_reasoning_trace_summary(
+    task_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Lightweight summary of reasoning traces for a task.
+    Returns phase completion counts and validation results without full step
+    detail. Suitable for dashboard widgets and task-list views.
+    """
+    traces = reasoning_trace_service.get_traces_for_task(task_id, db)
+
+    summaries = []
+    for t in traces:
+        steps = t.get("steps", [])
+        phase_counts: dict = {}
+        for s in steps:
+            p = s.get("phase", "unknown")
+            phase_counts[p] = phase_counts.get(p, 0) + 1
+        summaries.append({
+            "trace_id":          t.get("trace_id"),
+            "agent_id":          t.get("agent_id"),
+            "agent_tier":        t.get("agent_tier"),
+            "incarnation":       t.get("incarnation"),
+            "current_phase":     t.get("current_phase"),
+            "final_outcome":     t.get("final_outcome"),
+            "validation_passed": t.get("validation_passed"),
+            "validation_notes":  t.get("validation_notes"),
+            "total_steps":       len(steps),
+            "steps_by_phase":    phase_counts,
+            "total_tokens":      t.get("total_tokens", 0),
+            "total_duration_ms": t.get("total_duration_ms", 0),
+            "started_at":        t.get("started_at"),
+            "completed_at":      t.get("completed_at"),
+        })
+
+    return {
+        "task_id":     task_id,
+        "trace_count": len(summaries),
+        "summaries":   summaries,
+    }
+
+
+@router.get("/agents/{agent_id}/reasoning-traces")
+async def get_agent_reasoning_traces(
+    agent_id: str,
+    days: int = Query(default=7,   ge=1,  le=90),
+    limit: int = Query(default=20, ge=1,  le=100),
+    outcome: Optional[str] = Query(
+        None, description="Filter by final_outcome: success, failure"
+    ),
+    validation_failed: Optional[bool] = Query(
+        None, description="If true, return only traces where outcome validation failed"
+    ),
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Return recent reasoning traces for a specific agent.
+
+    Useful for:
+      - Reviewing an agent's decision history across tasks
+      - Identifying patterns in failed or invalid outputs
+      - Auditing which skills and plan strategies were chosen
+    """
+    agent = db.query(Agent).filter(Agent.agentium_id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    start_date = datetime.utcnow() - timedelta(days=days)
+
+    try:
+        rows = db.execute(
+            text("""
+                SELECT *
+                FROM reasoning_traces
+                WHERE agent_id    = :agent_id
+                  AND created_at >= :since
+                  AND is_active   = true
+                  AND (:outcome          IS NULL OR final_outcome     = :outcome)
+                  AND (:vf               IS NULL
+                       OR (:vf = true  AND (validation_passed = false
+                                             OR validation_passed IS NULL))
+                       OR (:vf = false AND  validation_passed = true))
+                ORDER BY created_at DESC
+                LIMIT :lim
+            """),
+            {
+                "agent_id": agent_id,
+                "since":    start_date,
+                "outcome":  outcome,
+                "vf":       validation_failed,
+                "lim":      limit,
+            }
+        ).fetchall()
+
+        traces = [dict(r._mapping) for r in rows]
+
+        # Normalise datetime fields to ISO strings for JSON serialisation
+        for t in traces:
+            for key in ("started_at", "completed_at", "created_at", "updated_at"):
+                val = t.get(key)
+                if val and hasattr(val, "isoformat"):
+                    t[key] = val.isoformat()
+
+    except Exception as exc:
+        # Graceful fallback before migration has run on fresh deployments
+        traces = []
+        if "reasoning_traces" not in str(exc).lower():
+            raise
+
+    total         = len(traces)
+    succeeded     = sum(1 for t in traces if t.get("final_outcome") == "success")
+    validation_ok = sum(1 for t in traces if t.get("validation_passed") is True)
+    avg_duration  = (
+        round(sum(t.get("total_duration_ms", 0) for t in traces) / total, 1)
+        if total else 0.0
+    )
+    avg_tokens = (
+        round(sum(t.get("total_tokens", 0) for t in traces) / total)
+        if total else 0
+    )
+
+    return {
+        "agent_id":    agent_id,
+        "period_days": days,
+        "filters": {
+            "outcome":           outcome,
+            "validation_failed": validation_failed,
+        },
+        "stats": {
+            "total_traces":         total,
+            "successful":           succeeded,
+            "failed":               total - succeeded,
+            "validation_passed":    validation_ok,
+            "validation_failed":    total - validation_ok,
+            "avg_duration_ms":      avg_duration,
+            "avg_tokens_per_trace": avg_tokens,
+        },
+        "traces": traces,
+    }
+
+
+@router.get("/reasoning-traces/validation-failures")
+async def get_validation_failures(
+    days:  int = Query(default=1,  ge=1, le=30),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Return recent traces where outcome validation failed.
+
+    These represent executions where the agent's output did not satisfy the
+    original goal before the task was marked complete — the validation gate
+    caught the problem and triggered a retry or failure. Use this endpoint to
+    identify systematic reasoning or generation failures across all agents.
+    """
+    start_date = datetime.utcnow() - timedelta(days=days)
+
+    try:
+        rows = db.execute(
+            text("""
+                SELECT trace_id, task_id, agent_id, agent_tier,
+                       current_phase, final_outcome,
+                       validation_passed, validation_notes,
+                       failure_reason, total_tokens, total_duration_ms,
+                       started_at, completed_at
+                FROM reasoning_traces
+                WHERE (validation_passed = false OR validation_passed IS NULL)
+                  AND created_at >= :since
+                  AND is_active  = true
+                ORDER BY created_at DESC
+                LIMIT :lim
+            """),
+            {"since": start_date, "lim": limit}
+        ).fetchall()
+
+        failures = []
+        for r in rows:
+            entry = dict(r._mapping)
+            for key in ("started_at", "completed_at"):
+                val = entry.get(key)
+                if val and hasattr(val, "isoformat"):
+                    entry[key] = val.isoformat()
+            failures.append(entry)
+
+    except Exception as exc:
+        failures = []
+        if "reasoning_traces" not in str(exc).lower():
+            raise
+
+    return {
+        "period_days":    days,
+        "total_failures": len(failures),
+        "failures":       failures,
+        "generated_at":   datetime.utcnow().isoformat(),
     }

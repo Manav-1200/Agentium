@@ -1,7 +1,7 @@
 # scripts/install-voice-bridge.ps1 - Agentium voice bridge installer (Windows)
 # Reads $env:USERPROFILE\.agentium\env.conf written by detect-host.ps1
 # Supports two launch strategies:
-#   task_scheduler — real Python install, uses Windows Task Scheduler (original)
+#   task_scheduler — real Python install, registers Windows Task Scheduler + starts immediately
 #   vbs_startup    — Windows Store Python, uses VBScript + Startup folder shortcut
 # NOTE: Called from setup.ps1 which already handles UAC elevation.
 
@@ -62,7 +62,7 @@ $BACKEND_URL     = $conf["BACKEND_URL"]
 $IS_STORE_PYTHON = $conf["IS_STORE_PYTHON"]
 $SVC_MGR         = $conf["SVC_MGR"]
 
-# Resolve REPO_ROOT
+# Resolve REPO_ROOT (parameter > env.conf > derive from script location)
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $conf["REPO_ROOT"] }
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $candidate = Split-Path $PSScriptRoot -Parent
@@ -71,6 +71,10 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 
 $BRIDGE_DIR = if ($RepoRoot) { Join-Path $RepoRoot "voice-bridge" } else { "" }
 $MainPy     = if ($BRIDGE_DIR) { Join-Path $BRIDGE_DIR "main.py" } else { "" }
+$BridgeLog  = Join-Path $CONF_DIR "voice-bridge.log"
+$PidFile    = Join-Path $CONF_DIR "voice-bridge.pid"
+$TaskName   = "AgentiumVoiceBridge"
+$StartupDir = [Environment]::GetFolderPath("Startup")
 
 Write-Log "=== Agentium Voice Bridge Installer (Windows) ==="
 Write-Log "REPO_ROOT=$RepoRoot"
@@ -85,10 +89,14 @@ if ($MainPy -and -not (Test-Path $MainPy)) {
     Write-Log "  main.py found at $MainPy"
 }
 
-# --- Step 2.1  System audio --------------------------------------------------
+# =============================================================================
+# Step 2.1  System audio (PyAudio ships PortAudio pre-compiled on Windows)
+# =============================================================================
 Write-Log "Step 2.1 - Windows audio (PyAudio ships PortAudio precompiled)"
 
-# --- Step 2.2  Python venv ---------------------------------------------------
+# =============================================================================
+# Step 2.2  Python venv
+# =============================================================================
 Write-Log "Step 2.2 - Creating Python venv at $VENV_DIR"
 
 if ($PYTHON_BIN -eq "python3_missing" -or [string]::IsNullOrWhiteSpace($PYTHON_BIN)) {
@@ -99,6 +107,9 @@ if ($PYTHON_BIN -eq "python3_missing" -or [string]::IsNullOrWhiteSpace($PYTHON_B
 
 Run-Or-Warn "create venv" { & $PYTHON_BIN -m venv $VENV_DIR }
 
+# =============================================================================
+# Step 2.3  Python packages
+# =============================================================================
 Write-Log "Step 2.3 - Installing Python packages"
 $VENV_PIP    = Join-Path $VENV_DIR "Scripts\pip.exe"
 $VENV_PYTHON = Join-Path $VENV_DIR "Scripts\python.exe"
@@ -131,88 +142,181 @@ if (-not (Test-Path $VENV_PIP)) {
     }
 
     if (-not $pyaudioOk) {
-        Write-Warn "PyAudio install failed -- microphone capture disabled (voice bridge still runs)"
+        Write-Warn "PyAudio install failed -- microphone capture disabled (voice bridge still runs without it)"
     }
 }
 
-# Write venv python path back to env.conf
+# Persist venv python path and repo root to env.conf so main.py can read them
 $existing = Get-Content $CONF_FILE -Raw -ErrorAction SilentlyContinue
 if ($existing -notmatch "VENV_PYTHON=") { Add-Content -Path $CONF_FILE -Value "VENV_PYTHON=$VENV_PYTHON" }
 if ($existing -notmatch "REPO_ROOT=")   { Add-Content -Path $CONF_FILE -Value "REPO_ROOT=$RepoRoot" }
 
-# --- Step 3  Service registration + immediate start --------------------------
-Write-Log "Step 3 - Registering launch method (SVC_MGR=$SVC_MGR)"
+# =============================================================================
+# Shared helpers
+# =============================================================================
 
-$LogFile     = Join-Path $CONF_DIR "voice-bridge.log"
-$TaskName    = "AgentiumVoiceBridge"
-$startupDir  = [Environment]::GetFolderPath("Startup")
-
-# ── Helper: kill any existing bridge process ─────────────────────────────────
+# Kill any existing bridge process (by command-line pattern)
 function Stop-ExistingBridge {
-    Get-WmiObject Win32_Process | Where-Object {
+    Get-WmiObject Win32_Process 2>$null | Where-Object {
         $_.CommandLine -like "*voice-bridge*main.py*" -or
         $_.CommandLine -like "*agentium*main.py*"
     } | ForEach-Object {
         Write-Log "  Stopping existing bridge process (PID $($_.ProcessId))"
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
     }
+    # Also clean up stale pid file
+    if (Test-Path $PidFile) { Remove-Item $PidFile -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 500
 }
 
-# ── Helper: verify bridge started ────────────────────────────────────────────
-function Test-BridgeStarted {
-    Start-Sleep -Seconds 4
-    $listening = netstat -ano 2>$null | Select-String ":9999"
-    if ($listening) {
-        Write-Log "  Bridge is listening on port 9999 ✓"
-        return $true
+# Poll port 9999 until the bridge is listening or timeout
+function Wait-ForBridge {
+    param([int]$TimeoutSeconds = 20)
+    $elapsed = 0
+    $interval = 2
+    while ($elapsed -le $TimeoutSeconds) {
+        # Try netstat first
+        $portLine = netstat -ano 2>$null | Select-String ":9999\s"
+        if ($portLine) { return $true }
+
+        # Try direct TCP connect
+        try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $tcp.Connect("127.0.0.1", 9999)
+            $tcp.Close()
+            return $true
+        } catch { }
+
+        if ($elapsed -eq 0) {
+            Write-Log "  Waiting for bridge to start on port 9999..."
+        }
+        Start-Sleep -Seconds $interval
+        $elapsed += $interval
     }
-    Write-Warn "Port 9999 not yet listening -- check $LogFile"
     return $false
 }
 
+# Direct Start-Process launch — used as primary start AND as fallback
+# This is the ONLY method guaranteed to work immediately in all situations.
+function Start-BridgeDirect {
+    param([string]$Label = "direct")
+
+    Stop-ExistingBridge
+
+    if (-not (Test-Path $VENV_PYTHON)) {
+        Write-Warn "VENV_PYTHON not found at $VENV_PYTHON -- cannot start bridge"
+        return $false
+    }
+    if (-not (Test-Path $MainPy)) {
+        Write-Warn "main.py not found at $MainPy -- cannot start bridge"
+        return $false
+    }
+
+    Write-Log "  Launching bridge ($Label): $VENV_PYTHON $MainPy"
+
+    # Start-Process with -RedirectStandardOutput writes to a file and keeps the
+    # process alive. Do NOT redirect into a pipeline — that blocks on Windows.
+    try {
+        $proc = Start-Process `
+            -FilePath       $VENV_PYTHON `
+            -ArgumentList   "`"$MainPy`"" `
+            -RedirectStandardOutput $BridgeLog `
+            -RedirectStandardError  $BridgeLog `
+            -WindowStyle    Hidden `
+            -PassThru `
+            -ErrorAction    Stop
+
+        # Save PID so uninstaller / restart scripts can find it
+        $proc.Id | Set-Content $PidFile
+        Write-Log "  Bridge process started (PID $($proc.Id))"
+        return $true
+    } catch {
+        Write-Warn "Start-Process failed: $_ -- trying fallback via cmd /c start"
+
+        # Last-resort fallback: cmd /c start /min
+        try {
+            $cmdArgs = "/c start /min `"`" `"$VENV_PYTHON`" `"$MainPy`" >> `"$BridgeLog`" 2>&1"
+            Start-Process "cmd.exe" -ArgumentList $cmdArgs -WindowStyle Hidden -ErrorAction Stop
+            Write-Log "  Bridge started via cmd fallback"
+            return $true
+        } catch {
+            Write-Warn "cmd fallback also failed: $_"
+            return $false
+        }
+    }
+}
+
 # =============================================================================
-# PATH A: VBScript + Startup shortcut (Store Python / no UAC for task needed)
+# Step 3  Service registration + IMMEDIATE start
 # =============================================================================
+Write-Log "Step 3 - Registering launch method (SVC_MGR=$SVC_MGR)"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATH A: VBScript + Startup shortcut (Store Python)
+# ─────────────────────────────────────────────────────────────────────────────
 if ($SVC_MGR -eq "vbs_startup" -or $IS_STORE_PYTHON -eq "true") {
     Write-Log "  Using VBScript launcher (Store Python detected)"
 
-    # Remove any old scheduled task to avoid confusion
+    # Remove any old scheduled task
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 
-    # Write VBScript that launches main.py hidden in the user session
-    # WScript.Shell.Run with window=0 works perfectly with Store Python
-    # because it inherits the interactive user session — no Store activation needed
+    # Write VBScript that launches main.py hidden in the interactive user session.
+    # wscript.exe Run with window=0 inherits the user session -- no Store activation
+    # or AppContainer sandbox issue.
     $vbsPath = Join-Path $CONF_DIR "start-voice-bridge.vbs"
+
+    # Escape backslashes for embedding in the VBS string literals
+    $venvPyEsc = $VENV_PYTHON -replace '\\', '\\'
+    $mainPyEsc = $MainPy      -replace '\\', '\\'
+    $logEsc    = $BridgeLog   -replace '\\', '\\'
+    $pidEsc    = $PidFile     -replace '\\', '\\'
+
     $vbs = @"
-' Agentium Voice Bridge launcher — auto-generated by installer
+' Agentium Voice Bridge launcher -- auto-generated by installer
 ' Uses WScript.Shell so Store Python runs in the interactive user session.
-Dim sh, logFile, pidFile, fso
+Dim sh, fso
 Set sh  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
-pidFile = sh.ExpandEnvironmentStrings("%USERPROFILE%") & "\.agentium\voice-bridge.pid"
-logFile = "$($LogFile -replace '\\','\\')"
+Dim pidFile : pidFile = "$pidEsc"
+Dim logFile : logFile = "$logEsc"
 
-' Kill old instance if pid file exists
+' Kill old instance if pid file exists and process is still running
 If fso.FileExists(pidFile) Then
     On Error Resume Next
     Dim oldPid
-    oldPid = fso.OpenTextFile(pidFile, 1).ReadAll()
-    sh.Run "taskkill /F /PID " & Trim(oldPid), 0, True
+    oldPid = Trim(fso.OpenTextFile(pidFile, 1).ReadAll())
+    If oldPid <> "" Then
+        sh.Run "taskkill /F /PID " & oldPid, 0, True
+    End If
     fso.DeleteFile pidFile
     On Error GoTo 0
 End If
 
-' Launch the bridge hidden (window style 0 = hidden)
+' Launch the bridge hidden (window style 0 = hidden, bWaitOnReturn = False)
 Dim cmd
-cmd = """$($VENV_PYTHON -replace '\\','\\')""" & " " & """$($MainPy -replace '\\','\\')"""
+cmd = Chr(34) & "$venvPyEsc" & Chr(34) & " " & Chr(34) & "$mainPyEsc" & Chr(34)
 sh.Run cmd, 0, False
+
+' Give the process a moment to appear, then record its PID
+WScript.Sleep 2000
+Dim oWMI, oProcs, oProc
+Set oWMI   = GetObject("winmgmts:\\.\root\cimv2")
+Set oProcs = oWMI.ExecQuery("SELECT * FROM Win32_Process WHERE Name='python.exe' OR Name='pythonw.exe'")
+For Each oProc In oProcs
+    If InStr(oProc.CommandLine, "main.py") > 0 Then
+        Dim f : Set f = fso.OpenTextFile(pidFile, 2, True)
+        f.Write CStr(oProc.ProcessId)
+        f.Close
+        Exit For
+    End If
+Next
 "@
     $vbs | Set-Content $vbsPath -Encoding ASCII
     Write-Log "  VBS launcher written: $vbsPath"
 
-    # Write Startup folder shortcut (.lnk) so bridge auto-starts on every login
-    $lnkPath = Join-Path $startupDir "AgentiumVoiceBridge.lnk"
+    # Write Startup shortcut so bridge auto-starts on every login
+    $lnkPath = Join-Path $StartupDir "AgentiumVoiceBridge.lnk"
     try {
         $wshell   = New-Object -ComObject WScript.Shell
         $shortcut = $wshell.CreateShortcut($lnkPath)
@@ -226,47 +330,62 @@ sh.Run cmd, 0, False
         Write-Warn "Could not write Startup shortcut: $_ -- bridge won't auto-start on login"
     }
 
-    # Start RIGHT NOW
-    Stop-ExistingBridge
-    Start-Process "wscript.exe" -ArgumentList "`"$vbsPath`"" -WindowStyle Hidden
-    Write-Log "  Bridge launched via wscript."
-    Test-BridgeStarted | Out-Null
+    # ── Start RIGHT NOW ──────────────────────────────────────────────────────
+    # Prefer Start-BridgeDirect (reliable) -- VBScript path as secondary.
+    $started = Start-BridgeDirect -Label "Store-Python/direct"
+    if (-not $started) {
+        Write-Log "  Falling back to wscript launcher..."
+        Stop-ExistingBridge
+        Start-Process "wscript.exe" -ArgumentList "`"$vbsPath`"" -WindowStyle Hidden
+    }
 
-    Write-Log "  Auto-start: shortcut in $startupDir"
+    $up = Wait-ForBridge -TimeoutSeconds 20
+    if ($up) {
+        Write-Log "  Bridge is UP on port 9999 ✓"
+    } else {
+        Write-Warn "Bridge did NOT come up within 20s -- check $BridgeLog"
+    }
+
+    Write-Log "  Auto-start: shortcut in $StartupDir"
     Write-Log "  Manual start: wscript.exe `"$vbsPath`""
 }
 
-# =============================================================================
-# PATH B: Windows Task Scheduler (real Python install)
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# PATH B: Task Scheduler (real Python install)
+# ─────────────────────────────────────────────────────────────────────────────
 elseif ($SVC_MGR -eq "task_scheduler") {
     Write-Log "  Using Task Scheduler (real Python install)"
 
-    # Write launcher .bat
+    # Write a minimal launcher .bat.
+    # IMPORTANT: do NOT redirect stdout/stderr to a file here with >>
+    # because that causes cmd.exe to keep the file handle open and the
+    # Python process can block waiting to write. Let main.py own its own
+    # log file (it uses logging.StreamHandler). We redirect only at the
+    # Start-Process level or let the scheduler capture it.
     $LauncherBat = Join-Path $CONF_DIR "start-voice-bridge.bat"
     @(
         "@echo off",
-        ":: Auto-generated by Agentium installer",
-        "set LOGFILE=$LogFile",
-        "`"$VENV_PYTHON`" `"$MainPy`" >> `"%LOGFILE%`" 2>&1"
+        ":: Auto-generated by Agentium installer -- do not edit",
+        "`"$VENV_PYTHON`" `"$MainPy`""
     ) | Set-Content -Path $LauncherBat -Encoding ASCII
     Write-Log "  Launcher bat written: $LauncherBat"
 
-    # Remove old task
+    # Register the scheduled task (AtLogon, Interactive, no time limit)
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 
-    $action    = New-ScheduledTaskAction -Execute $LauncherBat
+    $action    = New-ScheduledTaskAction -Execute "`"$VENV_PYTHON`"" -Argument "`"$MainPy`""
     $trigger   = New-ScheduledTaskTrigger -AtLogon -User "$env:USERDOMAIN\$env:USERNAME"
     $principal = New-ScheduledTaskPrincipal `
-        -UserId "$env:USERDOMAIN\$env:USERNAME" `
+        -UserId    "$env:USERDOMAIN\$env:USERNAME" `
         -LogonType Interactive `
-        -RunLevel Limited
+        -RunLevel  Limited
     $settings  = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
         -StartWhenAvailable `
-        -ExecutionTimeLimit (New-TimeSpan -Hours 0)
+        -ExecutionTimeLimit (New-TimeSpan -Hours 0)  # no time limit
 
+    $taskRegistered = $false
     try {
         Register-ScheduledTask `
             -TaskName  $TaskName `
@@ -275,48 +394,78 @@ elseif ($SVC_MGR -eq "task_scheduler") {
             -Principal $principal `
             -Settings  $settings `
             -Force | Out-Null
-
-        Write-Log "  Scheduled task '$TaskName' registered"
-
-        Stop-ExistingBridge
-        Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 3
-        $state = (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue).State
-        Write-Log "  Task state: $state"
-
-        if ($state -ne "Running") {
-            Write-Warn "Task not Running (state=$state) -- falling back to direct launch"
-            Start-Process -FilePath $LauncherBat -WindowStyle Hidden -ErrorAction SilentlyContinue
-        }
-
-        Test-BridgeStarted | Out-Null
-
+        Write-Log "  Scheduled task '$TaskName' registered (runs at every logon)"
+        $taskRegistered = $true
     } catch {
-        Write-Warn "Scheduled task registration failed: $_ -- falling back to Startup folder"
+        Write-Warn "Scheduled task registration failed: $_ -- will use Startup folder as persistence fallback"
 
-        $startupBat = Join-Path $startupDir "agentium-voice-bridge.bat"
-        Copy-Item $LauncherBat $startupBat -Force
+        # Persist via Startup folder as fallback
+        $startupBat = Join-Path $StartupDir "agentium-voice-bridge.bat"
+        Copy-Item $LauncherBat $startupBat -Force -ErrorAction SilentlyContinue
         Write-Log "  Startup bat written: $startupBat"
+    }
 
-        Stop-ExistingBridge
-        Start-Process -FilePath $LauncherBat -WindowStyle Hidden -ErrorAction SilentlyContinue
-        Test-BridgeStarted | Out-Null
+    # ── Start RIGHT NOW via Start-Process (most reliable) ────────────────────
+    # Do NOT rely on Start-ScheduledTask here -- on many systems the task enters
+    # "Ready" but the process never actually starts because there is no
+    # interactive logon session available to the scheduler at that moment.
+    # Start-Process always works because we ARE in an interactive session.
+    $started = Start-BridgeDirect -Label "task_scheduler/direct"
+
+    if (-not $started -and $taskRegistered) {
+        # Secondary attempt via scheduler
+        Write-Log "  Direct launch failed -- trying Start-ScheduledTask as fallback"
+        try {
+            Start-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+            Write-Log "  Scheduled task triggered"
+        } catch {
+            Write-Warn "Start-ScheduledTask failed: $_"
+        }
+    }
+
+    $up = Wait-ForBridge -TimeoutSeconds 20
+    if ($up) {
+        Write-Log "  Bridge is UP on port 9999 ✓"
+    } else {
+        Write-Warn "Bridge did NOT come up within 20s"
+
+        # Last resort: try running python directly (no bat wrapper)
+        Write-Log "  Last-resort: launching python directly without bat wrapper..."
+        Start-BridgeDirect -Label "last-resort" | Out-Null
+        $up = Wait-ForBridge -TimeoutSeconds 15
+        if ($up) {
+            Write-Log "  Bridge is UP after last-resort launch ✓"
+        } else {
+            Write-Warn "Bridge still not up -- check $BridgeLog"
+            if (Test-Path $BridgeLog) {
+                Write-Log "--- Last 20 lines of voice-bridge.log ---"
+                Get-Content $BridgeLog -Tail 20 | ForEach-Object { Write-Log "  $_" }
+            }
+        }
     }
 }
 
-# =============================================================================
-# PATH C: Unknown — best-effort direct launch
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# PATH C: Unknown SVC_MGR -- best-effort direct launch only
+# ─────────────────────────────────────────────────────────────────────────────
 else {
-    Write-Warn "Unknown SVC_MGR='$SVC_MGR' -- attempting direct launch"
-    Stop-ExistingBridge
-    $LauncherBat = Join-Path $CONF_DIR "start-voice-bridge.bat"
+    Write-Warn "Unknown SVC_MGR='$SVC_MGR' -- attempting direct launch (no persistence)"
+
+    $started = Start-BridgeDirect -Label "unknown-svc-mgr"
+    $up = Wait-ForBridge -TimeoutSeconds 15
+    if ($up) {
+        Write-Log "  Bridge is UP on port 9999 ✓"
+    } else {
+        Write-Warn "Bridge not up within 15s -- check $BridgeLog"
+    }
+
+    # Write Startup bat so at least it starts on next login
+    $startupBat = Join-Path $StartupDir "agentium-voice-bridge.bat"
     @(
         "@echo off",
-        "`"$VENV_PYTHON`" `"$MainPy`" >> `"$LogFile`" 2>&1"
-    ) | Set-Content -Path $LauncherBat -Encoding ASCII
-    Start-Process -FilePath $LauncherBat -WindowStyle Hidden -ErrorAction SilentlyContinue
-    Test-BridgeStarted | Out-Null
+        "`"$VENV_PYTHON`" `"$MainPy`""
+    ) | Set-Content -Path $startupBat -Encoding ASCII
+    Write-Log "  Startup bat written for persistence: $startupBat"
 }
 
 Write-Log "=== Installation complete. Check $LOG_FILE for details. ==="

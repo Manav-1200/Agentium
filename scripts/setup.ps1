@@ -4,9 +4,19 @@
 
 $ErrorActionPreference = "Stop"
 
-# --- Resolve repo root BEFORE elevation (PSScriptRoot is valid here) ---------
-# We pass it as an argument to the elevated process so it survives the re-launch.
-$RepoRoot = Split-Path $PSScriptRoot -Parent
+# ---------------------------------------------------------------------------
+# IMPORTANT: param() MUST be the first statement in a script.
+# We declare -RepoRoot here so both the non-admin first run AND the elevated
+# re-launch can receive it cleanly.
+# ---------------------------------------------------------------------------
+param(
+    [string]$RepoRoot = ""
+)
+
+# Resolve repo root from PSScriptRoot when not passed in
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path $PSScriptRoot -Parent
+}
 
 function Test-IsAdmin {
     ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -20,7 +30,6 @@ if (-not (Test-IsAdmin)) {
 
     $scriptPath = $MyInvocation.MyCommand.Path
 
-    # FIX: pass -RepoRoot explicitly so the elevated copy knows where the repo is
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName        = "powershell.exe"
     $psi.Arguments       = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -RepoRoot `"$RepoRoot`""
@@ -34,7 +43,7 @@ if (-not (Test-IsAdmin)) {
     } catch {
         Write-Host ""
         Write-Host "UAC elevation was cancelled or denied." -ForegroundColor Red
-        Write-Host "To install manually, right-click PowerShell, choose Run as Administrator, then run:" -ForegroundColor Yellow
+        Write-Host "To install manually, right-click PowerShell, choose 'Run as Administrator', then run:" -ForegroundColor Yellow
         Write-Host "  powershell -ExecutionPolicy Bypass -File `"$scriptPath`"" -ForegroundColor Cyan
         Write-Host ""
         Read-Host "Press Enter to exit"
@@ -42,40 +51,46 @@ if (-not (Test-IsAdmin)) {
     }
 }
 
-# --- Now running as Administrator --------------------------------------------
-# Accept -RepoRoot param (passed by the non-admin re-launch above)
-param(
-    [string]$RepoRoot = ""
-)
-
-# If not passed (user ran directly as admin), derive it normally
-if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
-    $RepoRoot = Split-Path $PSScriptRoot -Parent
-}
+# ---------------------------------------------------------------------------
+# Now running as Administrator
+# ---------------------------------------------------------------------------
 
 Write-Host "=== Agentium Voice Bridge Windows Installer ===" -ForegroundColor Cyan
-Write-Host "Running as Administrator: YES"          -ForegroundColor Green
+Write-Host "Running as Administrator: YES"                   -ForegroundColor Green
 Write-Host "Repo root: $RepoRoot"
 Write-Host ""
+
+# Validate repo root contains the expected files
+$MainPy = Join-Path $RepoRoot "voice-bridge\main.py"
+if (-not (Test-Path $MainPy)) {
+    Write-Host "[setup.ps1] ERROR: voice-bridge\main.py not found under $RepoRoot" -ForegroundColor Red
+    Write-Host "  Check that REPO_ROOT is correct and re-run this script." -ForegroundColor Yellow
+    Read-Host "Press Enter to exit"
+    exit 1
+}
 
 # Phase 1: OS detection
 Write-Host "[setup.ps1] Running OS detection..." -ForegroundColor Yellow
 $detectScript = Join-Path $RepoRoot "scripts\detect-host.ps1"
-if (Test-Path $detectScript) {
-    & $detectScript -RepoRoot $RepoRoot
-} else {
-    Write-Error "detect-host.ps1 not found at $detectScript"
+if (-not (Test-Path $detectScript)) {
+    Write-Host "[setup.ps1] ERROR: detect-host.ps1 not found at $detectScript" -ForegroundColor Red
     exit 1
+}
+& $detectScript -RepoRoot $RepoRoot
+if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+    Write-Host "[setup.ps1] WARN: detect-host.ps1 exited $LASTEXITCODE -- continuing" -ForegroundColor Yellow
 }
 
 # Phase 2+3: deps + service registration
 Write-Host "[setup.ps1] Running dependency installer..." -ForegroundColor Yellow
 $installScript = Join-Path $RepoRoot "scripts\install-voice-bridge.ps1"
-if (Test-Path $installScript) {
-    & $installScript -RepoRoot $RepoRoot
-} else {
-    Write-Error "install-voice-bridge.ps1 not found at $installScript"
+if (-not (Test-Path $installScript)) {
+    Write-Host "[setup.ps1] ERROR: install-voice-bridge.ps1 not found at $installScript" -ForegroundColor Red
     exit 1
+}
+& $installScript -RepoRoot $RepoRoot
+if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+    Write-Host "[setup.ps1] WARN: install-voice-bridge.ps1 exited $LASTEXITCODE -- check install.log" -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -83,29 +98,62 @@ Write-Host "=== Voice bridge installation complete ===" -ForegroundColor Green
 Write-Host "Log: $env:USERPROFILE\.agentium\install.log"
 Write-Host ""
 
-# Verify the scheduled task
-Write-Host "[setup.ps1] Verifying scheduled task..." -ForegroundColor Yellow
-$task = Get-ScheduledTask -TaskName "AgentiumVoiceBridge" -ErrorAction SilentlyContinue
-if ($task) {
-    $state = $task.State
-    Write-Host "  Task state: $state" -ForegroundColor $(if ($state -eq "Running") { "Green" } else { "Yellow" })
-    if ($state -ne "Running") {
-        Write-Host "  Starting task now..." -ForegroundColor Yellow
-        Start-ScheduledTask -TaskName "AgentiumVoiceBridge" -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 3
-        $state = (Get-ScheduledTask -TaskName "AgentiumVoiceBridge").State
-        Write-Host "  Task state after start: $state" -ForegroundColor $(if ($state -eq "Running") { "Green" } else { "Red" })
+# ---------------------------------------------------------------------------
+# Verify the bridge is actually listening on port 9999
+# ---------------------------------------------------------------------------
+Write-Host "[setup.ps1] Verifying bridge is listening on port 9999..." -ForegroundColor Yellow
+
+$maxWait  = 15   # seconds
+$interval = 2
+$elapsed  = 0
+$bridgeUp = $false
+
+while ($elapsed -le $maxWait) {
+    # netstat check
+    $portLine = netstat -ano 2>$null | Select-String ":9999\s"
+    if ($portLine) {
+        $bridgeUp = $true
+        break
     }
-} else {
-    Write-Warning "AgentiumVoiceBridge task not found -- check install.log"
+
+    # Also try a direct TCP connect as a more reliable alternative
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.Connect("127.0.0.1", 9999)
+        $tcp.Close()
+        $bridgeUp = $true
+        break
+    } catch { }
+
+    Start-Sleep -Seconds $interval
+    $elapsed += $interval
+    Write-Host "  Waiting for bridge... ($elapsed`s)" -ForegroundColor DarkGray
 }
 
+if ($bridgeUp) {
+    Write-Host "  Bridge is UP and listening on port 9999 ✓" -ForegroundColor Green
+} else {
+    Write-Host "  Bridge did NOT start within $maxWait`s -- check log below" -ForegroundColor Red
+
+    $logFile = "$env:USERPROFILE\.agentium\voice-bridge.log"
+    if (Test-Path $logFile) {
+        Write-Host ""
+        Write-Host "--- Last 20 lines of voice-bridge.log ---" -ForegroundColor Yellow
+        Get-Content $logFile -Tail 20 | ForEach-Object { Write-Host "  $_" }
+        Write-Host "-----------------------------------------"
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Useful commands
+# ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor Cyan
-Write-Host "  Check task  : Get-ScheduledTask -TaskName AgentiumVoiceBridge"
-Write-Host "  Start bridge: Start-ScheduledTask -TaskName AgentiumVoiceBridge"
-Write-Host "  View logs   : Get-Content `"$env:USERPROFILE\.agentium\voice-bridge.log`" -Tail 50"
 Write-Host "  Check port  : netstat -ano | findstr :9999"
+Write-Host "  View logs   : Get-Content `"$env:USERPROFILE\.agentium\voice-bridge.log`" -Tail 50"
+Write-Host "  Task status : Get-ScheduledTask -TaskName AgentiumVoiceBridge -ErrorAction SilentlyContinue"
+Write-Host "  Start task  : Start-ScheduledTask -TaskName AgentiumVoiceBridge"
+Write-Host "  Kill bridge : Get-WmiObject Win32_Process | Where-Object { `$_.CommandLine -like '*main.py*' } | ForEach-Object { Stop-Process -Id `$_.ProcessId -Force }"
 Write-Host ""
 
 if ($Host.Name -eq "ConsoleHost") {

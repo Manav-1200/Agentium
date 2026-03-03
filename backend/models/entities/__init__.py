@@ -30,6 +30,8 @@ from backend.models.entities.scheduled_task import (
     ScheduledTaskExecutionStatus
 )
 
+from .reasoning_trace import ReasoningTraceModel, ReasoningStepModel
+
 from backend.models.entities.task import (
     Task,
     SubTask,
