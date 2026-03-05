@@ -90,7 +90,18 @@ class AlertManager:
             ViolationSeverity.MAJOR: "🚨",
             ViolationSeverity.CRITICAL: "💀",
         }
-        icon = severity_icons.get(alert.severity, "🔔")
+        # String-based fallback for non-enum severity values
+        severity_icons_by_value = {
+            "minor": "ℹ️",
+            "moderate": "⚠️",
+            "major": "🚨",
+            "critical": "💀",
+        }
+        icon = severity_icons.get(alert.severity)
+        if icon is None:
+            # Fallback: try matching by severity.value string
+            sev_val = getattr(alert.severity, "value", str(alert.severity))
+            icon = severity_icons_by_value.get(sev_val.lower() if isinstance(sev_val, str) else "", "🔔")
 
         # Special icons for extended alert types
         if alert.alert_type == ALERT_TYPE_CRITIC_VETO:

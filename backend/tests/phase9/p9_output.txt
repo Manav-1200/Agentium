@@ -1,0 +1,153 @@
+============================= test session starts ==============================
+collecting ... collected 39 items
+
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy PASSED [  2%]
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_all_exhausted_triggers_notification PASSED [  5%]
+backend/tests/phase9/test_phase9_api_keys.py::TestBudgetEnforcement::test_is_key_healthy_budget_exceeded PASSED [  7%]
+backend/tests/phase9/test_phase9_api_keys.py::TestBudgetEnforcement::test_is_key_healthy_within_budget PASSED [ 10%]
+backend/tests/phase9/test_phase9_api_keys.py::TestCooldownRecovery::test_auto_recover_resets_status PASSED [ 12%]
+backend/tests/phase9/test_phase9_api_keys.py::TestCooldownRecovery::test_key_in_cooldown_not_healthy PASSED [ 15%]
+backend/tests/phase9/test_phase9_api_keys.py::TestMultiKeyVerification::test_verify_returns_expected_structure PASSED [ 17%]
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyHealthStatus::test_healthy_status PASSED [ 20%]
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyHealthStatus::test_disabled_status FAILED [ 23%]
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyHealthStatus::test_cooldown_status FAILED [ 25%]
+backend/tests/phase9/test_phase9_maintenance.py::TestConstitutionPruning::test_no_prune_below_max PASSED [ 28%]
+backend/tests/phase9/test_phase9_maintenance.py::TestConstitutionPruning::test_prune_excess_versions PASSED [ 30%]
+backend/tests/phase9/test_phase9_maintenance.py::TestConstitutionPruning::test_version_1_always_kept PASSED [ 33%]
+backend/tests/phase9/test_phase9_maintenance.py::TestBackupRotation::test_rotate_keeps_newest PASSED [ 35%]
+backend/tests/phase9/test_phase9_maintenance.py::TestBackupRotation::test_rotate_no_files PASSED [ 38%]
+backend/tests/phase9/test_phase9_maintenance.py::TestVectorSnapshotRotation::test_rotate_vector_snapshots PASSED [ 41%]
+backend/tests/phase9/test_phase9_maintenance.py::TestMaintenanceReport::test_report_structure PASSED [ 43%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerFormat::test_format_critical_alert PASSED [ 46%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerFormat::test_format_minor_alert FAILED [ 48%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerFormat::test_format_critic_veto_alert PASSED [ 51%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerFormat::test_format_all_keys_down_alert PASSED [ 53%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerFormat::test_format_emergency_alert PASSED [ 56%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerFormat::test_format_systemwide_affected PASSED [ 58%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerDispatch::test_critical_triggers_websocket PASSED [ 61%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerDispatch::test_minor_skips_websocket PASSED [ 64%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerEmail::test_email_skipped_when_not_configured PASSED [ 66%]
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerWebhook::test_webhook_skipped_when_not_configured PASSED [ 69%]
+backend/tests/phase9/test_phase9_security.py::TestRateLimitMiddleware::test_allows_under_limit PASSED [ 71%]
+backend/tests/phase9/test_phase9_security.py::TestRateLimitMiddleware::test_blocks_over_limit PASSED [ 74%]
+backend/tests/phase9/test_phase9_security.py::TestRateLimitMiddleware::test_health_check_bypasses_rate_limit PASSED [ 76%]
+backend/tests/phase9/test_phase9_security.py::TestRateLimitMiddleware::test_different_ips_independent PASSED [ 79%]
+backend/tests/phase9/test_phase9_security.py::TestInputSanitizationMiddleware::test_sanitize_script_tag PASSED [ 82%]
+backend/tests/phase9/test_phase9_security.py::TestInputSanitizationMiddleware::test_sanitize_javascript_protocol PASSED [ 84%]
+backend/tests/phase9/test_phase9_security.py::TestInputSanitizationMiddleware::test_sanitize_event_handler PASSED [ 87%]
+backend/tests/phase9/test_phase9_security.py::TestInputSanitizationMiddleware::test_clean_input_unchanged PASSED [ 89%]
+backend/tests/phase9/test_phase9_security.py::TestInputSanitizationMiddleware::test_sanitize_data_uri PASSED [ 92%]
+backend/tests/phase9/test_phase9_security.py::TestSessionLimitMiddleware::test_clear_session PASSED [ 94%]
+backend/tests/phase9/test_phase9_security.py::TestSessionLimitMiddleware::test_clear_last_session_removes_user PASSED [ 97%]
+backend/tests/phase9/test_phase9_security.py::TestTokenExpiry::test_token_expiry_uses_config PASSED [100%]
+
+=================================== FAILURES ===================================
+_________________ TestAPIKeyHealthStatus.test_disabled_status __________________
+
+self = <test_phase9_api_keys.TestAPIKeyHealthStatus object at 0x7151c025aed0>
+
+    def test_disabled_status(self):
+        from backend.services.api_key_manager import APIKeyManager, APIKeyHealthStatus
+        mgr = APIKeyManager()
+    
+        key = MagicMock()
+        key.is_active = False
+    
+>       assert mgr._get_key_status(key) == APIKeyHealthStatus.DISABLED
+E       AssertionError: assert 'healthy' == 'disabled'
+E         
+E         - disabled
+E         + healthy
+
+backend/tests/phase9/test_phase9_api_keys.py:168: AssertionError
+_________________ TestAPIKeyHealthStatus.test_cooldown_status __________________
+
+self = <test_phase9_api_keys.TestAPIKeyHealthStatus object at 0x7151c025bc50>
+
+    def test_cooldown_status(self):
+        from backend.services.api_key_manager import APIKeyManager, APIKeyHealthStatus
+        mgr = APIKeyManager()
+    
+        key = MagicMock()
+        key.is_active = True
+        key.cooldown_until = datetime.utcnow() + timedelta(minutes=5)
+    
+>       assert mgr._get_key_status(key) == APIKeyHealthStatus.COOLDOWN
+E       AssertionError: assert 'healthy' == 'cooldown'
+E         
+E         - cooldown
+E         + healthy
+
+backend/tests/phase9/test_phase9_api_keys.py:178: AssertionError
+________________ TestAlertManagerFormat.test_format_minor_alert ________________
+
+self = <test_phase9_monitoring.TestAlertManagerFormat object at 0x7151c02e1ed0>
+mock_db = <MagicMock id='124595866807504'>
+
+    def test_format_minor_alert(self, mock_db):
+        from backend.services.alert_manager import AlertManager
+        mgr = AlertManager(mock_db)
+        alert = self._make_alert("minor", "info_notice")
+        msg = mgr._format_alert_message(alert)
+        assert "MINOR" in msg
+>       assert "ℹ️" in msg
+E       AssertionError: assert 'ℹ️' in '🔔 **AGENTIUM SYSTEM ALERT: MINOR**\n\nType: `info_notice`\nTime: 2025-01-01 12:00:00 UTC\nMessage: Test message\nDetected By: `system`\nAffected Agent: `System-wide`'
+
+backend/tests/phase9/test_phase9_monitoring.py:39: AssertionError
+=============================== warnings summary ===============================
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'enum'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1045: PydanticDeprecatedSince20: `min_items` is deprecated and will be removed, use `min_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`min_items` is deprecated and will be removed, use `min_length` instead', DeprecationWarning)
+
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1051: PydanticDeprecatedSince20: `max_items` is deprecated and will be removed, use `max_length` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn('`max_items` is deprecated and will be removed, use `max_length` instead', DeprecationWarning)
+
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+  /app/backend/models/entities/skill.py:73: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('tags')
+
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+  /app/backend/models/entities/skill.py:77: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @validator('skill_name')
+
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+  /usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+backend/tests/phase9/test_phase9_api_keys.py: 23 warnings
+  /usr/local/lib/python3.11/site-packages/pydantic/fields.py:1076: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'env'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyFailover::test_fallback_returns_first_healthy
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerDispatch::test_critical_triggers_websocket
+  /usr/local/lib/python3.11/site-packages/pytest_asyncio/plugin.py:854: DeprecationWarning: The event_loop fixture provided by pytest-asyncio has been redefined in
+  /app/backend/tests/phase9/conftest.py:21
+  Replacing the event_loop fixture with a custom implementation is deprecated
+  and will lead to errors in the future.
+  If you want to request an asyncio event loop with a scope other than function
+  scope, use the "scope" argument to the asyncio mark when marking the tests.
+  If you want to return different types of event loops, use the event_loop_policy
+  fixture.
+  
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyHealthStatus::test_disabled_status
+FAILED backend/tests/phase9/test_phase9_api_keys.py::TestAPIKeyHealthStatus::test_cooldown_status
+FAILED backend/tests/phase9/test_phase9_monitoring.py::TestAlertManagerFormat::test_format_minor_alert
+================== 3 failed, 36 passed, 37 warnings in 3.42s ===================

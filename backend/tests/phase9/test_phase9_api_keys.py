@@ -24,11 +24,10 @@ class TestAPIKeyFailover:
                 return key_mock
             return None
 
-        mgr.get_active_key = mock_get
-
-        result_key, result_provider = mgr.get_active_key_with_fallback(
-            ["openai", "anthropic", "groq"]
-        )
+        with patch.object(mgr, "get_active_key", side_effect=mock_get):
+            result_key, result_provider = mgr.get_active_key_with_fallback(
+                ["openai", "anthropic", "groq"]
+            )
         assert result_key is key_mock
         assert result_provider == "anthropic"
 
@@ -37,15 +36,15 @@ class TestAPIKeyFailover:
         mgr = APIKeyManager()
 
         # All providers return None
-        mgr.get_active_key = MagicMock(return_value=None)
-        mgr._notify_all_keys_down = MagicMock()
-
-        result_key, result_provider = mgr.get_active_key_with_fallback(
-            ["openai", "anthropic"]
-        )
+        mock_notify = MagicMock()
+        with patch.object(mgr, "get_active_key", return_value=None), \
+             patch.object(mgr, "_notify_all_keys_down", mock_notify):
+            result_key, result_provider = mgr.get_active_key_with_fallback(
+                ["openai", "anthropic"]
+            )
         assert result_key is None
         assert result_provider == "exhausted"
-        mgr._notify_all_keys_down.assert_called_once()
+        mock_notify.assert_called_once()
 
 
 class TestBudgetEnforcement:
@@ -128,10 +127,11 @@ class TestMultiKeyVerification:
 
         mock_db = MagicMock()
         mock_db.query.return_value.filter_by.return_value.order_by.return_value.all.return_value = [key1, key2]
-        mgr.get_active_key = MagicMock(return_value=key1)
-        mgr._get_key_status = MagicMock(return_value="healthy")
 
-        result = mgr.verify_multi_key_support("openai", db=mock_db)
+        with patch.object(mgr, "get_active_key", return_value=key1), \
+             patch.object(mgr, "_get_key_status", return_value="healthy"):
+
+            result = mgr.verify_multi_key_support("openai", db=mock_db)
 
         assert result["provider"] == "openai"
         assert result["total_keys"] == 2

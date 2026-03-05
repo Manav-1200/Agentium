@@ -1,0 +1,18 @@
+    def _get_key_status(self, key: UserModelConfig) -> str:
+        """Determine health status string for a key."""
+        if not key.is_active or key.is_active is False:
+            return APIKeyHealthStatus.DISABLED
+        
+        now = datetime.utcnow()
+        
+        if key.cooldown_until and now < key.cooldown_until:
+            return APIKeyHealthStatus.COOLDOWN
+        
+        self._reset_monthly_spend_if_needed(key)
+        if key.monthly_budget_usd > 0 and key.current_spend_usd >= key.monthly_budget_usd:
+            return APIKeyHealthStatus.EXHAUSTED
+        
+        if key.status == ConnectionStatus.ERROR:
+            return APIKeyHealthStatus.ERROR
+        
+        return APIKeyHealthStatus.HEALTHY
