@@ -3,30 +3,9 @@
  */
 
 import { api } from './api';
+import type { UserPreference, PreferenceHistoryEntry } from '@/types';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface UserPreference {
-  id: string;
-  user_id: string;
-  category: string;
-  key: string;
-  value: unknown;
-  data_type: string;
-  description: string | null;
-  is_system: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface PreferenceHistoryEntry {
-  id: string;
-  preference_id: string;
-  old_value: unknown;
-  new_value: unknown;
-  changed_by: string;
-  changed_at: string;
-}
+export type { UserPreference, PreferenceHistoryEntry };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -190,6 +169,12 @@ export const preferencesService = {
     getDefaults: async (): Promise<UserPreference[]> => {
       const response = await api.get<UserPreference[]>('/api/v1/preferences/system/defaults');
       return response.data;
+    },
+
+    /** Alias for getDefaults — used by TasksPage */
+    getSystemDefaults: async (): Promise<{ defaults: UserPreference[] }> => {
+      const response = await api.get<UserPreference[]>('/api/v1/preferences/system/defaults');
+      return { defaults: response.data };
     },
 
     initializeSystem: async (): Promise<void> => {

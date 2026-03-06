@@ -1287,7 +1287,7 @@ const PreferenceCard: React.FC<{
             setShowHistory(true);
             setLoadingHistory(true);
             try {
-                const data = await preferencesService.getPreferenceHistory(preference.agentium_id, 10);
+                const data = await preferencesService.admin.getPreferenceHistory(preference.agentium_id, 10);
                 setHistory(data.history);
             } catch (err) {
                 console.error('Failed to load history:', err);
@@ -1472,10 +1472,9 @@ const PreferencesTab: React.FC = () => {
         setLoadError(null);
         try {
             const data = await preferencesService.getPreferences(
-                categoryFilter || undefined,
-                undefined
+                categoryFilter ? { category: categoryFilter } : undefined
             );
-            setPreferences(data.preferences);
+            setPreferences(data);
         } catch (err: any) {
             const msg = err?.response?.data?.detail || 'Failed to load preferences';
             console.error('Failed to load preferences:', err);
@@ -1489,7 +1488,7 @@ const PreferencesTab: React.FC = () => {
 
     const handleUpdate = async (key: string, value: any, reason?: string) => {
         try {
-            await preferencesService.updatePreference(key, { value, reason });
+            await preferencesService.updatePreference(key, value);
             toast.success('Preference updated');
             loadPreferences();
         } catch (err: any) {
@@ -1515,9 +1514,7 @@ const PreferencesTab: React.FC = () => {
                 key: newPref.key,
                 value,
                 category: newPref.category,
-                scope: newPref.scope,
                 description: newPref.description,
-                editable_by_agents: newPref.editableByAgents,
             });
             toast.success('Preference created');
             setShowCreateModal(false);
@@ -1538,8 +1535,7 @@ const PreferencesTab: React.FC = () => {
 
     const handleInitializeDefaults = async () => {
         try {
-            const data = await preferencesService.initializeDefaults();
-            toast.success(`Initialized ${data.count} default preferences`);
+            await preferencesService.admin.initializeSystem();
             loadPreferences();
         } catch (err: any) {
             toast.error(err.response?.data?.detail || 'Failed to initialize defaults');
@@ -1549,8 +1545,7 @@ const PreferencesTab: React.FC = () => {
     const handleOptimize = async () => {
         setOptimizing(true);
         try {
-            const data = await preferencesService.optimizePreferences();
-            setOptimizationResult(data.results);
+            await preferencesService.admin.optimize();
             toast.success('Optimization complete');
             loadPreferences();
         } catch (err: any) {
@@ -1563,7 +1558,7 @@ const PreferencesTab: React.FC = () => {
     const loadDefaults = async () => {
         if (!showDefaults) {
             try {
-                const data = await preferencesService.getSystemDefaults();
+                const data = await preferencesService.admin.getSystemDefaults();
                 setDefaults(data.defaults);
             } catch (err) {
                 console.error('Failed to load defaults:', err);

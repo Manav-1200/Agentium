@@ -58,10 +58,23 @@ const API_BASE = '/api/v1/chat';
 export const chatApi = {
     /**
      * Get chat history (legacy endpoint).
+     *
+     * Returns an empty result instead of throwing when the backend responds
+     * with 5xx — the endpoint is non-critical and a server error should not
+     * block the chat UI from rendering.
      */
     getHistory: async (limit = 50): Promise<ChatHistoryResponse> => {
-        const response = await api.get<ChatHistoryResponse>(`${API_BASE}/history?limit=${limit}`);
-        return response.data;
+        try {
+            const response = await api.get<ChatHistoryResponse>(`${API_BASE}/history?limit=${limit}`);
+            return response.data;
+        } catch (err: any) {
+            const status = err?.response?.status;
+            if (status && status >= 500) {
+                console.warn('[chatApi] getHistory returned', status, '— falling back to empty history');
+                return { messages: [], total: 0, has_more: false };
+            }
+            throw err;
+        }
     },
 
     /**

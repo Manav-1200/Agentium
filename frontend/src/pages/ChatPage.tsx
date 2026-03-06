@@ -360,6 +360,10 @@ export function ChatPage() {
     const loadChatHistory = async () => {
         try {
             const history = await chatApi.getHistory(50);
+
+            // Empty result (e.g. 500 fallback) — nothing to render, skip state update
+            if (!history.messages.length) return;
+
             const formattedMessages: Message[] = history.messages.map((msg) => ({
                 id:          msg.id,
                 role:        msg.role,
@@ -378,6 +382,7 @@ export function ChatPage() {
             });
         } catch (error) {
             console.error('[ChatPage] Failed to load chat history:', error);
+            toast.error('Could not load chat history — your new messages will still work.');
         }
     };
 
@@ -430,7 +435,7 @@ export function ChatPage() {
 
     const handleVoiceButtonClick = async () => {
         if (isRecording) { stopRecording(); return; }
-        const isAvailable = await voiceApi.checkAvailability();
+        const isAvailable = await voiceApi.requireVoice();
         if (!isAvailable) return;
         const statusRes = await voiceApi.checkStatus();
         setIsLocalMode(statusRes.provider === 'local');
@@ -520,13 +525,14 @@ export function ChatPage() {
         const toastId = toast.loading('Generating speech…');
         try {
             setIsSpeaking(messageId);
-            const result = await voiceApi.synthesize(content, selectedVoice);
+            const audioBlob = await voiceApi.synthesize({ text: content, voice: selectedVoice as 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer' });
             toast.dismiss(toastId);
-            if (result.audio_url) {
-                const audio = new Audio(result.audio_url);
+            if (audioBlob && audioBlob.size > 0) {
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const audio = new Audio(audioUrl);
                 audioPlayerRef.current = audio;
-                audio.onended = () => { setIsSpeaking(null); };
-                audio.onerror = () => { setIsSpeaking(null); toast.error('Audio playback failed'); };
+                audio.onended = () => { setIsSpeaking(null); URL.revokeObjectURL(audioUrl); };
+                audio.onerror = () => { setIsSpeaking(null); URL.revokeObjectURL(audioUrl); toast.error('Audio playback failed'); };
                 audio.play();
             } else {
                 // Local browser TTS — synthesize already played it

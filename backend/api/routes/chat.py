@@ -42,13 +42,13 @@ class ChatResponse(BaseModel):
 async def list_conversations(
     include_archived: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """List all conversations for current user."""
     from backend.models.entities.chat_message import Conversation
 
     query = db.query(Conversation).filter(
-        Conversation.user_id == str(current_user.id),
+        Conversation.user_id == str(current_user.get("user_id", "")),
         Conversation.is_deleted == "N",
     )
 
@@ -68,13 +68,13 @@ async def create_conversation(
     title: Optional[str] = None,
     context: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """Create a new conversation."""
     from backend.models.entities.chat_message import Conversation
 
     conversation = Conversation(
-        user_id=str(current_user.id),
+        user_id=str(current_user.get("user_id", "")),
         title=title or "New Conversation",
         context=context,
     )
@@ -89,14 +89,14 @@ async def get_conversation(
     conversation_id: str,
     include_messages: bool = True,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """Get a specific conversation with messages."""
     from backend.models.entities.chat_message import Conversation
 
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
-        Conversation.user_id == str(current_user.id),
+        Conversation.user_id == str(current_user.get("user_id", "")),
         Conversation.is_deleted == "N",
     ).first()
 
@@ -110,14 +110,14 @@ async def get_conversation(
 async def archive_conversation(
     conversation_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """Archive a conversation."""
     from backend.models.entities.chat_message import Conversation
 
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
-        Conversation.user_id == str(current_user.id),
+        Conversation.user_id == str(current_user.get("user_id", "")),
     ).first()
 
     if not conversation:
@@ -132,14 +132,14 @@ async def archive_conversation(
 async def delete_conversation(
     conversation_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """Soft delete a conversation."""
     from backend.models.entities.chat_message import Conversation
 
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
-        Conversation.user_id == str(current_user.id),
+        Conversation.user_id == str(current_user.get("user_id", "")),
     ).first()
 
     if not conversation:
@@ -153,25 +153,25 @@ async def delete_conversation(
 @router.get("/stats")
 async def get_chat_stats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """Get chat statistics for current user."""
     from backend.models.entities.chat_message import ChatMessage as ChatMsg, Conversation
     from datetime import datetime, timedelta
 
     total_conversations = db.query(Conversation).filter(
-        Conversation.user_id == str(current_user.id),
+        Conversation.user_id == str(current_user.get("user_id", "")),
         Conversation.is_deleted == "N",
     ).count()
 
     total_messages = db.query(ChatMsg).filter(
-        ChatMsg.user_id == str(current_user.id),
+        ChatMsg.user_id == str(current_user.get("user_id", "")),
         ChatMsg.is_deleted == "N",
     ).count()
 
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     messages_today = db.query(ChatMsg).filter(
-        ChatMsg.user_id == str(current_user.id),
+        ChatMsg.user_id == str(current_user.get("user_id", "")),
         ChatMsg.created_at >= today_start,
         ChatMsg.is_deleted == "N",
     ).count()
@@ -192,6 +192,7 @@ async def get_chat_stats(
 async def send_message(
     chat_msg: ChatMessage,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """
     Send message to Head of Council (00001).
@@ -241,17 +242,21 @@ async def _stream_response(
     FIX #5: The session is opened here, used for the entire stream, then
     closed.  The ChannelManager broadcast task captures only *primitive*
     data before the session closes — it does NOT receive the db handle.
-    """
-    # Open a dedicated session for this streaming request
-    db: Session = SessionLocal()
 
-    # Data to be captured before db.close() for the post-stream broadcast
+    FIX: A `_done_sent` flag prevents the finally block from emitting a
+    second 'done' event when an early-return error path has already
+    terminated the stream.
+    """
+    db: Session = SessionLocal()
     broadcast_payload: Optional[dict] = None
+    _done_sent = False
 
     try:
         head = db.query(HeadOfCouncil).filter_by(agentium_id=agent_id).first()
         if not head:
             yield f"data: {json.dumps({'type': 'error', 'content': 'Head of Council not found'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            _done_sent = True
             return
 
         config    = head.get_model_config(db)
@@ -267,6 +272,7 @@ async def _stream_response(
             )
             yield f"data: {json.dumps({'type': 'content', 'content': error_msg})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            _done_sent = True
             return
 
         system_prompt = head.get_system_prompt()
@@ -285,16 +291,12 @@ async def _stream_response(
         full_text = "".join(full_response)
         task_info = await ChatService.analyze_for_task(head, message, full_text, db)
 
-        # FIX #2: include a server-generated message_id so the frontend
-        # can deduplicate reliably without falling back to timestamp.
         message_id = str(uuid.uuid4())
 
         yield f"data: {json.dumps({'type': 'complete', 'content': '', 'message_id': message_id, 'metadata': {'agent_id': agent_id, 'model': model_name, 'task_created': task_info['created'], 'task_id': task_info.get('task_id')}})}\n\n"
 
-        # Log interaction while session is still open
         await ChatService.log_interaction(agent_id, message, full_text, config_id, db)
 
-        # Capture broadcast data as primitives BEFORE session closes (FIX #5)
         sovereign_user = db.query(User).filter_by(is_admin=True, is_active=True).first()
         if sovereign_user:
             broadcast_payload = {
@@ -307,9 +309,9 @@ async def _stream_response(
         yield f"data: {json.dumps({'type': 'error', 'content': 'An unexpected error occurred during processing.'})}\n\n"
 
     finally:
-        # Close session FIRST, then schedule broadcast with no db reference
         db.close()
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        if not _done_sent:
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     # Broadcast AFTER db is fully closed — uses its OWN session internally
     if broadcast_payload:
@@ -342,7 +344,7 @@ async def _stream_response(
 async def get_chat_history(
     limit: int = 50,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """
     Get chat history for the current user.
@@ -351,19 +353,42 @@ async def get_chat_history(
     head_of_council roles) ordered chronologically.  This single source of
     truth prevents the frontend from merging API results with localStorage
     and creating duplicate messages on reload.
-    """
-    from backend.models.entities.chat_message import ChatMessage as ChatMsg
 
-    messages = (
-        db.query(ChatMsg)
-        .filter(
-            ChatMsg.user_id == str(current_user.id),
-            ChatMsg.is_deleted == "N",
+    FIX (500): The ChatMessage import is performed at the top of the try
+    block so an ImportError produces a clear 500 log rather than an opaque
+    SQLAlchemy failure.  The is_deleted filter uses isnot(True) so it
+    works correctly whether the column is a Boolean or a "Y"/"N" string.
+    """
+    try:
+        from backend.models.entities.chat_message import ChatMessage as ChatMsg
+    except ImportError as exc:
+        logger = __import__("logging").getLogger(__name__)
+        logger.exception("Failed to import ChatMessage model: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Chat history unavailable — model import error",
         )
-        .order_by(desc(ChatMsg.created_at))
-        .limit(limit)
-        .all()
-    )
+
+    try:
+        # Use isnot(True) / != True so the filter works for both Boolean
+        # columns (False) and "Y"/"N" string columns ("N" != True).
+        messages = (
+            db.query(ChatMsg)
+            .filter(
+                ChatMsg.user_id == str(current_user.get("user_id", "")),
+                ChatMsg.is_deleted != True,   # noqa: E712 — intentional ORM expression
+            )
+            .order_by(desc(ChatMsg.created_at))
+            .limit(limit)
+            .all()
+        )
+    except Exception as exc:
+        logger = __import__("logging").getLogger(__name__)
+        logger.exception("get_chat_history query failed for user %s: %s", current_user.get("user_id"), exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve chat history",
+        )
 
     # Return in chronological order
     messages = list(reversed(messages))
@@ -371,11 +396,11 @@ async def get_chat_history(
     return {
         "messages": [
             {
-                "id":         msg.id,
-                "role":       msg.role,
-                "content":    msg.content,
-                "created_at": msg.created_at.isoformat(),
-                "metadata":   msg.metadata or {},
+                "id":          msg.id,
+                "role":        msg.role,
+                "content":     msg.content,
+                "created_at":  msg.created_at.isoformat(),
+                "metadata":    msg.metadata or {},
                 "attachments": msg.attachments or [],
             }
             for msg in messages

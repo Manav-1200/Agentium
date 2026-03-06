@@ -215,9 +215,21 @@ export function useWebSocketChat(onMessage: (msg: WebSocketMessage) => void): Us
                         return;
                     }
 
-                    //  Genesis prompt appears as normal message from Head of Council
-                    // Just pass through - no special handling needed
-                    // UI can check metadata.requires_response to highlight it
+                    // Backend may send auth_required if the token is valid but the
+                    // server-side session context was lost (e.g. after a worker restart).
+                    // Re-send the auth frame and do NOT propagate this to the UI.
+                    if ((data as any).type === 'auth_required') {
+                        console.warn('[WebSocket] Received auth_required — resending auth token');
+                        const token = localStorage.getItem('access_token');
+                        if (token && ws.current?.readyState === WebSocket.OPEN) {
+                            ws.current.send(JSON.stringify({ type: 'auth', token }));
+                        } else {
+                            // Token is gone; force logout
+                            setError('Session expired — please log in again');
+                            logout();
+                        }
+                        return;
+                    }
 
                     onMessage(data);
                 } catch (e) {

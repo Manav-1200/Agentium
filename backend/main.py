@@ -2,7 +2,6 @@
 Agentium Main Application.
 FastAPI backend with eternal idle council + capability registry + lifecycle management.
 
-Phase 6.7: MCP Server Integration — bridge initialised in lifespan step 8.
 """
 import os
 from datetime import datetime
@@ -351,7 +350,7 @@ origins = os.getenv("ALLOWED_ORIGINS")
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origins],
+    allow_origins=[origins] if origins else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -438,7 +437,8 @@ async def create_agent(
     role: str,
     responsibilities: list,
     tier: int = 3,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Create a new agent with governance compliance."""
     if tier not in [0, 1, 2, 3]:

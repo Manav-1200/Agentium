@@ -45,7 +45,12 @@ api.interceptors.response.use(
                 toast.error(`Not Found: ${message}`);
             }
         } else if (status >= 500) {
-            toast.error(`Server Error: ${message}`);
+            // Suppress server-error toasts for endpoints that handle 5xx themselves
+            const silentPaths = ['/api/v1/chat/history'];
+            const isSilent = silentPaths.some((p) => error.config?.url?.includes(p));
+            if (!isSilent) {
+                toast.error(`Server Error: ${message}`);
+            }
         } else if (status === 429) {
             // Rate limited — retry after the suggested delay (default 5 s)
             const retryAfter = parseInt(error.response?.headers?.['retry-after'] || '5', 10);

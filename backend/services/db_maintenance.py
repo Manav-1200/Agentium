@@ -143,7 +143,7 @@ class DatabaseMaintenanceService:
                 # Import from the correct module path.
                 # vector_store.py lives at backend.services.vector_store and
                 # exposes VectorStore + get_vector_store().
-                from backend.services.vector_store import get_vector_store
+                from backend.core.vector_store import get_vector_store
                 vs = get_vector_store()
                 optimized_count = 0
 

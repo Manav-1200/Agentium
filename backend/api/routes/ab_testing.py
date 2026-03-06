@@ -23,9 +23,10 @@ router = APIRouter(prefix="/ab-testing", tags=["A/B Model Testing"])
 
 # ── Auth dependency ───────────────────────────────────────────────────────────
 
-async def require_admin(current_user: User = Depends(get_current_user)) -> User:
+async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     """Require the caller to be an admin / sovereign user."""
-    if not (getattr(current_user, "is_admin", False) or getattr(current_user, "isSovereign", False)):
+    is_admin = current_user.get("is_admin", False) or current_user.get("isSovereign", False)
+    if not is_admin:
         raise HTTPException(status_code=403, detail="Admin access required for A/B Testing")
     return current_user
 
@@ -249,7 +250,7 @@ async def create_experiment(
     data: ExperimentCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: dict = Depends(require_admin),
 ):
     """Create and auto-start a new A/B test experiment."""
     service = ABTestingService(db)
@@ -260,14 +261,14 @@ async def create_experiment(
         description=data.description or "",
         system_prompt=data.system_prompt,
         iterations=data.iterations,
-        created_by=current_user.username,
+        created_by=current_user.get("username", "unknown"),
     )
 
     # Run in background so this endpoint returns immediately
     background_tasks.add_task(service.run_experiment, experiment.id)
 
     _write_audit(
-        db, current_user.username, "experiment_created", experiment.id,
+        db, current_user.get("username", "unknown"), "experiment_created", experiment.id,
         f"Experiment '{experiment.name}' created with {len(data.config_ids)} models, {data.iterations} iteration(s)",
     )
     db.commit()
@@ -281,7 +282,7 @@ async def list_experiments(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: dict = Depends(require_admin),
 ):
     """List experiments with optional status filter and pagination."""
     query = db.query(Experiment).options(joinedload(Experiment.runs))
@@ -314,7 +315,7 @@ async def list_experiments(
 async def get_experiment(
     experiment_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: dict = Depends(require_admin),
 ):
     """Get detailed experiment results including all runs and comparison."""
     experiment = (
@@ -333,7 +334,7 @@ async def get_experiment(
 async def cancel_experiment(
     experiment_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: dict = Depends(require_admin),
 ):
     """Cancel a running or pending experiment."""
     experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
@@ -348,8 +349,8 @@ async def cancel_experiment(
     experiment.completed_at = datetime.utcnow()
 
     _write_audit(
-        db, current_user.username, "experiment_cancelled", experiment_id,
-        f"Experiment '{experiment.name}' cancelled by {current_user.username}",
+        db, current_user.get("username", "unknown"), "experiment_cancelled", experiment_id,
+        f"Experiment '{experiment.name}' cancelled by {current_user.get('username', 'unknown')}",
     )
     db.commit()
 
@@ -360,7 +361,7 @@ async def cancel_experiment(
 async def delete_experiment(
     experiment_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: dict = Depends(require_admin),
 ):
     """Delete an experiment and all its runs/results."""
     experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
@@ -379,8 +380,8 @@ async def delete_experiment(
     db.delete(experiment)
 
     _write_audit(
-        db, current_user.username, "experiment_deleted", experiment_id,
-        f"Experiment '{name}' deleted by {current_user.username}",
+        db, current_user.get("username", "unknown"), "experiment_deleted", experiment_id,
+        f"Experiment '{name}' deleted by {current_user.get('username', 'unknown')}",
     )
     db.commit()
 
@@ -391,7 +392,7 @@ async def delete_experiment(
 async def get_model_recommendations(
     task_category: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: dict = Depends(require_admin),
 ):
     """Get model recommendations based on historical experiments (max 30 days old)."""
     from datetime import timedelta
@@ -430,7 +431,7 @@ async def quick_ab_test(
     data: QuickTestRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: dict = Depends(require_admin),
 ):
     """
     Quick A/B test — creates the experiment and fires it in the background.
@@ -444,13 +445,13 @@ async def quick_ab_test(
         task_template=data.task,
         config_ids=data.config_ids,
         iterations=1,
-        created_by=current_user.username,
+        created_by=current_user.get("username", "unknown"),
     )
 
     background_tasks.add_task(service.run_experiment, experiment.id)
 
     _write_audit(
-        db, current_user.username, "quick_test_created", experiment.id,
+        db, current_user.get("username", "unknown"), "quick_test_created", experiment.id,
         f"Quick test launched with {len(data.config_ids)} models",
     )
     db.commit()
@@ -461,7 +462,7 @@ async def quick_ab_test(
 @router.get("/stats", response_model=ABTestingStatsOut)
 async def get_ab_testing_stats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: dict = Depends(require_admin),
 ):
     """Get overall A/B testing statistics in a single query."""
     try:

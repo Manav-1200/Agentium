@@ -124,7 +124,7 @@ export const hostAccessApi = {
         const token = localStorage.getItem('access_token');
         const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const wsBase = `${wsProtocol}://${window.location.host}`;
-        const ws = new WebSocket(`${wsBase}/ws/sovereign?token=${token}`);
+        const ws = new WebSocket(`${wsBase}/api/v1/sovereign/ws?token=${token}`);
 
         ws.onopen = () => {
             console.log('Sovereign WebSocket connected');
