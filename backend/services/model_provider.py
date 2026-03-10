@@ -7,13 +7,164 @@ import asyncio
 import os
 import time
 import json
-from typing import Optional, Dict, Any, AsyncGenerator, List, Callable
+from typing import Optional, Dict, Any, AsyncGenerator, List, Callable, Tuple
 from abc import ABC, abstractmethod
 from datetime import datetime
 
 from backend.models.database import get_db_context
 from backend.models.entities.user_config import UserModelConfig, ProviderType, ModelUsageLog
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-model pricing table
+# Prices are USD per 1 M tokens (input_rate, output_rate).
+# Source: official provider pricing pages as of early 2026.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# fmt: off
+MODEL_PRICES: Dict[str, Tuple[float, float]] = {
+    # ── OpenAI ───────────────────────────────────────────────────────────────
+    "gpt-4o":                          (2.50,   10.00),
+    "gpt-4o-2024-11-20":               (2.50,   10.00),
+    "gpt-4o-2024-08-06":               (2.50,   10.00),
+    "gpt-4o-mini":                     (0.15,    0.60),
+    "gpt-4o-mini-2024-07-18":          (0.15,    0.60),
+    "gpt-4-turbo":                     (10.00,  30.00),
+    "gpt-4-turbo-preview":             (10.00,  30.00),
+    "gpt-4-turbo-2024-04-09":          (10.00,  30.00),
+    "gpt-4":                           (30.00,  60.00),
+    "gpt-4-32k":                       (60.00, 120.00),
+    "gpt-3.5-turbo":                   (0.50,    1.50),
+    "gpt-3.5-turbo-instruct":          (1.50,    2.00),
+    "o1":                              (15.00,  60.00),
+    "o1-preview":                      (15.00,  60.00),
+    "o1-mini":                         (3.00,   12.00),
+    "o3-mini":                         (1.10,    4.40),
+
+    # ── Anthropic ────────────────────────────────────────────────────────────
+    "claude-3-5-sonnet-20241022":      (3.00,   15.00),
+    "claude-3-5-sonnet-20240620":      (3.00,   15.00),
+    "claude-3-5-haiku-20241022":       (0.80,    4.00),
+    "claude-3-opus-20240229":          (15.00,  75.00),
+    "claude-3-sonnet-20240229":        (3.00,   15.00),
+    "claude-3-haiku-20240307":         (0.25,    1.25),
+    "claude-2.1":                      (8.00,   24.00),
+    "claude-2.0":                      (8.00,   24.00),
+
+    # ── Google Gemini ─────────────────────────────────────────────────────────
+    "gemini-1.5-pro":                  (1.25,    5.00),
+    "gemini-1.5-pro-002":              (1.25,    5.00),
+    "gemini-1.5-flash":                (0.075,   0.30),
+    "gemini-1.5-flash-002":            (0.075,   0.30),
+    "gemini-1.0-pro":                  (0.50,    1.50),
+    "gemini-2.0-flash":                (0.10,    0.40),
+
+    # ── Groq ─────────────────────────────────────────────────────────────────
+    "llama-3.3-70b-versatile":         (0.59,    0.79),
+    "llama-3.1-8b-instant":            (0.05,    0.08),
+    "llama-3.1-70b-versatile":         (0.59,    0.79),
+    "mixtral-8x7b-32768":              (0.24,    0.24),
+    "gemma2-9b-it":                    (0.20,    0.20),
+
+    # ── Mistral ───────────────────────────────────────────────────────────────
+    "mistral-large-latest":            (2.00,    6.00),
+    "mistral-medium-latest":           (2.75,    8.10),
+    "mistral-small-latest":            (0.20,    0.60),
+    "open-mistral-7b":                 (0.25,    0.25),
+    "open-mixtral-8x7b":               (0.70,    0.70),
+    "open-mixtral-8x22b":              (2.00,    6.00),
+    "codestral-latest":                (0.20,    0.60),
+
+    # ── Together AI ───────────────────────────────────────────────────────────
+    "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo":  (0.88,  0.88),
+    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo":   (0.18,  0.18),
+    "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo": (3.50,  3.50),
+    "mistralai/Mixtral-8x7B-Instruct-v0.1":          (0.60,  0.60),
+    "Qwen/Qwen2.5-72B-Instruct-Turbo":               (1.20,  1.20),
+
+    # ── DeepSeek ──────────────────────────────────────────────────────────────
+    "deepseek-chat":                   (0.27,    1.10),
+    "deepseek-reasoner":               (0.55,    2.19),
+    "deepseek-coder":                  (0.27,    1.10),
+
+    # ── Moonshot (Kimi) ───────────────────────────────────────────────────────
+    "moonshot-v1-8k":                  (1.63,    1.63),
+    "moonshot-v1-32k":                 (3.26,    3.26),
+    "moonshot-v1-128k":                (8.14,    8.14),
+
+    # ── Cohere ────────────────────────────────────────────────────────────────
+    "command-r-plus":                  (2.50,   10.00),
+    "command-r":                       (0.15,    0.60),
+    "command":                         (1.00,    2.00),
+
+    # ── Local / free — all cost $0 ───────────────────────────────────────────
+}
+# fmt: on
+
+# Fallback blended rates ($/1M tokens) for unknown models, keyed by provider.
+_PROVIDER_FALLBACK_RATES: Dict[ProviderType, float] = {
+    ProviderType.OPENAI:             5.00,
+    ProviderType.ANTHROPIC:          9.00,
+    ProviderType.GROQ:               0.30,
+    ProviderType.MISTRAL:            1.50,
+    ProviderType.TOGETHER:           1.00,
+    ProviderType.LOCAL:              0.00,
+    ProviderType.CUSTOM:             1.00,
+}
+
+
+def calculate_cost(
+    model_name: str,
+    provider: ProviderType,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> float:
+    """
+    Calculate the USD cost for an API call using per-model prices.
+
+    Looks up the model in MODEL_PRICES (input/output split).
+    Falls back to a blended per-provider rate when the model is unknown.
+    Always returns 0.0 for LOCAL provider.
+
+    Args:
+        model_name:        Exact model identifier returned by the API.
+        provider:          ProviderType enum value.
+        prompt_tokens:     Number of input/prompt tokens consumed.
+        completion_tokens: Number of output/completion tokens generated.
+
+    Returns:
+        Estimated cost in USD (float, rounded to 8 decimal places).
+    """
+    if provider == ProviderType.LOCAL:
+        return 0.0
+
+    # Normalise: some APIs return versioned suffixes or capitalisation variants
+    normalised = model_name.lower().strip()
+
+    # 1. Exact match
+    prices = MODEL_PRICES.get(model_name) or MODEL_PRICES.get(normalised)
+
+    # 2. Prefix match — handles "gpt-4o-2024-xx-xx" → "gpt-4o" etc.
+    if prices is None:
+        for key, val in MODEL_PRICES.items():
+            if normalised.startswith(key.lower()):
+                prices = val
+                break
+
+    if prices is not None:
+        input_rate, output_rate = prices
+        cost = (
+            (prompt_tokens     / 1_000_000) * input_rate
+            + (completion_tokens / 1_000_000) * output_rate
+        )
+    else:
+        blended = _PROVIDER_FALLBACK_RATES.get(provider, 1.00)
+        cost = ((prompt_tokens + completion_tokens) / 1_000_000) * blended
+
+    return round(cost, 8)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 class BaseModelProvider(ABC):
     """Abstract base for all model providers."""
@@ -41,38 +192,52 @@ class BaseModelProvider(ABC):
     async def stream_generate(self, system_prompt: str, user_message: str, **kwargs) -> AsyncGenerator[str, None]:
         pass
 
-    async def _log_usage(self, tokens: int, latency: int, success: bool, error: str = None, agentium_id: str = "system"):
-        """Log usage."""
-        with get_db_context() as db:
-            self.config.increment_usage(tokens)
-            cost = self._estimate_cost(tokens)
-            db.add(ModelUsageLog(
-                config_id=self.config.id,
-                agentium_id=agentium_id,
-                provider=self.config.provider,
-                model_used=self.config.default_model,
-                total_tokens=tokens,
-                latency_ms=latency,
-                success=success,
-                error_message=error,
-                cost_usd=cost,
-                request_type="chat"
-            ))
-            db.commit()
+    async def _log_usage(
+        self,
+        *,
+        model_used: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        latency_ms: int,
+        success: bool,
+        error: Optional[str] = None,
+        agentium_id: str = "system",
+        request_type: str = "chat",
+    ) -> None:
+        """
+        Persist a ModelUsageLog row and update the config's rolling counters.
 
-    def _estimate_cost(self, tokens: int) -> float:
-        """Rough cost estimation per provider."""
-        costs = {
-            ProviderType.OPENAI:     0.03,
-            ProviderType.ANTHROPIC:  0.03,
-            ProviderType.GROQ:       0.0005,
-            ProviderType.MISTRAL:    0.002,
-            ProviderType.TOGETHER:   0.001,
-            ProviderType.LOCAL:      0.0,
-            ProviderType.CUSTOM:     0.001,
-        }
-        rate = costs.get(self.config.provider, 0.01)
-        return (tokens / 1000) * rate
+        Uses module-level calculate_cost() for accurate per-model pricing
+        based on the prompt/completion token split.
+        """
+        total_tokens = prompt_tokens + completion_tokens
+        cost = calculate_cost(
+            model_name=model_used,
+            provider=self.config.provider,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+        try:
+            with get_db_context() as db:
+                self.config.increment_usage(total_tokens, cost_usd=cost)
+                db.add(ModelUsageLog(
+                    config_id=self.config.id,
+                    provider=self.config.provider,
+                    model_used=model_used,
+                    request_type=request_type,
+                    total_tokens=total_tokens,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    latency_ms=latency_ms,
+                    success=success,
+                    error_message=error,
+                    cost_usd=cost,
+                    request_metadata={"agentium_id": agentium_id},
+                ))
+                db.commit()
+        except Exception as exc:
+            # Logging must never crash the main request path
+            print(f"⚠️  _log_usage failed: {exc}")
 
 
 class OpenAICompatibleProvider(BaseModelProvider):
@@ -106,20 +271,43 @@ class OpenAICompatibleProvider(BaseModelProvider):
 
             latency = int((time.time() - start_time) * 1000)
             content = response.choices[0].message.content
-            tokens = response.usage.total_tokens if response.usage else 0
+            actual_model      = response.model or kwargs.get('model', self.config.default_model)
+            prompt_tokens     = response.usage.prompt_tokens     if response.usage else 0
+            completion_tokens = response.usage.completion_tokens if response.usage else 0
 
-            await self._log_usage(tokens, latency, success=True, agentium_id=kwargs.get('agentium_id', 'system'))
+            await self._log_usage(
+                model_used=actual_model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                latency_ms=latency,
+                success=True,
+                agentium_id=kwargs.get('agentium_id', 'system'),
+            )
 
             return {
-                "content": content,
-                "tokens_used": tokens,
-                "latency_ms": latency,
-                "model": response.model,
-                "finish_reason": response.choices[0].finish_reason
+                "content":           content,
+                "tokens_used":       prompt_tokens + completion_tokens,
+                "prompt_tokens":     prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "latency_ms":        latency,
+                "model":             actual_model,
+                "finish_reason":     response.choices[0].finish_reason,
+                "cost_usd":          calculate_cost(
+                    actual_model, self.config.provider,
+                    prompt_tokens, completion_tokens
+                ),
             }
 
         except Exception as e:
-            await self._log_usage(0, 0, success=False, error=str(e), agentium_id=kwargs.get('agentium_id', 'system'))
+            await self._log_usage(
+                model_used=kwargs.get('model', self.config.default_model),
+                prompt_tokens=0,
+                completion_tokens=0,
+                latency_ms=int((time.time() - start_time) * 1000),
+                success=False,
+                error=str(e),
+                agentium_id=kwargs.get('agentium_id', 'system'),
+            )
             raise
 
     async def stream_generate(self, system_prompt: str, user_message: str, **kwargs):
@@ -271,8 +459,10 @@ class OpenAICompatibleProvider(BaseModelProvider):
         except Exception as exc:
             latency = int((time.time() - start_time) * 1000)
             await self._log_usage(
-                total_prompt_tokens + total_completion_tokens,
-                latency,
+                model_used=actual_model,
+                prompt_tokens=total_prompt_tokens,
+                completion_tokens=total_completion_tokens,
+                latency_ms=latency,
                 success=False,
                 error=str(exc),
                 agentium_id=kwargs.get("agentium_id", "system"),
@@ -282,8 +472,10 @@ class OpenAICompatibleProvider(BaseModelProvider):
         latency = int((time.time() - start_time) * 1000)
         total_tokens = total_prompt_tokens + total_completion_tokens
         await self._log_usage(
-            total_tokens,
-            latency,
+            model_used=actual_model,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
+            latency_ms=latency,
             success=True,
             agentium_id=kwargs.get("agentium_id", "system"),
         )
@@ -296,6 +488,10 @@ class OpenAICompatibleProvider(BaseModelProvider):
             "latency_ms":        latency,
             "model":             actual_model,
             "messages":          conversation,
+            "cost_usd":          calculate_cost(
+                actual_model, self.config.provider,
+                total_prompt_tokens, total_completion_tokens
+            ),
         }
 
 
@@ -318,12 +514,30 @@ class AnthropicProvider(BaseModelProvider):
 
         latency = int((time.time() - start_time) * 1000)
         content = response.content[0].text if response.content else ""
+        actual_model      = response.model or kwargs.get('model', self.config.default_model)
+        prompt_tokens     = response.usage.input_tokens  if response.usage else 0
+        completion_tokens = response.usage.output_tokens if response.usage else 0
+
+        await self._log_usage(
+            model_used=actual_model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            latency_ms=latency,
+            success=True,
+            agentium_id=kwargs.get('agentium_id', 'system'),
+        )
 
         return {
-            "content": content,
-            "tokens_used": response.usage.input_tokens + response.usage.output_tokens if response.usage else 0,
-            "latency_ms": latency,
-            "model": response.model
+            "content":           content,
+            "tokens_used":       prompt_tokens + completion_tokens,
+            "prompt_tokens":     prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "latency_ms":        latency,
+            "model":             actual_model,
+            "cost_usd":          calculate_cost(
+                actual_model, self.config.provider,
+                prompt_tokens, completion_tokens
+            ),
         }
 
     async def stream_generate(self, system_prompt: str, user_message: str, **kwargs):
@@ -441,8 +655,10 @@ class AnthropicProvider(BaseModelProvider):
         except Exception as exc:
             latency = int((time.time() - start_time) * 1000)
             await self._log_usage(
-                total_prompt_tokens + total_completion_tokens,
-                latency,
+                model_used=actual_model,
+                prompt_tokens=total_prompt_tokens,
+                completion_tokens=total_completion_tokens,
+                latency_ms=latency,
                 success=False,
                 error=str(exc),
                 agentium_id=kwargs.get("agentium_id", "system"),
@@ -452,8 +668,10 @@ class AnthropicProvider(BaseModelProvider):
         latency = int((time.time() - start_time) * 1000)
         total_tokens = total_prompt_tokens + total_completion_tokens
         await self._log_usage(
-            total_tokens,
-            latency,
+            model_used=actual_model,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
+            latency_ms=latency,
             success=True,
             agentium_id=kwargs.get("agentium_id", "system"),
         )
@@ -466,6 +684,10 @@ class AnthropicProvider(BaseModelProvider):
             "latency_ms":        latency,
             "model":             actual_model,
             "messages":          conversation,
+            "cost_usd":          calculate_cost(
+                actual_model, self.config.provider,
+                total_prompt_tokens, total_completion_tokens
+            ),
         }
 
 

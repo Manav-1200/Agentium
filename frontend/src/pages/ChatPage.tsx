@@ -264,15 +264,6 @@ export function ChatPage() {
     // Mark messages as read when on AI tab
     useEffect(() => { markAsRead(); }, [markAsRead]);
 
-    // Load history once on mount — AbortController cancels if component unmounts
-    // before the request resolves (Issue 6 + Issue 15)
-    useEffect(() => {
-        if (!isAuthenticated) return;
-        const controller = new AbortController();
-        loadChatHistory(controller.signal);
-        return () => controller.abort();
-    }, [isAuthenticated, loadChatHistory]);
-
     // FIX #8: fetch voice options only once per connection, skip on reconnect
     useEffect(() => {
         if (isConnected && !voiceOptionsFetched.current) {
@@ -340,14 +331,6 @@ export function ChatPage() {
         }
     }, [input]);
 
-    // Inbox: load when tab switches — AbortController cancels if tab changes again quickly
-    useEffect(() => {
-        if (activeTab !== 'inbox' || conversations.length > 0) return;
-        const controller = new AbortController();
-        loadConversations(controller.signal);
-        return () => controller.abort();
-    }, [activeTab, loadConversations]); // eslint-disable-line react-hooks/exhaustive-deps
-
     // Inbox: reload on new external message
     useEffect(() => {
         const wsMsg = lastMessage as any;
@@ -358,14 +341,6 @@ export function ChatPage() {
     useEffect(() => {
         if (selectedId) inboxMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [selectedId, conversations]);
-
-    // Files: load when tab switches — AbortController cancels if tab changes again quickly
-    useEffect(() => {
-        if (activeTab !== 'files') return;
-        const controller = new AbortController();
-        loadBrowserFiles(controller.signal);
-        return () => controller.abort();
-    }, [activeTab, loadBrowserFiles]);
 
     // Cleanup mic stream and any in-flight audio on unmount (Issues 5 + 7)
     useEffect(() => {
@@ -737,6 +712,34 @@ export function ChatPage() {
             if (!signal?.aborted) setBrowserLoading(false);
         }
     }, []);
+
+    // ── Effects that depend on the useCallback functions above ────────────────
+    // These must live AFTER the const declarations — useCallback uses `const`,
+    // which is not hoisted, so referencing them earlier causes a TS2448 error.
+
+    // Load history once on mount — cancelled if the component unmounts first
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        const controller = new AbortController();
+        loadChatHistory(controller.signal);
+        return () => controller.abort();
+    }, [isAuthenticated, loadChatHistory]);
+
+    // Inbox: load when tab switches — cancelled if the tab changes again quickly
+    useEffect(() => {
+        if (activeTab !== 'inbox' || conversations.length > 0) return;
+        const controller = new AbortController();
+        loadConversations(controller.signal);
+        return () => controller.abort();
+    }, [activeTab, loadConversations]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Files: load when tab switches — cancelled if the tab changes again quickly
+    useEffect(() => {
+        if (activeTab !== 'files') return;
+        const controller = new AbortController();
+        loadBrowserFiles(controller.signal);
+        return () => controller.abort();
+    }, [activeTab, loadBrowserFiles]);
 
     const handleBrowserUpload = async (files: FileList | null) => {
         if (!files) return;
