@@ -398,3 +398,14 @@ export interface PreferenceCategory {
 export interface SystemDefaults {
     [key: string]: unknown;
 }
+
+// ─── Dashboard aggregate types ────────────────────────────────────────────────
+// Re-exported from the dedicated file so any component can import from
+// the single canonical path  `@/types`  without needing to know about
+// the sub-file.
+export type {
+    DashboardStats,
+    AgentSummary,
+    TaskSummary,
+    DashboardSummaryResponse,
+} from './dashboard';

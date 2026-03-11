@@ -80,6 +80,7 @@ from backend.api.routes import provider_analytics as provider_analytics_routes
 from backend.api.routes import skills as skills_routes
 from backend.api.routes import browser as browser_routes  # Phase 10.1: Browser Control
 from backend.api.routes import audio as audio_routes      # Phase 10.3: Voice Interface
+from backend.api.routes import dashboard as dashboard_routes  # Dashboard aggregate summary
 
 # Phase 9.4: Security Middleware
 from backend.core.security_middleware import (
@@ -400,6 +401,7 @@ app.include_router(rbac_routes.router, prefix="/api/v1")
 app.include_router(federation_routes.router, prefix="/api/v1") 
 app.include_router(plugins_routes.router, prefix="/api/v1")    
 app.include_router(mobile_routes.router, prefix="/api/v1")     
+app.include_router(dashboard_routes.router, prefix="/api/v1")  # Dashboard aggregate summary
 
 
 # ══════════════════════════════════════════════════════════════════════════════
