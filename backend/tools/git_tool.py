@@ -343,3 +343,6 @@ class GitTool:
 
 
 git_tool = GitTool()
+
+# Alias required by ToolFactory.load_tool() dynamic loader
+tool_instance = git_tool

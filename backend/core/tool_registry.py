@@ -15,6 +15,7 @@ from backend.tools.data_transform_tool import data_transform_tool
 from backend.tools.embedding_tool      import embedding_tool
 from backend.tools.git_tool            import git_tool
 from backend.tools.http_api_tool       import http_api_tool
+from backend.tools.text_editor_tool    import text_editor_tool
 from backend.tools.desktop_tool  import (
     mouse_kb_tool,
     file_tool      as desktop_file_tool,
@@ -1003,6 +1004,32 @@ class ToolRegistry:
             function=nodriver_tool.close,
             parameters={},
             authorized_tiers=["0xxxx", "1xxxx"],
+        )
+
+        # ══════════════════════════════════════════════════════════════════════
+        # TEXT EDITOR TOOL — view, create, str_replace, insert, undo
+        # ══════════════════════════════════════════════════════════════════════
+        self.register_tool(
+            name="text_editor",
+            description=(
+                "Persistent text-file editor with undo history. "
+                "Actions: view (read file or line range), create (write new file), "
+                "str_replace (replace a unique string — fails if 0 or >1 occurrences), "
+                "insert (insert text before a 1-based line number), "
+                "undo_edit (revert the last change to a file)."
+            ),
+            function=text_editor_tool.execute,
+            parameters={
+                "action":      {"type": "string",  "description": "view | create | str_replace | insert | undo_edit"},
+                "path":        {"type": "string",  "description": "Absolute path to the target file"},
+                "content":     {"type": "string",  "description": "Full file content — required for 'create'", "optional": True},
+                "old_str":     {"type": "string",  "description": "Exact unique string to find — required for 'str_replace'", "optional": True},
+                "new_str":     {"type": "string",  "description": "Replacement text — required for 'str_replace' (use '' to delete)", "optional": True},
+                "insert_line": {"type": "integer", "description": "1-based line number to insert before — required for 'insert'", "optional": True},
+                "insert_text": {"type": "string",  "description": "Text to insert — required for 'insert'", "optional": True},
+                "view_range":  {"type": "array",   "description": "[start_line, end_line] for partial view — optional for 'view'", "optional": True},
+            },
+            authorized_tiers=["0xxxx", "1xxxx", "2xxxx", "3xxxx"],
         )
 
     # ── Registration ───────────────────────────────────────────────────────────

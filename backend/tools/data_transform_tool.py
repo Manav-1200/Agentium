@@ -307,3 +307,6 @@ class DataTransformTool:
 
 
 data_transform_tool = DataTransformTool()
+
+# Alias required by ToolFactory.load_tool() dynamic loader
+tool_instance = data_transform_tool

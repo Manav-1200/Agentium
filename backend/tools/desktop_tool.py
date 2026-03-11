@@ -844,3 +844,15 @@ mouse_kb_tool  = MouseKeyboardTool()
 file_tool      = FileManagementTool()
 document_tool  = DocumentTool()
 browser_tool   = BrowserAutomationTool()
+
+# Aliases required by ToolFactory.load_tool() dynamic loader.
+# The registry imports all four by their descriptive names above;
+# these aliases make dynamic reloading consistent with other tools.
+mouse_kb_tool_instance  = mouse_kb_tool
+file_tool_instance      = file_tool
+document_tool_instance  = document_tool
+browser_tool_instance   = browser_tool
+
+# Primary tool_instance alias points to the most general entry-point.
+# ToolFactory uses this when loading desktop_tool as a single module.
+tool_instance = mouse_kb_tool

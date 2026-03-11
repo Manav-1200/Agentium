@@ -340,7 +340,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Agentium",
-    description="AI Agent Governance System — Phase 6.7: MCP Server Integration",
+    description="AI Agent Governance System — Phase 6.7: MCP Server Integration | TextEditorTool added",
     version="3.0.0-phase6.7",
     lifespan=lifespan
 )
