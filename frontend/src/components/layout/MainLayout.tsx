@@ -1,7 +1,7 @@
 // src/components/layout/MainLayout.tsx
 import { useAuthStore } from '@/store/authStore';
 import { useWebSocketStore } from '@/store/websocketStore';
-import { NavLink, useNavigate, Outlet } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation, useOutlet } from 'react-router-dom';
 import {
     LayoutDashboard,
     Crown,
@@ -18,10 +18,98 @@ import {
     Inbox,
     FlaskConical,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 // ── Voice Bridge addition ─────────────────────────────────────────────────────
 import { VoiceIndicator } from '@/components/VoiceIndicator';
 
+// ── Nav order used to determine slide direction ───────────────────────────────
+const NAV_ORDER = [
+    '/',
+    '/chat',
+    '/agents',
+    '/tasks',
+    '/monitoring',
+    '/voting',
+    '/constitution',
+    '/models',
+    '/channels',
+    '/message-log',
+    '/ab-testing',
+    '/settings',
+    '/sovereign',
+];
+
+// ── Page transition variants ──────────────────────────────────────────────────
+// Subtle vertical slide + fade — keeps the sidebar perfectly static while only
+// the content area animates. "mode=wait" ensures the exit finishes before the
+// enter begins, preventing any visual overlap between pages.
+const pageVariants = {
+    initial: (direction: number) => ({
+        opacity: 0,
+        y: direction >= 0 ? 10 : -10,
+        scale: 0.995,
+    }),
+    animate: {
+        opacity: 1,
+        y: 0,
+        scale: 1,
+    },
+    exit: (direction: number) => ({
+        opacity: 0,
+        y: direction >= 0 ? -6 : 6,
+        scale: 0.998,
+    }),
+};
+
+const pageTransition = {
+    duration: 0.22,
+    ease: [0.25, 0.1, 0.25, 1] as const, // CSS "ease" — snappy & natural
+};
+
+// ── AnimatedOutlet ────────────────────────────────────────────────────────────
+// Wraps React Router's <Outlet /> with direction-aware animated transitions.
+// The key prop (location.pathname) tells AnimatePresence exactly when to swap
+// pages. The layout (sidebar, header) is never involved.
+function AnimatedOutlet() {
+    const location = useLocation();
+    const currentOutlet = useOutlet();
+
+    // Track navigation direction based on nav item order
+    const prevPath = useRef(location.pathname);
+    const [direction, setDirection] = useState(0);
+
+    useEffect(() => {
+        const prevIndex = NAV_ORDER.findIndex(p =>
+            prevPath.current === '/' ? p === '/' : prevPath.current.startsWith(p) && p !== '/'
+        );
+        const currIndex = NAV_ORDER.findIndex(p =>
+            location.pathname === '/' ? p === '/' : location.pathname.startsWith(p) && p !== '/'
+        );
+        setDirection(currIndex >= prevIndex ? 1 : -1);
+        prevPath.current = location.pathname;
+    }, [location.pathname]);
+
+    return (
+        <AnimatePresence mode="wait" initial={false} custom={direction}>
+            <motion.div
+                key={location.pathname}
+                custom={direction}
+                variants={pageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={pageTransition}
+                // fill the entire <main> container and scroll independently
+                style={{ position: 'absolute', inset: 0, overflowY: 'auto' }}
+            >
+                {currentOutlet}
+            </motion.div>
+        </AnimatePresence>
+    );
+}
+
+// ── MainLayout ────────────────────────────────────────────────────────────────
 export function MainLayout() {
     const { user, logout } = useAuthStore();
     const navigate = useNavigate();
@@ -59,7 +147,7 @@ export function MainLayout() {
         icon: React.ComponentType<{ className?: string }>;
         badge?: number;
         variant?: 'default' | 'danger';
-        adminOnly?: boolean; // Added: flag for admin-only routes
+        adminOnly?: boolean;
     };
 
     const navItems: NavItem[] = [
@@ -78,20 +166,15 @@ export function MainLayout() {
         { path: '/models', label: 'Models', icon: Cpu },
         { path: '/channels', label: 'Channels', icon: Radio },
         { path: '/message-log', label: 'Message Log', icon: Inbox },
-        // Added adminOnly flag for A/B Testing
         { path: '/ab-testing', label: 'A/B Testing', icon: FlaskConical, adminOnly: true },
         { path: '/settings', label: 'Settings', icon: Settings },
-        // Updated: Use isAdmin instead of isSovereign
         ...(isAdmin
             ? [{ path: '/sovereign', label: 'Sovereign Control', icon: Shield, variant: 'danger' as const }]
             : []),
     ];
 
     // Filter nav items based on admin status
-    const visibleNavItems = navItems.filter(item => {
-        // Show item if it's not admin-only, or if user is admin
-        return !item.adminOnly || isAdmin;
-    });
+    const visibleNavItems = navItems.filter(item => !item.adminOnly || isAdmin);
 
     return (
         <div className="h-screen bg-gray-50 dark:bg-[#0f1117] flex">
@@ -117,7 +200,7 @@ export function MainLayout() {
 
                 {/* Navigation */}
                 <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-                    {visibleNavItems.map((item) => ( // Updated: Use visibleNavItems instead of navItems
+                    {visibleNavItems.map((item) => (
                         <div key={item.path}>
                             {item.variant === 'danger' && (
                                 <div className="my-2 border-t border-gray-200 dark:border-[#1e2535]" />
@@ -177,9 +260,10 @@ export function MainLayout() {
                 </div>
             </aside>
 
-            {/* Main content */}
-            <main className="flex-1 min-h-0 overflow-y-auto">
-                <Outlet />
+            {/* Main content — position:relative is required so the absolutely-
+                positioned AnimatedOutlet fills this container correctly.       */}
+            <main className="flex-1 min-h-0 overflow-hidden relative">
+                <AnimatedOutlet />
             </main>
         </div>
     );

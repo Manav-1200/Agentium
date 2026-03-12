@@ -41,7 +41,9 @@ function AppLoader() {
   );
 }
 
-// Auth layout — keeps background and header persistent across login/signup
+// Auth layout — keeps background and header persistent across login/signup.
+// Transition timing is aligned with the in-app page transitions (0.22s ease)
+// so the whole app feels consistent.
 function AuthLayout() {
   const location = useLocation();
   const outlet = useOutlet();
@@ -95,12 +97,24 @@ function AuthLayout() {
         <p className="text-white">AI Agent Governance System</p>
       </div>
 
+      {/* Auth page transition — aligned with in-app page transition timing.
+          Uses a simple fade (no y-shift) since the auth background is static. */}
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={location.pathname}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1, transition: { duration: 0.2, delay: 0.45, ease: "easeIn" } }}
-          exit={{ opacity: 0, transition: { duration: 0.15, ease: "easeOut" } }}
+          initial={{ opacity: 0, y: 6, scale: 0.995 }}
+          animate={{
+            opacity: 1,
+            y: 0,
+            scale: 1,
+            transition: { duration: 0.22, ease: [0.25, 0.1, 0.25, 1] },
+          }}
+          exit={{
+            opacity: 0,
+            y: -4,
+            scale: 0.998,
+            transition: { duration: 0.15, ease: [0.25, 0.1, 0.25, 1] },
+          }}
           className="w-full max-w-md relative z-10"
         >
           {outlet}
