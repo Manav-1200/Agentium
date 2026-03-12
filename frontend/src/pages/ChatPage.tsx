@@ -699,7 +699,7 @@ export function ChatPage() {
         try {
             // Issue 7: use the api service — auth header is injected automatically.
             const [listRes, statsRes] = await Promise.all([
-                api.get<{ files: BrowserFile[] }>('/api/v1/files/?limit=100'),
+                api.get<{ files: BrowserFile[] }>('/api/v1/files/list'),
                 api.get<typeof browserStats>('/api/v1/files/stats'),
             ]);
             if (signal?.aborted) return;

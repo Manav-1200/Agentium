@@ -148,7 +148,8 @@ async def upload_files(
         safe_filename = generate_safe_filename(file.filename)
 
         # Build S3 Object Key
-        object_name = f"files/{current_user.id}/{safe_filename}"
+        _uid = current_user.get("user_id") or current_user.get("id")
+        object_name = f"files/{_uid}/{safe_filename}"
 
         # Upload to StorageService
         try:
@@ -171,7 +172,7 @@ async def upload_files(
             "id": str(uuid.uuid4()),
             "original_name": file.filename,
             "stored_name": safe_filename,
-            "url": f"/api/v1/files/download/{current_user.id}/{safe_filename}",
+            "url": f"/api/v1/files/download/{_uid}/{safe_filename}",
             "type": mime_type,
             "category": category,
             "size": len(content),
@@ -202,7 +203,8 @@ async def list_files(
     """
     List all files for the current user from S3.
     """
-    prefix = f"files/{current_user.id}/"
+    user_id = current_user.get("user_id") or current_user.get("id")
+    prefix  = f"files/{user_id}/"
     objects = storage_service.list_files(prefix)
 
     files = []
@@ -217,7 +219,7 @@ async def list_files(
         files.append({
             "filename": filename,
             "stored_name": filename,
-            "url": f"/api/v1/files/download/{current_user.id}/{filename}",
+            "url": f"/api/v1/files/download/{user_id}/{filename}",
             "size": size,
             "category": get_file_category(filename),
             "uploaded_at": str(obj.get('LastModified', ''))
@@ -242,7 +244,8 @@ async def get_file_stats(
     Must be defined before /{filename} and /download/{user_id}/{filename}
     to prevent FastAPI matching 'stats' as a path parameter.
     """
-    prefix = f"files/{current_user.id}/"
+    user_id = current_user.get("user_id") or current_user.get("id")
+    prefix  = f"files/{user_id}/"
     objects = storage_service.list_files(prefix)
 
     stats = {
@@ -289,7 +292,9 @@ async def download_file(
       - Local:    streams the file directly from disk.
     """
     # Security check - users can only access their own files
-    if str(current_user.id) != user_id and not current_user.is_admin:
+    _cur_uid = current_user.get("user_id") or current_user.get("id")
+    _cur_admin = current_user.get("is_admin", False)
+    if str(_cur_uid) != user_id and not _cur_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -334,7 +339,8 @@ async def delete_file(
     """
     Delete a file.
     """
-    object_name = f"files/{current_user.id}/{filename}"
+    _uid        = current_user.get("user_id") or current_user.get("id")
+    object_name = f"files/{_uid}/{filename}"
     
     success = storage_service.delete_file(object_name)
 
@@ -365,7 +371,9 @@ async def preview_file(
     Same security as download but with inline disposition.
     """
     # Security check
-    if str(current_user.id) != user_id and not current_user.is_admin:
+    _cur_uid = current_user.get("user_id") or current_user.get("id")
+    _cur_admin = current_user.get("is_admin", False)
+    if str(_cur_uid) != user_id and not _cur_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
