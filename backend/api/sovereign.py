@@ -9,6 +9,7 @@ from typing import List, Optional
 from datetime import datetime
 import asyncio
 import json
+import psutil  # FIX: added for reliable system metrics (replaces fragile sudo subprocess chain)
 
 from backend.models.database import get_db
 from backend.services.host_access import HostAccessService, RestrictedHostAccess
@@ -56,66 +57,90 @@ async def get_current_sovereign_user(
 async def get_system_status(
     current_user: User = Depends(get_current_sovereign_user)
 ):
-    """Get real-time host system status (CPU, memory, disk, network)."""
-    head = HostAccessService("00001")
-    
-    # Get CPU info
-    cpu_result = head.execute_command(["sh", "-c", "grep 'cpu ' /proc/stat | awk '{usage=($2+$4)*100/($2+$4+$5)} END {print usage}'"])
+    """
+    Get real-time host system status (CPU, memory, disk, network).
+
+    FIX: Previously used HostAccessService.execute_command() which prepends
+    'sudo -n' to every shell call. Inside Docker, sudo is unavailable, so
+    every command returned success=False and all metrics fell back to 0.0.
+
+    Also fixed: the old single-snapshot /proc/stat CPU formula is mathematically
+    incorrect — it computes cumulative ticks since boot, not current usage.
+
+    Solution: use psutil directly. It reads kernel data without subprocess or
+    sudo and correctly samples CPU usage over a short interval.
+    """
+
+    # ── CPU ────────────────────────────────────────────────────────────────────
+    # interval=0.5 takes two /proc/stat snapshots 500 ms apart and returns the
+    # real delta percentage — the only correct single-call approach.
+    cpu_usage: float = psutil.cpu_percent(interval=0.5)
+    cpu_cores: int   = psutil.cpu_count(logical=True) or 1
+    load_avg: list   = list(psutil.getloadavg()) if hasattr(psutil, "getloadavg") else [0.0, 0.0, 0.0]
+
+    # ── Memory ─────────────────────────────────────────────────────────────────
+    # All psutil memory values are in bytes — consistent with the frontend
+    # divisor (1_073_741_824 = 1 GiB) to display correct GB values.
+    vm              = psutil.virtual_memory()
+    mem_total:  int = vm.total
+    mem_used:   int = vm.used
+    mem_free:   int = vm.available   # "available" is more meaningful than raw "free"
+    mem_pct:  float = round(vm.percent, 1)
+
+    # ── Disk ───────────────────────────────────────────────────────────────────
     try:
-        cpu_usage = float(cpu_result['stdout'].strip()) if cpu_result['success'] else 0.0
-    except (ValueError, TypeError):
-        cpu_usage = 0.0
-    
-    # Get memory info
-    mem_result = head.execute_command(["cat", "/proc/meminfo"])
-    memory_info = parse_meminfo(mem_result['stdout']) if mem_result['success'] else {}
-    
-    # Get disk info
-    disk_result = head.execute_command(["df", "-B1", "/"])
-    disk_info = parse_df(disk_result['stdout']) if disk_result['success'] else {}
-    
-    # Get uptime in seconds
-    uptime_result = head.execute_command(["cat", "/proc/uptime"])
-    uptime_seconds = 0.0
-    if uptime_result['success']:
-        try:
-            uptime_seconds = float(uptime_result['stdout'].strip().split()[0])
-        except (ValueError, IndexError):
-            uptime_seconds = 0.0
-    
-    # Ensure all values are numeric
-    mem_total = float(memory_info.get('MemTotal', 0))
-    mem_available = float(memory_info.get('MemAvailable', 0))
-    mem_used = mem_total - mem_available
-    mem_percentage = round((mem_used / mem_total) * 100, 1) if mem_total > 0 else 0.0
-    
+        disk            = psutil.disk_usage("/")
+        disk_total: int = disk.total
+        disk_used:  int = disk.used
+        disk_free:  int = disk.free
+        disk_pct: float = round(disk.percent, 1)
+    except Exception:
+        disk_total = disk_used = disk_free = 0
+        disk_pct = 0.0
+
+    # ── Uptime ─────────────────────────────────────────────────────────────────
+    try:
+        boot_ts        = psutil.boot_time()
+        uptime_seconds = int(datetime.utcnow().timestamp() - boot_ts)
+    except Exception:
+        uptime_seconds = 0
+
+    hours, remainder  = divmod(uptime_seconds, 3600)
+    minutes, _seconds = divmod(remainder, 60)
+
+    # ── Network connections ────────────────────────────────────────────────────
+    try:
+        net_conns = len(psutil.net_connections())
+    except Exception:
+        net_conns = 0
+
     return {
         "cpu": {
-            "usage": float(round(cpu_usage, 1)),
-            "cores": 8,
-            "load": [0.5, 0.3, 0.2]
+            "usage":  round(cpu_usage, 1),
+            "cores":  cpu_cores,
+            "load":   [round(x, 2) for x in load_avg],
         },
         "memory": {
-            "total": int(mem_total),
-            "used": int(mem_used),
-            "free": int(mem_available),
-            "percentage": float(mem_percentage)
+            "total":      mem_total,
+            "used":       mem_used,
+            "free":       mem_free,
+            "percentage": mem_pct,
         },
         "disk": {
-            "total": int(disk_info.get('total', 0)),
-            "used": int(disk_info.get('used', 0)),
-            "free": int(disk_info.get('available', 0)),
-            "percentage": float(disk_info.get('percentage', 0.0))
+            "total":      disk_total,
+            "used":       disk_used,
+            "free":       disk_free,
+            "percentage": disk_pct,
         },
         "uptime": {
-            "seconds": int(uptime_seconds),
-            "formatted": f"{int(uptime_seconds // 3600)}h {int((uptime_seconds % 3600) // 60)}m"
+            "seconds":   uptime_seconds,
+            "formatted": f"{hours}h {minutes}m",
         },
         "network": {
-            "interfaces": [],
-            "connections": 42
+            "interfaces":  [],
+            "connections": net_conns,
         },
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 @router.get("/containers")
@@ -424,7 +449,7 @@ async def notify_sovereign(message: dict):
         if conn in active_connections:
             active_connections.remove(conn)
 
-# Helper functions
+# Helper functions — kept for backward compatibility with any other callers
 def parse_meminfo(content: str) -> dict:
     """Parse /proc/meminfo output."""
     info = {}

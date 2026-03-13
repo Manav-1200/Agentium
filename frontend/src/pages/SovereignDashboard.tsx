@@ -198,6 +198,10 @@ const getResourceBarColor = (value: number) => {
     return 'bg-green-500 dark:bg-green-400';
 };
 
+// FIX: backend returns bytes; divide by 1 GiB (1024^3) to display correct GB values.
+// The old divisor of 1024 produced kilobytes while labelling the result "GB".
+const BYTES_PER_GB = 1_073_741_824; // 1024 * 1024 * 1024
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export function SovereignDashboard() {
@@ -431,9 +435,10 @@ export function SovereignDashboard() {
                                         style={{ width: `${systemStatus.memory.percentage}%` }}
                                     />
                                 </div>
+                                {/* FIX: was dividing by 1024 (→ KB), now divides by BYTES_PER_GB (→ GB) */}
                                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                                    {(systemStatus.memory.used / 1024).toFixed(1)} /{' '}
-                                    {(systemStatus.memory.total / 1024).toFixed(1)} GB
+                                    {(systemStatus.memory.used / BYTES_PER_GB).toFixed(1)} /{' '}
+                                    {(systemStatus.memory.total / BYTES_PER_GB).toFixed(1)} GB
                                 </p>
                             </div>
 
@@ -456,8 +461,9 @@ export function SovereignDashboard() {
                                         style={{ width: `${systemStatus.disk.percentage}%` }}
                                     />
                                 </div>
+                                {/* FIX: was dividing by 1024 (→ KB), now divides by BYTES_PER_GB (→ GB) */}
                                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                                    {(systemStatus.disk.free / 1024).toFixed(0)} GB free
+                                    {(systemStatus.disk.free / BYTES_PER_GB).toFixed(1)} GB free
                                 </p>
                             </div>
 
