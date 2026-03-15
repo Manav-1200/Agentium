@@ -6,6 +6,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '@/store/authStore';
 import { useWebSocketStore } from '@/store/websocketStore';
+import { useChatStore } from '@/store/chatStore';
+import type { Message, MessageMetadata, MessageAttachment as Attachment } from '@/store/chatStore';
 import { inboxApi, UnifiedConversation, UnifiedMessage } from '@/services/inboxApi';
 import { api } from '@/services/api';
 import {
@@ -36,40 +38,7 @@ interface UploadedFile {
     uploadError?: string;
 }
 
-export interface Attachment {
-    name: string;
-    type: string;
-    size: number;
-    url?: string;
-    data?: string;
-    category?: string;
-}
-
-interface Message {
-    id: string;
-    role: 'sovereign' | 'head_of_council' | 'system';
-    content: string;
-    timestamp: Date;
-    metadata?: MessageMetadata;
-    attachments?: Attachment[];
-}
-
-/** Typed metadata — replaces the previous `metadata?: any` */
-interface MessageMetadata {
-    agent_id?: string;
-    model?: string;
-    tokens_used?: number;
-    task_created?: boolean;
-    task_id?: string;
-    latency_ms?: number;
-    /** 'voice' when message originated from the voice bridge */
-    source?: string;
-    /** True when the message bubble should render in error styling */
-    error?: boolean;
-    prompt_type?: string;
-    requires_response?: boolean;
-    connection_id?: number;
-}
+// Message, MessageMetadata, and Attachment are imported from @/store/chatStore
 
 type ActiveTab = 'ai' | 'inbox' | 'files';
 
@@ -131,7 +100,10 @@ export function ChatPage() {
 
     // ── AI Chat ───────────────────────────────────────────────────────────────
     const [input,          setInput]         = useState('');
-    const [messages,       setMessages]      = useState<Message[]>([]);
+    // ── messages live in the Zustand store so they survive navigation ─────────
+    const { messages, setMessages } = useChatStore(
+        useShallow((s) => ({ messages: s.messages, setMessages: s.setMessages }))
+    );
     const [uploadedFiles,  setUploadedFiles] = useState<UploadedFile[]>([]);
     const [isRecording,    setIsRecording]   = useState(false);
     // isPaused was declared here but never consumed — removed (Issue 12)
@@ -717,13 +689,17 @@ export function ChatPage() {
     // These must live AFTER the const declarations — useCallback uses `const`,
     // which is not hoisted, so referencing them earlier causes a TS2448 error.
 
-    // Load history once on mount — cancelled if the component unmounts first
+    // Load history from API only when the persisted store is empty (first ever visit,
+    // cleared session, or explicit clearHistory call). Zustand persist rehydrates from
+    // sessionStorage synchronously before this effect runs, so messages.length > 0
+    // means we already have data and do not need an API round-trip.
     useEffect(() => {
         if (!isAuthenticated) return;
+        if (messages.length > 0) return; // persisted data already loaded — skip API call
         const controller = new AbortController();
         loadChatHistory(controller.signal);
         return () => controller.abort();
-    }, [isAuthenticated, loadChatHistory]);
+    }, [isAuthenticated, loadChatHistory]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Inbox: load when tab switches — cancelled if the tab changes again quickly
     useEffect(() => {

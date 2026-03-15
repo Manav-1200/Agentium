@@ -1,6 +1,33 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import toast from 'react-hot-toast';
 import { api } from '@/services/api';
+
+export interface MessageAttachment {
+    name: string;
+    type: string;
+    size: number;
+    url?: string;
+    data?: string;
+    category?: string;
+}
+
+export interface MessageMetadata {
+    agent_used?: string;
+    agent_id?: string;
+    model?: string;
+    latency_ms?: number;
+    task_created?: boolean;
+    task_id?: string;
+    tokens_used?: number;
+    /** 'voice' when message originated from the voice bridge */
+    source?: string;
+    /** True when the message bubble should render in error styling */
+    error?: boolean;
+    prompt_type?: string;
+    requires_response?: boolean;
+    connection_id?: number;
+}
 
 export interface Message {
     id: string;
@@ -8,14 +35,8 @@ export interface Message {
     content: string;
     timestamp: Date;
     status?: 'sending' | 'sent' | 'error';
-    metadata?: {
-        agent_used?: string;
-        model?: string;
-        latency_ms?: number;
-        task_created?: boolean;
-        task_id?: string;
-        tokens_used?: number;
-    };
+    metadata?: MessageMetadata;
+    attachments?: MessageAttachment[];
 }
 
 interface ChatState {
@@ -24,6 +45,7 @@ interface ChatState {
     currentStreamingMessage: string;
     sendMessage: (content: string) => Promise<void>;
     sendStreamingMessage: (content: string, onChunk: (chunk: string) => void) => Promise<void>;
+    setMessages: (updater: Message[] | ((prev: Message[]) => Message[])) => void;
     clearHistory: () => void;
     loadHistory: () => Promise<void>;
 }
@@ -129,10 +151,21 @@ const sendMessageToCouncil = async (message: string): Promise<any> => {
     return response.data;
 };
 
-export const useChatStore = create<ChatState>()((set, get) => ({
+export const useChatStore = create<ChatState>()(
+    persist(
+        (set, get) => ({
             messages: [],
             isLoading: false,
             currentStreamingMessage: '',
+
+            // Allows external callers (ChatPage) to write messages into the store
+            // so they survive navigation (component unmount/remount).
+            setMessages: (updater) =>
+                set((state) => ({
+                    messages: typeof updater === 'function'
+                        ? updater(state.messages)
+                        : updater,
+                })),
 
             sendMessage: async (content: string) => {
                 const userMessage: Message = {
@@ -305,5 +338,20 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             clearHistory: () => {
                 set({ messages: [], currentStreamingMessage: '' });
             }
-        })
+        }),
+        {
+            name: 'agentium-chat-messages',  // sessionStorage key
+            storage: createJSONStorage(() => sessionStorage, {
+                // Rehydrate timestamp strings back to Date objects
+                reviver: (key, value) => {
+                    if (key === 'timestamp' && typeof value === 'string') {
+                        return new Date(value);
+                    }
+                    return value;
+                },
+            }),
+            // Only persist messages — skip transient loading/streaming state
+            partialize: (state) => ({ messages: state.messages }),
+        }
+    )
 );
