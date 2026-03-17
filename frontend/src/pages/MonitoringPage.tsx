@@ -1,20 +1,12 @@
 /**
  * MonitoringPage — updated with:
- * - Per-monitor dashboard selector (dropdown to switch monitor ID)
- * - Full violations list tab with status/severity filters (GET /violations)
- * - Resolve action on each violation (PATCH /violations/{id}/resolve)
- * - 30-second auto-refresh polling (clearInterval on unmount)
- * - Manual refresh button with spinner
- * - Last-updated timestamp
- * - Active alerts count properly colored red when > 0
- * - Agent health breakdown rendered as mini-cards
- * - WebSocket awareness for live violation push
  */
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { monitoringService } from '../services/monitoring';
 import { MonitoringDashboard, ViolationReport, AgentHealthReport } from '../types';
 import { useWebSocketStore } from '../store/websocketStore';
+import { ErrorState } from '@/components/ui/ErrorState';
 import {
     Activity,
     ShieldCheck,
@@ -30,7 +22,7 @@ import {
     XCircle,
 } from 'lucide-react';
 
-const KNOWN_MONITOR_IDS = ['00001', '00002', '00003'];
+const KNOWN_MONITOR_IDS  = ['00001', '00002', '00003'];
 const REFRESH_INTERVAL_MS = 30_000;
 
 type Tab = 'dashboard' | 'violations';
@@ -38,9 +30,9 @@ type Tab = 'dashboard' | 'violations';
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function HealthRing({ score }: { score: number }) {
-    const color = score >= 90 ? '#22c55e' : score >= 70 ? '#f59e0b' : '#ef4444';
-    const r = 20;
-    const circ = 2 * Math.PI * r;
+    const color      = score >= 90 ? '#22c55e' : score >= 70 ? '#f59e0b' : '#ef4444';
+    const r          = 20;
+    const circ       = 2 * Math.PI * r;
     const dashOffset = circ * (1 - score / 100);
     return (
         <svg width="52" height="52" className="rotate-[-90deg]">
@@ -72,9 +64,9 @@ function SeverityBadge({ severity }: { severity: string }) {
 
 function StatusBadge({ status }: { status: string }) {
     const cls =
-        status === 'open'      ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
-        status === 'resolved'  ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400';
+        status === 'open'     ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
+        status === 'resolved' ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400';
     return (
         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
             {status}
@@ -89,32 +81,50 @@ interface ViolationsTabProps {
 }
 
 function ViolationsTab({ initialViolations }: ViolationsTabProps) {
-    const [violations, setViolations] = useState<ViolationReport[]>(initialViolations);
-    const [filterStatus, setFilterStatus] = useState<string>('');
-    const [filterSeverity, setFilterSeverity] = useState<string>('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [resolvingId, setResolvingId] = useState<string | null>(null);
-    const [resolveModal, setResolveModal] = useState<{ id: string; open: boolean }>({ id: '', open: false });
-    const [resolutionNotes, setResolutionNotes] = useState('');
-    const [resolveError, setResolveError] = useState<string | null>(null);
+    const [violations,       setViolations]       = useState<ViolationReport[]>(initialViolations);
+    const [filterStatus,     setFilterStatus]     = useState<string>('');
+    const [filterSeverity,   setFilterSeverity]   = useState<string>('');
+    const [isLoading,        setIsLoading]        = useState(false);
+    const [resolvingId,      setResolvingId]      = useState<string | null>(null);
+    const [resolveModal,     setResolveModal]     = useState<{ id: string; open: boolean }>({ id: '', open: false });
+    const [resolutionNotes,  setResolutionNotes]  = useState('');
+    const [resolveError,     setResolveError]     = useState<string | null>(null);
+    const [fetchError,       setFetchError]       = useState<string | null>(null);
+
+    // AbortController ref so filter changes cancel in-flight requests
+    const abortRef = useRef<AbortController | null>(null);
 
     const fetchViolations = useCallback(async () => {
+        // Cancel any in-flight request from a previous filter change
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
+
         setIsLoading(true);
+        setFetchError(null);
         try {
             const data = await monitoringService.getViolations({
-                status: filterStatus || undefined,
+                status:   filterStatus   || undefined,
                 severity: filterSeverity || undefined,
             });
-            setViolations(data);
-        } catch (err) {
-            console.error('Failed to fetch violations:', err);
+            if (!controller.signal.aborted) {
+                setViolations(data);
+            }
+        } catch (err: any) {
+            if (!controller.signal.aborted) {
+                console.error('Failed to fetch violations:', err);
+                setFetchError(err?.response?.data?.detail || 'Could not load violations');
+            }
         } finally {
-            setIsLoading(false);
+            if (!controller.signal.aborted) {
+                setIsLoading(false);
+            }
         }
     }, [filterStatus, filterSeverity]);
 
     useEffect(() => {
         fetchViolations();
+        return () => abortRef.current?.abort();
     }, [fetchViolations]);
 
     const openResolveModal = (id: string) => {
@@ -154,7 +164,8 @@ function ViolationsTab({ initialViolations }: ViolationsTabProps) {
                     <span className="font-medium">Filters:</span>
                 </div>
 
-                <select aria-label="Filter status"
+                <select
+                    aria-label="Filter status"
                     value={filterStatus}
                     onChange={e => setFilterStatus(e.target.value)}
                     className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -165,7 +176,8 @@ function ViolationsTab({ initialViolations }: ViolationsTabProps) {
                     <option value="dismissed">Dismissed</option>
                 </select>
 
-                <select aria-label="Filter severity"
+                <select
+                    aria-label="Filter severity"
                     value={filterSeverity}
                     onChange={e => setFilterSeverity(e.target.value)}
                     className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -189,8 +201,13 @@ function ViolationsTab({ initialViolations }: ViolationsTabProps) {
                 {isLoading && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
             </div>
 
+            {/* Error state for filter fetch failures */}
+            {fetchError && (
+                <ErrorState message={fetchError} onRetry={fetchViolations} />
+            )}
+
             {/* Table */}
-            {violations.length === 0 ? (
+            {!fetchError && violations.length === 0 ? (
                 <div className="text-center py-16">
                     <div className="w-14 h-14 rounded-full bg-green-50 dark:bg-green-900/20 flex items-center justify-center mx-auto mb-3 border border-green-100 dark:border-green-800/40">
                         <ShieldCheck className="w-7 h-7 text-green-500 dark:text-green-400" />
@@ -209,16 +226,14 @@ function ViolationsTab({ initialViolations }: ViolationsTabProps) {
                                 <div className="flex-1 min-w-0">
                                     <div className="flex flex-wrap items-center gap-2 mb-2">
                                         <SeverityBadge severity={v.severity} />
-                                        <StatusBadge status={v.status} />
+                                        <StatusBadge   status={v.status}   />
                                         <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">{v.type}</span>
                                     </div>
                                     <p className="text-sm text-gray-900 dark:text-gray-100 mb-2">{v.description}</p>
                                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400 dark:text-gray-500">
                                         <span>Reporter: <span className="font-mono text-gray-600 dark:text-gray-300">{v.reporter}</span></span>
                                         <span>Violator: <span className="font-mono text-gray-600 dark:text-gray-300">{v.violator}</span></span>
-                                        {v.created_at && (
-                                            <span>{new Date(v.created_at).toLocaleString()}</span>
-                                        )}
+                                        {v.created_at && <span>{new Date(v.created_at).toLocaleString()}</span>}
                                     </div>
                                 </div>
 
@@ -285,14 +300,14 @@ function ViolationsTab({ initialViolations }: ViolationsTabProps) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const MonitoringPage: React.FC = () => {
-    const [monitorId, setMonitorId] = useState(KNOWN_MONITOR_IDS[0]);
-    const [dashboard, setDashboard] = useState<MonitoringDashboard | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const [monitorId,    setMonitorId]    = useState(KNOWN_MONITOR_IDS[0]);
+    const [dashboard,    setDashboard]    = useState<MonitoringDashboard | null>(null);
+    const [isLoading,    setIsLoading]    = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-    const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-    const timerRef = useRef<NodeJS.Timeout | null>(null);
+    const [error,        setError]        = useState<string | null>(null);
+    const [lastUpdated,  setLastUpdated]  = useState<Date | null>(null);
+    const [activeTab,    setActiveTab]    = useState<Tab>('dashboard');
+    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // WebSocket: refresh on violation or health events
     const lastMessage = useWebSocketStore(s => s.lastMessage);
@@ -301,16 +316,16 @@ export const MonitoringPage: React.FC = () => {
         const data = lastMessage as any;
         if (
             data.event === 'violation_detected' ||
-            data.event === 'health_report' ||
-            data.type === 'monitoring_update'
+            data.event === 'health_report'      ||
+            data.type  === 'monitoring_update'
         ) {
             loadDashboard(true);
         }
-    }, [lastMessage]);
+    }, [lastMessage]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const loadDashboard = useCallback(async (silent = false) => {
         if (!silent) setIsLoading(true);
-        else setIsRefreshing(true);
+        else         setIsRefreshing(true);
 
         try {
             setError(null);
@@ -321,12 +336,13 @@ export const MonitoringPage: React.FC = () => {
             console.error('Monitoring error:', err);
             setError(err.response?.data?.detail || 'Monitoring endpoint not available');
             if (!silent) {
+                // Provide safe defaults so the page doesn't stay blank
                 setDashboard({
-                    system_health: 100,
-                    active_alerts: 0,
-                    agent_health_breakdown: {},
-                    latest_health_reports: [],
-                    recent_violations: [],
+                    system_health:           100,
+                    active_alerts:           0,
+                    agent_health_breakdown:  {},
+                    latest_health_reports:   [],
+                    recent_violations:       [],
                 });
             }
         } finally {
@@ -335,15 +351,43 @@ export const MonitoringPage: React.FC = () => {
         }
     }, [monitorId]);
 
-    // Reload when monitor changes
-    useEffect(() => {
-        loadDashboard();
+    // ── Interval management with visibility pausing ────────────────────────
+    // [FIX] Stop polling when the tab goes to the background so we don't
+    // burn network/CPU while the user isn't looking.  Resume and trigger an
+    // immediate refresh when the tab becomes visible again so data is fresh.
+    const startInterval = useCallback(() => {
         if (timerRef.current) clearInterval(timerRef.current);
         timerRef.current = setInterval(() => loadDashboard(true), REFRESH_INTERVAL_MS);
-        return () => {
-            if (timerRef.current) clearInterval(timerRef.current);
-        };
     }, [loadDashboard]);
+
+    const stopInterval = useCallback(() => {
+        if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => {
+        loadDashboard();
+        startInterval();
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+                stopInterval();
+            } else {
+                // Tab became visible — refresh immediately then restart the clock
+                loadDashboard(true);
+                startInterval();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            stopInterval();
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [loadDashboard, startInterval, stopInterval]);
 
     if (isLoading) {
         return (
@@ -356,18 +400,16 @@ export const MonitoringPage: React.FC = () => {
         );
     }
 
-    const systemHealth = dashboard?.system_health ?? 100;
-    const activeAlerts = dashboard?.active_alerts || 0;
-    const healthReports = dashboard?.latest_health_reports || [];
-    const violations = dashboard?.recent_violations || [];
-    const healthBreakdown = dashboard?.agent_health_breakdown || {};
+    const systemHealth   = dashboard?.system_health           ?? 100;
+    const activeAlerts   = dashboard?.active_alerts           ?? 0;
+    const healthReports  = dashboard?.latest_health_reports   ?? [];
+    const violations     = dashboard?.recent_violations       ?? [];
+    const healthBreakdown = dashboard?.agent_health_breakdown ?? {};
 
     const healthColor =
-        systemHealth >= 90
-            ? 'text-green-600 dark:text-green-400'
-            : systemHealth >= 70
-            ? 'text-yellow-600 dark:text-yellow-400'
-            : 'text-red-600 dark:text-red-400';
+        systemHealth >= 90 ? 'text-green-600 dark:text-green-400' :
+        systemHealth >= 70 ? 'text-yellow-600 dark:text-yellow-400' :
+                             'text-red-600 dark:text-red-400';
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 transition-colors duration-200">
@@ -394,7 +436,8 @@ export const MonitoringPage: React.FC = () => {
                         <div className="relative flex items-center">
                             <label className="text-xs text-gray-500 dark:text-gray-400 mr-2 hidden sm:block">Monitor:</label>
                             <div className="relative">
-                                <select aria-label="Monitor ID"
+                                <select
+                                    aria-label="Monitor ID"
                                     value={monitorId}
                                     onChange={e => setMonitorId(e.target.value)}
                                     className="appearance-none text-sm border border-gray-200 dark:border-gray-700 rounded-lg pl-3 pr-8 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
@@ -417,6 +460,7 @@ export const MonitoringPage: React.FC = () => {
                             onClick={() => loadDashboard(true)}
                             className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors"
                             title="Refresh now"
+                            aria-label="Refresh monitoring data"
                         >
                             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                         </button>
@@ -435,6 +479,12 @@ export const MonitoringPage: React.FC = () => {
                                 <p className="text-sm text-yellow-800 dark:text-yellow-400">
                                     {error}. Displaying cached or default values.
                                 </p>
+                                <button
+                                    onClick={() => loadDashboard()}
+                                    className="mt-2 text-xs text-yellow-700 dark:text-yellow-400 underline hover:no-underline"
+                                >
+                                    Retry
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -587,7 +637,7 @@ export const MonitoringPage: React.FC = () => {
                                                         <div className="flex-1">
                                                             <div className="flex items-center gap-2 mb-1">
                                                                 <SeverityBadge severity={v.severity} />
-                                                                <StatusBadge status={v.status} />
+                                                                <StatusBadge   status={v.status}   />
                                                             </div>
                                                             <p className="text-sm text-gray-900 dark:text-gray-100">{v.description}</p>
                                                             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">

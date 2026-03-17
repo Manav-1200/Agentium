@@ -1,27 +1,14 @@
 // src/pages/ChannelsPage.tsx
 // ─────────────────────────────────────────────────────────────────────────────
-// Improvements applied (all non-breaking):
-//
-//  #1  Local type duplicates removed — imported from @/types instead.
-//  #2  QR polling memory leak fixed — useQRPolling hook with stored handle.
-//  #3  N polling intervals fixed — single batched query (30 s) at page level;
-//      ChannelMetricsSection now receives data as a prop instead of fetching.
-//  #4  Delete confirmation already present (confirm dialog) — preserved as-is.
-//  #5  Per-channel test loading state — testingChannelId replaces global flag.
-//  #6  staleTime + select on channels query — removes double normalisation.
-//  #7  channelTypes/colorMap/statusConfig imported from @/constants/channelTypes.
-//  #8  ARIA on all modals — role, aria-modal, aria-labelledby, Escape key.
-//  #9  Shared MessageLogViewer imported — inline duplicate removed.
-// #10  useReducer consolidates 6 modal-related useState calls.
-// #11  whatsappProvider state kept separate (not modal-related) for clarity.
-// ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useReducer, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { channelMetricsApi } from '@/services/channelMetrics';
 import { MessageLogViewer } from '@/components/channels/MessageLogViewer';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { useQRPolling } from '@/hooks/useQRPolling';
+import { getHealthBadgeProps, getCircuitBreakerClasses } from '@/utils/channelHealth';
 import {
     channelTypes,
     colorMap,
@@ -68,63 +55,69 @@ import { useNavigate } from 'react-router-dom';
 interface ModalState {
     showAddModal: boolean;
     selectedType: ChannelTypeSlug | null;
-    qrCodeData: string | null;
-    qrStep: boolean;
+    qrCodeData:   string | null;
+    qrStep:       boolean;
 }
 
 type ModalAction =
     | { type: 'OPEN' }
     | { type: 'SELECT_TYPE'; payload: ChannelTypeSlug }
-    | { type: 'BACK' }                          // from config step → type picker
+    | { type: 'BACK' }
     | { type: 'ENTER_QR_STEP' }
     | { type: 'SET_QR_DATA'; payload: string }
-    | { type: 'OPEN_QR_FOR_BRIDGE' }            // after switchProvider → web_bridge
+    | { type: 'OPEN_QR_FOR_BRIDGE' }
     | { type: 'CLOSE' };
 
 const INITIAL_MODAL: ModalState = {
     showAddModal: false,
     selectedType: null,
-    qrCodeData: null,
-    qrStep: false,
+    qrCodeData:   null,
+    qrStep:       false,
 };
 
 function modalReducer(state: ModalState, action: ModalAction): ModalState {
     switch (action.type) {
-        case 'OPEN':           return { ...INITIAL_MODAL, showAddModal: true };
-        case 'SELECT_TYPE':    return { ...state, selectedType: action.payload };
-        case 'BACK':           return { ...state, selectedType: null, qrCodeData: null };
-        case 'ENTER_QR_STEP':  return { ...state, qrStep: true };
-        case 'SET_QR_DATA':    return { ...state, qrCodeData: action.payload, qrStep: true };
+        case 'OPEN':             return { ...INITIAL_MODAL, showAddModal: true };
+        case 'SELECT_TYPE':      return { ...state, selectedType: action.payload };
+        case 'BACK':             return { ...state, selectedType: null, qrCodeData: null };
+        case 'ENTER_QR_STEP':    return { ...state, qrStep: true };
+        case 'SET_QR_DATA':      return { ...state, qrCodeData: action.payload, qrStep: true };
         case 'OPEN_QR_FOR_BRIDGE':
             return { showAddModal: true, selectedType: 'whatsapp', qrCodeData: null, qrStep: true };
-        case 'CLOSE':          return { ...INITIAL_MODAL };
-        default:               return state;
+        case 'CLOSE':            return { ...INITIAL_MODAL };
+        default:                 return state;
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CHANNEL METRICS SECTION
 // Props-driven instead of self-fetching — batched query lives in the page (#3)
+// Uses shared color utilities (#13) and requires reset confirmation (#14)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface ChannelMetricsSectionProps {
-    channelId: string;
+    channelId:   string;
     metricsData: ChannelMetricsResponse | undefined;
-    isLoading: boolean;
+    isLoading:   boolean;
 }
 
 function ChannelMetricsSection({ channelId, metricsData, isLoading }: ChannelMetricsSectionProps) {
-    const [showLogs, setShowLogs] = useState(false);
+    const [showLogs,         setShowLogs]         = useState(false);
+    const [confirmingReset,  setConfirmingReset]  = useState(false);
     const queryClient = useQueryClient();
 
     const resetMutation = useMutation({
         mutationFn: () => channelMetricsApi.resetChannel(channelId),
         onSuccess: () => {
             toast.success('Channel reset successfully');
-            // Invalidate the shared batched query, not the old per-channel key
+            setConfirmingReset(false);
+            // Invalidate the shared batched query (#3)
             queryClient.invalidateQueries({ queryKey: ['all-channel-metrics'] });
         },
-        onError: () => toast.error('Failed to reset channel'),
+        onError: () => {
+            toast.error('Failed to reset channel');
+            setConfirmingReset(false);
+        },
     });
 
     if (isLoading) {
@@ -138,27 +131,20 @@ function ChannelMetricsSection({ channelId, metricsData, isLoading }: ChannelMet
         );
     }
 
-    if (!metricsData) return null;
+    // #15 — show an informative empty state instead of silently returning null
+    if (!metricsData) {
+        return (
+            <div className="pt-4 border-t border-gray-100 dark:border-[#1e2535]">
+                <ErrorState message="Metrics not available for this channel" size="sm" />
+            </div>
+        );
+    }
 
     const { metrics, health_status } = metricsData;
 
-    const getHealthColors = () => {
-        switch (health_status) {
-            case 'healthy':  return { bg: 'bg-green-50 dark:bg-green-500/10',   border: 'border-green-200 dark:border-green-500/20',   text: 'text-green-700 dark:text-green-400',   indicator: 'bg-green-500'  };
-            case 'warning':  return { bg: 'bg-yellow-50 dark:bg-yellow-500/10', border: 'border-yellow-200 dark:border-yellow-500/20', text: 'text-yellow-700 dark:text-yellow-400', indicator: 'bg-yellow-500' };
-            case 'critical': return { bg: 'bg-red-50 dark:bg-red-500/10',       border: 'border-red-200 dark:border-red-500/20',       text: 'text-red-700 dark:text-red-400',       indicator: 'bg-red-500'    };
-        }
-    };
-
-    const getCircuitColors = () => {
-        switch (metrics.circuit_breaker_state) {
-            case 'closed':    return 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400 border-green-200 dark:border-green-500/20';
-            case 'half_open': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/20';
-            case 'open':      return 'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400 border-red-200 dark:border-red-500/20 animate-pulse';
-        }
-    };
-
-    const colors = getHealthColors();
+    // #13 — shared utility replaces inline switch
+    const colors        = getHealthBadgeProps(health_status);
+    const circuitCls    = getCircuitBreakerClasses(metrics.circuit_breaker_state);
 
     return (
         <div className="pt-4 border-t border-gray-100 dark:border-[#1e2535] space-y-4">
@@ -171,19 +157,40 @@ function ChannelMetricsSection({ channelId, metricsData, isLoading }: ChannelMet
                         {health_status}
                     </span>
                 </div>
+
                 <div className="flex items-center gap-2">
-                    <span className={`text-xs px-2 py-1 rounded-full border font-semibold ${getCircuitColors()}`}>
+                    <span className={`text-xs px-2 py-1 rounded-full border font-semibold ${circuitCls}`}>
                         Circuit: {metrics.circuit_breaker_state.toUpperCase()}
                     </span>
+
+                    {/* #14 — inline confirmation before reset fires */}
                     {metrics.circuit_breaker_state === 'open' && (
-                        <button
-                            onClick={() => resetMutation.mutate()}
-                            disabled={resetMutation.isPending}
-                            className="p-1.5 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors"
-                            title="Reset circuit breaker"
-                        >
-                            <RefreshCw className={`w-3 h-3 ${resetMutation.isPending ? 'animate-spin' : ''}`} />
-                        </button>
+                        confirmingReset ? (
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-red-600 dark:text-red-400">Confirm reset?</span>
+                                <button
+                                    onClick={() => resetMutation.mutate()}
+                                    disabled={resetMutation.isPending}
+                                    className="text-xs px-2 py-0.5 rounded bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-200 transition-colors disabled:opacity-50"
+                                >
+                                    {resetMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Yes'}
+                                </button>
+                                <button
+                                    onClick={() => setConfirmingReset(false)}
+                                    className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 transition-colors"
+                                >
+                                    No
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => setConfirmingReset(true)}
+                                className="p-1.5 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors"
+                                title="Reset circuit breaker"
+                            >
+                                <RefreshCw className="w-3 h-3" />
+                            </button>
+                        )
                     )}
                 </div>
             </div>
@@ -342,13 +349,13 @@ export function ChannelsPage() {
     const { showAddModal, selectedType, qrCodeData, qrStep } = modalState;
 
     // ── Non-modal state (kept as useState — each is independent) ──────────────
-    const [whatsappProvider,  setWhatsappProvider]  = useState<WhatsAppProvider>('cloud_api');
+    const [whatsappProvider,   setWhatsappProvider]   = useState<WhatsAppProvider>('cloud_api');
     const [showProviderSwitch, setShowProviderSwitch] = useState<string | null>(null);
-    const [editingSenders,    setEditingSenders]    = useState<string | null>(null);
-    const [senderInput,       setSenderInput]       = useState('');
-    const [testChannel,       setTestChannel]       = useState<Channel | null>(null);
+    const [editingSenders,     setEditingSenders]     = useState<string | null>(null);
+    const [senderInput,        setSenderInput]        = useState('');
+    const [testChannel,        setTestChannel]        = useState<Channel | null>(null);
     // Per-channel loading flag for the test button (#5)
-    const [testingChannelId,  setTestingChannelId]  = useState<string | null>(null);
+    const [testingChannelId,   setTestingChannelId]   = useState<string | null>(null);
 
     // ── QR polling hook (#2) ───────────────────────────────────────────────────
     const { startPolling, stopPolling } = useQRPolling({
@@ -378,19 +385,26 @@ export function ChannelsPage() {
             const response = await api.get<{ channels: Channel[] }>('/api/v1/channels/');
             return response.data;
         },
-        // select centralises normalisation — removes double Array.isArray guard
-        select: (data): Channel[] => data?.channels ?? [],
-        staleTime: 30_000,
+        select:              (data): Channel[] => data?.channels ?? [],
+        staleTime:           30_000,
         refetchOnWindowFocus: true,
     });
 
-    // ── Batched metrics query (#3 — one query for all cards, 30 s interval) ───
+    // ── Batched metrics query (#3, #12) ───────────────────────────────────────
+    // One request for all channels every 30 s; pauses when tab is hidden;
+    // keeps previous data so cards don't flash a spinner on each poll cycle.
     const { data: allMetrics, isLoading: metricsLoading } = useQuery({
-        queryKey: ['all-channel-metrics'],
-        queryFn: () => channelMetricsApi.getAllChannelsMetrics(),
-        refetchInterval: 30_000,
-        staleTime: 15_000,
-        enabled: channels.length > 0,
+        queryKey:                    ['all-channel-metrics'],
+        queryFn:                     () => channelMetricsApi.getAllChannelsMetrics(),
+        refetchInterval:             30_000,
+        // #12 — pause polling when the browser tab is backgrounded
+        refetchIntervalInBackground: false,
+        // Align staleTime with refetchInterval so a re-mount in-window doesn't
+        // fire an extra request.
+        staleTime:                   30_000,
+        // #12 — keep showing previous data during the silent background re-fetch
+        placeholderData:             keepPreviousData,
+        enabled:                     channels.length > 0,
     });
 
     // ── Mutations ─────────────────────────────────────────────────────────────
@@ -431,7 +445,7 @@ export function ChannelsPage() {
         onError: () => toast.error('Failed to update allowed senders'),
     });
 
-    // Fix #5: scoped loading — only the button on the tested card spins
+    // #5 — scoped loading: only the button on the tested card spins
     const testMutation = useMutation({
         mutationFn: (id: string) => {
             setTestingChannelId(id);
@@ -656,7 +670,7 @@ export function ChannelsPage() {
                                                     <Server className="w-4 h-4" />
                                                 </button>
                                             )}
-                                            {/* Fix #5: spinner scoped to this channel only */}
+                                            {/* #5: spinner scoped to this channel only */}
                                             <button
                                                 onClick={() => testMutation.mutate(channel.id)}
                                                 disabled={testingChannelId === channel.id}
@@ -795,7 +809,10 @@ export function ChannelsPage() {
                                                             <span key={num} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 rounded-full text-xs font-mono">
                                                                 {num}
                                                                 <button
-                                                                    onClick={() => updateSendersMutation.mutate({ id: channel.id, senders: (channel.config?.allowed_senders || []).filter(s => s !== num) })}
+                                                                    onClick={() => {
+                                                                        const updated = (channel.config?.allowed_senders || []).filter(s => s !== num);
+                                                                        updateSendersMutation.mutate({ id: channel.id, senders: updated });
+                                                                    }}
                                                                     className="hover:text-red-500 ml-0.5"
                                                                 >×</button>
                                                             </span>
@@ -823,7 +840,7 @@ export function ChannelsPage() {
                                                         </button>
                                                     </div>
                                                     <p className="text-xs text-gray-400 dark:text-gray-500">
-                                                        Leave empty to accept messages from everyone. Add your number to only accept your own messages.
+                                                        Leave empty to accept messages from everyone.
                                                     </p>
                                                 </div>
                                             ) : (
@@ -974,7 +991,6 @@ export function ChannelsPage() {
                                         <ChevronRight className="w-4 h-4 rotate-180" /> Back
                                     </button>
 
-                                    {/* Channel note */}
                                     {channelTypes.find(t => t.id === selectedType)?.note && (
                                         <div className="p-3.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg text-sm text-amber-700 dark:text-amber-400">
                                             {channelTypes.find(t => t.id === selectedType)!.note}
