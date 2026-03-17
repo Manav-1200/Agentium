@@ -132,6 +132,30 @@ class Settings(BaseSettings):
     APNS_KEY_PATH: Optional[str] = Field(default=None, env="APNS_KEY_PATH")
     APNS_BUNDLE_ID: str = Field(default="com.agentium.app", env="APNS_BUNDLE_ID")
     PUSH_NOTIFICATION_ENABLED: bool = Field(default=False, env="PUSH_NOTIFICATION_ENABLED")
+
+    # ── Workflow Engine (006_workflow) ────────────────────────────────────────
+    # Celery broker / result backend (already set via Docker env; declared here
+    # so settings.CELERY_BROKER_URL is always available in Python code).
+    CELERY_BROKER_URL: str = Field(
+        default="redis://redis:6379/0",
+        env="CELERY_BROKER_URL",
+    )
+    CELERY_RESULT_BACKEND: str = Field(
+        default="redis://redis:6379/0",
+        env="CELERY_RESULT_BACKEND",
+    )
+
+    # Stock price tool — yfinance is used when installed (no key needed).
+    # Set STOCK_API_KEY to use Alpha Vantage as a fallback.
+    STOCK_API_KEY: str = Field(default="", env="STOCK_API_KEY")
+    STOCK_API_PROVIDER: str = Field(
+        default="yfinance",            # "yfinance" or "alpha_vantage"
+        env="STOCK_API_PROVIDER",
+    )
+
+    # Default broker email injected into send_email when the user has not
+    # specified a recipient in their message.
+    DEFAULT_BROKER_EMAIL: str = Field(default="", env="DEFAULT_BROKER_EMAIL")
     
     @property
     def cors_origins(self) -> list:

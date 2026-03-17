@@ -152,6 +152,14 @@ class Task(BaseEntity):
     # Supervisor agent ID (used by idle governance)
     supervisor_id = Column(String(20), nullable=True)
 
+    # ── Workflow engine fields (006_workflow migration) ───────────────────
+    # Links this Task to a WorkflowExecution when it is created as part of a
+    # multi-step workflow.  All three columns are nullable so existing tasks
+    # and all existing code paths are completely unaffected.
+    workflow_id    = Column(String(64),  nullable=True, index=True)
+    context_data   = Column(JSON,        nullable=True)   # output written on completion
+    celery_task_id = Column(String(256), nullable=True)   # ID of a scheduled Celery task
+
     # ── Phase 6.3: Pre-Declared Acceptance Criteria ──────────────────────────
     # Stored as a JSON array of AcceptanceCriterion dicts.
     # Populated at task-creation time; validated by critic agents on review.

@@ -23,6 +23,7 @@ celery_app = Celery(
     backend=os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/0'),
     include=[
         'backend.services.tasks.task_executor',
+        'backend.services.tasks.workflow_tasks',   # Workflow engine (006_workflow)
     ]
 )
 

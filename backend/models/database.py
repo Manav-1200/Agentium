@@ -332,6 +332,11 @@ def init_db():
         ExecutionCheckpoint, CheckpointPhase
     )
 
+    # ── Workflow Engine (006_workflow) ────────────────────────────────────────
+    from backend.models.entities.workflow import (  # noqa: F401
+        WorkflowExecution, WorkflowSubTask
+    )
+
     # Create all tables that don't exist yet
     Base.metadata.create_all(bind=engine)
 

@@ -210,6 +210,10 @@ services:
       # Backed by the named volume below so files survive container restarts.
       - STORAGE_LOCAL_PATH=/app/data/uploads
       - APP_BASE_URL=${APP_BASE_URL:-http://localhost:8000}
+      # ── Workflow Engine (006_workflow) ──────────────────────────────────
+      - STOCK_API_KEY=${STOCK_API_KEY:-}
+      - STOCK_API_PROVIDER=${STOCK_API_PROVIDER:-yfinance}
+      - DEFAULT_BROKER_EMAIL=${DEFAULT_BROKER_EMAIL:-}
     volumes:
       - ./backend:/app/backend
       - chroma_data:/app/chroma_data
@@ -283,6 +287,10 @@ services:
       - S3_FORCE_PATH_STYLE=true
       - STORAGE_LOCAL_PATH=/app/data/uploads
       - APP_BASE_URL=${APP_BASE_URL:-http://localhost:8000}
+      # ── Workflow Engine (006_workflow) ──────────────────────────────────
+      - STOCK_API_KEY=${STOCK_API_KEY:-}
+      - STOCK_API_PROVIDER=${STOCK_API_PROVIDER:-yfinance}
+      - DEFAULT_BROKER_EMAIL=${DEFAULT_BROKER_EMAIL:-}
     volumes:
       - ./backend:/app/backend
       - chroma_data:/app/chroma_data
