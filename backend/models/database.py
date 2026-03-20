@@ -87,21 +87,17 @@ def _ensure_api_key_resilience_columns(db: Session):
     Add Phase 5.4 columns to user_model_configs table if they don't exist.
     Uses SQLAlchemy inspector to avoid transaction state issues.
     """
-    # Use inspector to check column existence without executing queries
     inspector = inspect(db.get_bind())
-    
-    # Get existing columns from the table
+
     try:
         existing_columns = {
             col['name'] for col in inspector.get_columns('user_model_configs')
         }
     except Exception:
-        # Table might not exist yet, skip (will be created by Base.metadata.create_all)
         return
-    
-    # Define columns to add with their definitions
+
     columns_to_add = []
-    
+
     if 'priority' not in existing_columns:
         columns_to_add.append(
             "ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 999 NOT NULL"
@@ -130,23 +126,19 @@ def _ensure_api_key_resilience_columns(db: Session):
         columns_to_add.append(
             "ADD COLUMN IF NOT EXISTS last_spend_reset TIMESTAMP DEFAULT NOW() NOT NULL"
         )
-    
+
     if not columns_to_add:
-        return  # All columns exist
-    
-    # Execute each ALTER statement in its own transaction
-    # This prevents transaction abortion issues if one fails
+        return
+
     for alter_stmt in columns_to_add:
         try:
             db.execute(text(f"ALTER TABLE user_model_configs {alter_stmt}"))
             db.commit()
         except Exception as e:
             db.rollback()
-            # If column already exists (race condition), continue
-            # Otherwise, re-raise the error
             if "already exists" not in str(e).lower() and "duplicate" not in str(e).lower():
                 raise
-    
+
     print(f"✅ Added {len(columns_to_add)} API Key Resilience columns to user_model_configs")
 
 
@@ -211,7 +203,6 @@ def _ensure_system_settings(db: Session):
         )
     """))
 
-    # Seed defaults only if rows don't exist yet
     db.execute(text("""
         INSERT INTO system_settings (key, value, description, updated_at)
         VALUES
@@ -239,11 +230,12 @@ def get_system_agent_id(db: Session) -> str:
     Used when system-level processes need to create alerts/monitoring records.
     """
     from backend.models.entities.agents import Agent
-    
+
     head = db.query(Agent).filter(Agent.agentium_id == '00001').first()
     if not head:
         raise RuntimeError("Head of Council (00001) not found. Run genesis protocol.")
     return str(head.id)
+
 
 def init_db():
     """
@@ -260,7 +252,7 @@ def init_db():
         UserModelConfig, ModelUsageLog, ProviderType, ConnectionStatus
     )
 
-    # ── User Preferences ───────────────────────────────────────────────────
+    # ── User Preferences ─────────────────────────────────────────────────────
     from backend.models.entities.user_preference import (  # noqa: F401
         UserPreference, UserPreferenceHistory
     )
@@ -336,6 +328,11 @@ def init_db():
     from backend.models.entities.workflow import (  # noqa: F401
         WorkflowExecution, WorkflowSubTask
     )
+
+    # ── Skills (Fix 12) ──────────────────────────────────────────────────────
+    # Without this import Base.metadata.create_all() never sees SkillDB or
+    # SkillSubmission and the skills / skill_submissions tables are not created.
+    from backend.models.entities.skill import SkillDB, SkillSubmission  # noqa: F401
 
     # Create all tables that don't exist yet
     Base.metadata.create_all(bind=engine)

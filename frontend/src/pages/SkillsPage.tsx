@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { skillsApi, Skill, SkillSearchResult } from '../services/skills';
 import { 
   Search, BookOpen, Tag, BarChart3, CheckCircle, Plus, Trash2, 
@@ -133,16 +134,15 @@ export const SkillsPage: React.FC = () => {
       };
 
       await skillsApi.create(skillData, autoVerify && canAutoVerify);
-      
+
       setIsCreateModalOpen(false);
       setFormData(INITIAL_FORM_DATA);
       loadPopularSkills();
       loadMySubmissions();
-      
-      // Show success notification (you could add a toast here)
+      toast.success(canAutoVerify ? 'Skill created and verified!' : 'Skill submitted for review.');
     } catch (error) {
       console.error('Failed to create skill:', error);
-      alert('Failed to create skill. Please check all required fields.');
+      toast.error('Failed to create skill. Please check all required fields.');
     } finally {
       setSubmitting(false);
     }
@@ -164,15 +164,16 @@ export const SkillsPage: React.FC = () => {
       };
 
       await skillsApi.update(editingSkill.skill_id, updates);
-      
+
       setEditingSkill(null);
       setFormData(INITIAL_FORM_DATA);
       loadPopularSkills();
       loadMySubmissions();
       clearSearch();
+      toast.success('Skill updated successfully.');
     } catch (error) {
       console.error('Failed to update skill:', error);
-      alert('Failed to update skill.');
+      toast.error('Failed to update skill.');
     } finally {
       setSubmitting(false);
     }
@@ -185,9 +186,10 @@ export const SkillsPage: React.FC = () => {
       loadPopularSkills();
       loadMySubmissions();
       clearSearch();
+      toast.success('Skill deleted.');
     } catch (error) {
       console.error('Failed to delete skill:', error);
-      alert('Failed to delete skill. You may not have permission.');
+      toast.error('Failed to delete skill. You may not have permission.');
     }
   };
 

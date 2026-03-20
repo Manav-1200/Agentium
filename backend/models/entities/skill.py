@@ -20,11 +20,13 @@ Field order in to_chroma_document():
   6. Common pitfalls
   7. Code template       ← large, low search value → pushed toward tail
   8. Examples            ← largest, lowest search value → last
+
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
+
 from pydantic import BaseModel, Field, validator
 from sqlalchemy import Column, String, DateTime, JSON, Float, Integer, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
@@ -42,12 +44,17 @@ CHROMA_CHAR_LIMIT: int = 1_800
 
 class SkillSchema(BaseModel):
     """
-    Pydantic schema for skill validation - used for ALL skills in ChromaDB.
-    Ensures consistent format across agent-created and Council-created skills.
+    Pydantic schema for skill validation — used for ALL skills stored in
+    ChromaDB.  Ensures a consistent format across agent-created and
+    Council-created skills.
     """
 
     # Identity
-    skill_id: str = Field(..., pattern=r"skill_[0-6]xxxx_\d{3}")
+    # Fix 14 — previous pattern r"skill_[0-6]xxxx_\d{3}" matched only the
+    # literal string "skill_0xxxx_001" etc. (xxxx is not a regex quantifier).
+    # New pattern accepts the slug format that skill_manager generates.
+    skill_id: str = Field(..., pattern=r"skill_[a-z0-9_-]{3,64}")
+
     skill_name: str = Field(..., min_length=3, max_length=100)
     display_name: str = Field(..., min_length=5, max_length=200)
 
@@ -55,11 +62,11 @@ class SkillSchema(BaseModel):
     skill_type: str = Field(..., enum=[
         "code_generation", "analysis", "integration",
         "automation", "research", "design", "testing", "deployment",
-        "debugging", "optimization", "documentation"
+        "debugging", "optimization", "documentation",
     ])
     domain: str = Field(..., enum=[
         "frontend", "backend", "devops", "data", "ai",
-        "security", "mobile", "desktop", "general", "database", "api"
+        "security", "mobile", "desktop", "general", "database", "api",
     ])
     tags: List[str] = Field(..., min_items=1, max_items=10)
     complexity: str = Field(..., enum=["beginner", "intermediate", "advanced"])
@@ -81,9 +88,11 @@ class SkillSchema(BaseModel):
     created_at: datetime
     updated_at: datetime
     creator_tier: str = Field(..., enum=["head", "council", "lead", "task"])
-    creator_id: str = Field(..., pattern=r"[0-6]xxxx")
+    # Fix 14 — previous pattern r"[0-6]xxxx" matched only literal "0xxxx"…
+    # "6xxxx".  Agentium IDs are zero-padded numerics like "00001", "10023".
+    creator_id: str = Field(..., pattern=r"[a-z0-9]{4,20}")
     parent_skill_id: Optional[str] = None
-    task_origin: Optional[str] = None  # task_id that created this skill
+    task_origin: Optional[str] = None
 
     # Quality Metrics
     success_rate: float = Field(..., ge=0.0, le=1.0)
@@ -93,20 +102,24 @@ class SkillSchema(BaseModel):
 
     # Governance
     constitution_compliant: bool
-    verification_status: str = Field(..., enum=["pending", "verified", "rejected"])
+    verification_status: str = Field(
+        ..., enum=["pending", "verified", "rejected"]
+    )
     verified_by: Optional[str] = None
     rejection_reason: Optional[str] = None
 
     # ChromaDB tracking
     chroma_collection: str = Field(default="agent_skills")
-    embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
+    embedding_model: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2"
+    )
 
-    @validator('tags')
-    def validate_tags(cls, v):
+    @validator("tags")
+    def validate_tags(cls, v: List[str]) -> List[str]:
         return [tag.lower().strip() for tag in v]
 
-    @validator('skill_name')
-    def validate_skill_name(cls, v):
+    @validator("skill_name")
+    def validate_skill_name(cls, v: str) -> str:
         return v.lower().replace(" ", "_").replace("-", "_")
 
     # ------------------------------------------------------------------
@@ -124,9 +137,6 @@ class SkillSchema(BaseModel):
         A module-level warning is emitted when clipping occurs, giving
         operators visibility into skills that are too large.
         """
-        # ── Build each section independently to keep the f-string clean ──
-
-        # 1. Identity line
         identity = (
             f"Skill: {self.display_name} | "
             f"Name: {self.skill_name} | "
@@ -135,56 +145,41 @@ class SkillSchema(BaseModel):
             f"Complexity: {self.complexity} | "
             f"Tags: {', '.join(self.tags)}"
         )
-
-        # 2. Description
         description_section = f"Description: {self.description}"
-
-        # 3. Steps
         steps_section = "Steps:\n" + "\n".join(
             f"{i + 1}. {step}" for i, step in enumerate(self.steps)
         )
-
-        # 4. Validation criteria
         criteria_section = "Validation Criteria:\n" + "\n".join(
             f"- {c}" for c in self.validation_criteria
         )
-
-        # 5. Prerequisites (optional)
         prereq_section = (
             "Prerequisites:\n" + "\n".join(f"- {p}" for p in self.prerequisites)
             if self.prerequisites else ""
         )
-
-        # 6. Common pitfalls (optional)
         pitfalls_section = (
             "Common Pitfalls:\n" + "\n".join(f"- {p}" for p in self.common_pitfalls)
             if self.common_pitfalls else ""
         )
-
-        # 7. Code template (optional, large — near tail)
         code_section = (
             f"Code Template:\n{self.code_template}"
             if self.code_template else ""
         )
-
-        # 8. Examples (optional, largest — at tail)
         if self.examples:
             example_lines = "\n\n".join(
-                f"Example {i + 1}:\nInput: {ex.get('input', 'N/A')}\nOutput: {ex.get('output', 'N/A')}"
+                f"Example {i + 1}:\nInput: {ex.get('input', 'N/A')}\n"
+                f"Output: {ex.get('output', 'N/A')}"
                 for i, ex in enumerate(self.examples)
             )
             examples_section = f"Examples:\n{example_lines}"
         else:
             examples_section = ""
 
-        # Provenance footer
         footer = (
             f"Success Rate: {self.success_rate:.2%} | "
             f"Creator: {self.creator_tier} agent {self.creator_id} | "
             f"Version: {self.version}"
         )
 
-        # ── Assemble in priority order ─────────────────────────────────
         parts = [
             identity,
             description_section,
@@ -196,15 +191,13 @@ class SkillSchema(BaseModel):
             examples_section,
             footer,
         ]
-        # Filter empty optional sections, join with double newline
         document = "\n\n".join(p for p in parts if p)
 
-        # ── Enforce CHROMA_CHAR_LIMIT ──────────────────────────────────
         if len(document) > CHROMA_CHAR_LIMIT:
             logger.warning(
-                "Skill '%s' (id=%s) document length %d exceeds CHROMA_CHAR_LIMIT=%d. "
-                "Clipping to limit. Consider shortening description, steps, or "
-                "code_template to avoid losing content.",
+                "Skill '%s' (id=%s) document length %d exceeds "
+                "CHROMA_CHAR_LIMIT=%d.  Clipping to limit.  Consider "
+                "shortening description, steps, or code_template.",
                 self.skill_name,
                 self.skill_id,
                 len(document),
@@ -215,7 +208,7 @@ class SkillSchema(BaseModel):
         return document
 
     def to_chroma_metadata(self) -> Dict[str, Any]:
-        """Convert to ChromaDB metadata (JSON serializable)."""
+        """Convert to ChromaDB metadata (must be JSON serializable)."""
         return {
             "skill_id": self.skill_id,
             "skill_name": self.skill_name,
@@ -242,28 +235,37 @@ class SkillSchema(BaseModel):
 class SkillDB(BaseEntity):
     """
     SQLAlchemy model for skill metadata in PostgreSQL.
-    References ChromaDB for full content.
+    References ChromaDB for the full embedded content.
     """
     __tablename__ = "skills"
 
     skill_id = Column(String(50), unique=True, nullable=False, index=True)
     skill_name = Column(String(100), nullable=False)
     display_name = Column(String(200), nullable=False)
+    # Fix 11 — description cached here so to_dict() / popular-skills endpoint
+    # can return it without an extra ChromaDB round-trip.
+    description = Column(String(300), nullable=True)
     skill_type = Column(String(50), nullable=False)
     domain = Column(String(50), nullable=False)
     tags = Column(JSON, default=list)
     complexity = Column(String(20), nullable=False)
 
     # ChromaDB reference
-    chroma_id = Column(String(100), nullable=False)  # Full ID with version
+    chroma_id = Column(String(100), nullable=False)
     chroma_collection = Column(String(50), default="agent_skills")
-    embedding_model = Column(String(100), default="sentence-transformers/all-MiniLM-L6-v2")
+    embedding_model = Column(
+        String(100), default="sentence-transformers/all-MiniLM-L6-v2"
+    )
 
     # Provenance
     creator_tier = Column(String(20), nullable=False)
     creator_id = Column(String(20), nullable=False)
-    parent_skill_id = Column(String(50), ForeignKey("skills.skill_id"), nullable=True)
-    task_origin = Column(String(50), ForeignKey("tasks.agentium_id"), nullable=True)
+    parent_skill_id = Column(
+        String(50), ForeignKey("skills.skill_id"), nullable=True
+    )
+    task_origin = Column(
+        String(50), ForeignKey("tasks.agentium_id"), nullable=True
+    )
 
     # Quality metrics
     success_rate = Column(Float, default=0.0)
@@ -278,18 +280,23 @@ class SkillDB(BaseEntity):
     verified_at = Column(DateTime, nullable=True)
     rejection_reason = Column(String(500), nullable=True)
 
-    # Relationships
-    parent_skill = relationship("SkillDB", remote_side=[skill_id], backref="derived_skills")
+    # Self-referential relationship for derived skills
+    parent_skill = relationship(
+        "SkillDB", remote_side=[skill_id], backref="derived_skills"
+    )
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "skill_id": self.skill_id,
             "skill_name": self.skill_name,
             "display_name": self.display_name,
+            # Fix 11 — description now included; previously always undefined
+            # in the frontend because to_dict() omitted it.
+            "description": self.description or "",
             "skill_type": self.skill_type,
             "domain": self.domain,
-            "tags": self.tags,
+            "tags": self.tags or [],
             "complexity": self.complexity,
             "chroma_id": self.chroma_id,
             "creator_tier": self.creator_tier,
@@ -297,7 +304,9 @@ class SkillDB(BaseEntity):
             "success_rate": self.success_rate,
             "usage_count": self.usage_count,
             "verification_status": self.verification_status,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (
+                self.created_at.isoformat() if self.created_at else None
+            ),
         }
 
 
@@ -308,16 +317,21 @@ class SkillSubmission(BaseEntity):
     __tablename__ = "skill_submissions"
 
     submission_id = Column(String(50), unique=True, nullable=False)
-    skill_id = Column(String(50), ForeignKey("skills.skill_id"), nullable=False)
-    submitted_by = Column(String(20), nullable=False)  # agentium_id
-    submitted_at = Column(DateTime, default=datetime.utcnow)
+    skill_id = Column(
+        String(50), ForeignKey("skills.skill_id"), nullable=False
+    )
+    submitted_by = Column(String(20), nullable=False)
+    # Fix — datetime.utcnow deprecated in Python 3.12+
+    submitted_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
 
     # Review status
-    status = Column(String(20), default="pending")  # pending, under_review, approved, rejected
-    council_vote_id = Column(String(50), nullable=True)  # Reference to voting record
-    reviewed_by = Column(String(20), nullable=True)  # Council member who processed
+    status = Column(String(20), default="pending")
+    council_vote_id = Column(String(50), nullable=True)
+    reviewed_by = Column(String(20), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     review_notes = Column(String(1000), nullable=True)
 
-    # Skill data snapshot (for review)
+    # Skill data snapshot for reviewers
     skill_data = Column(JSON, nullable=False)
